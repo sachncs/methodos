@@ -105,19 +105,27 @@ target-version = "py312"
 extend-exclude = ["eval"]
 
 [tool.ruff.lint]
-select = ["ALL"]
+# Google Python Style — opinionated but bounded; NOT `select = ["ALL"]`.
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused, etc.)
+    "I",   # isort (import order)
+    "B",   # flake8-bugbear (real bugs)
+    "UP",  # pyupgrade (modern Python idioms)
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific rules
+]
 ignore = [
-    "D100",  # Missing docstring in public module (modules are usually self-evident)
-    "D104",  # Missing docstring in public package
-    "COM812", # Missing trailing comma (conflicts with formatter)
-    "ISC001", # Single-line implicit string concat (conflicts with formatter)
-    "TRY003", # Long exception messages
-    "CPY001", # Copyright notice (covered by LICENSE at repo root)
+    "E501",   # line length handled by formatter
+    "COM812", # conflicts with formatter
+    "ISC001", # conflicts with formatter
+    "CPY001", # copyright covered by LICENSE
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "ANN201", "D"]
-"examples/**/*.py" = ["ANN201", "D"]
+"tests/**/*.py" = ["F401", "B011"]
+"examples/**/*.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "double"
