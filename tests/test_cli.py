@@ -234,32 +234,51 @@ class TestEvolveCommand:
     def test_loads_tasks(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
+        """evolve reads JSONL tasks and dispatches to EvolutionEngine."""
+        import asyncio
+
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         from methodos.repo import FilesystemRepository
-        from methodos.schema import Node, ProceduralGraph as _PG
-        import asyncio
+        from methodos.schema import Node
+        from methodos.schema import ProceduralGraph as _PG
+
+        # Pre-seed a graph.
         repo = FilesystemRepository(root=tmp_path)
         asyncio.run(repo.save_graph(_PG(
-            id="x", nodes={"start": Node(id="start"), "answer": Node(id="answer")},
+            id="x",
+            nodes={"start": Node(id="start"), "answer": Node(id="answer")},
             terminal_ids={"answer"},
         )))
         train = tmp_path / "train.jsonl"
         train.write_text(json.dumps({"query": "q1"}) + "\n")
         val = tmp_path / "val.jsonl"
         val.write_text(json.dumps({"query": "v1"}) + "\n")
+
+        # Stub out the LLM client so evolve runs without an API key.
+        import methodos.llm as llm_mod
+        from tests.conftest import FakeLLM
+
+        def factory(model: str, **_kwargs: object) -> FakeLLM:
+            return FakeLLM(responses=["[]"])  # refiner proposes no edits
+
+        monkeypatch.setattr(llm_mod, "LiteLLMClient", factory)
+
         result = runner.invoke(
             cli, [
                 "evolve",
                 "--graph-id", "x",
                 "--train-path", str(train),
                 "--val-path", str(val),
+                "--k-rounds", "2",
             ],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
-        # Command loads tasks then prints a usage message; exits 0.
+        # Evolution runs end-to-end (no real LLM); CLI prints progress + result.
         assert result.exit_code == 0
-        assert "Python SDK" in result.stdout
+        assert "starting evolution" in result.stdout
+        assert "evolution complete" in result.stdout
+        assert "graph='x'" in result.stdout
 
 
 # ----------------------------------------------------------------------------

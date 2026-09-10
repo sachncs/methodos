@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 
 from methodos.schema import (
     Edge,
@@ -33,6 +34,7 @@ from methodos.schema import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
 class StructuralIssue:
     """A single validation finding produced by `validate`.
 
@@ -41,23 +43,14 @@ class StructuralIssue:
         message: human-readable description
         node_id: optional offending node id
     """
-    def __init__(self, *, code: str, message: str, node_id: str | None = None) -> None:
-        self.code = code
-        self.message = message
-        self.node_id = node_id
+
+    code: str
+    message: str
+    node_id: str | None = field(default=None)
 
     def __repr__(self) -> str:
         suffix = f" (node={self.node_id!r})" if self.node_id else ""
         return f"StructuralIssue[{self.code}]: {self.message}{suffix}"
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, StructuralIssue):
-            return NotImplemented
-        return (
-            self.code == other.code
-            and self.message == other.message
-            and self.node_id == other.node_id
-        )
 
 
 def match_node(action_name: str, nodes: dict[str, Node]) -> str | None:

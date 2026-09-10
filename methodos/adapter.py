@@ -9,10 +9,9 @@ Engineering notes:
   memory overhead. Solvers receive it as the only mutable surface.
 - `Solver` is a `typing.Protocol` — any object with `async def step(state)`
   satisfying the signature is accepted. No ABCs.
-- `GuidanceCache` is an LRU keyed by `(graph.id, last_action, last_obs)`.
-  This key is unique for the typical usage pattern (graph.id identifies
-  content; users construct new graphs via `apply_edits` rather than
-  mutating in place).
+- `GuidanceCache` is an LRU keyed by `(hash(subgraph), last_action, last_obs)`.
+  The hash is content-based so that mutations to the same graph_id
+  produce different keys (see `graph_content_fingerprint`).
 - No lazy imports; no `_foo()` markers. The cache is exposed publicly
   so callers can introspect hit/miss behavior if desired.
 """
@@ -29,6 +28,39 @@ from methodos.llm import LLMClient
 from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
+
+
+def graph_content_fingerprint(graph: ProceduralGraph) -> int:
+    """Stable content-based fingerprint of a procedural graph.
+
+    Two graphs with identical content produce equal fingerprints;
+    mutations to nodes, edges, terminal_ids, or metadata change the hash.
+    The fingerprint is order-independent within each collection (sorted
+    before hashing) and deterministic across Python processes.
+
+    Used as the first element of `GuidanceCache` keys so that mutating a
+    graph invalidates the cached guidance without requiring a new `id`.
+    """
+    nodes_part = tuple(
+        sorted((nid, n.description) for nid, n in graph.nodes.items())
+    )
+    edges_part = tuple(sorted(
+        (
+            e.src,
+            e.dst,
+            e.relation.value,
+            e.attribute.condition,
+            e.attribute.guidance,
+            e.attribute.pitfalls,
+        )
+        for e in graph.edges
+    ))
+    return hash((
+        nodes_part,
+        edges_part,
+        frozenset(graph.terminal_ids),
+        tuple(sorted(graph.metadata.items())),
+    ))
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +94,9 @@ class Solver(Protocol):
 class GuidanceCache:
     """LRU cache for generated guidance.
 
-    Keyed by `(graph_id, last_action, last_obs)`. Defaults to 256 entries
+    Keyed by `(hash(subgraph), last_action, last_obs)`. The subgraph hash
+    is content-based (see `graph_content_fingerprint`), so mutations to
+    the graph invalidate the cache automatically. Defaults to 256 entries
     with FIFO eviction on overflow.
     """
 
@@ -70,11 +104,11 @@ class GuidanceCache:
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
         self._max_size = max_size
-        self._store: OrderedDict[tuple[str, str, str], str] = OrderedDict()
+        self._store: OrderedDict[tuple[int, str, str], str] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
-    def get(self, key: tuple[str, str, str]) -> str | None:
+    def get(self, key: tuple[int, str, str]) -> str | None:
         """Return cached guidance or `None`; bump LRU position on hit."""
         if key not in self._store:
             self.misses += 1
@@ -83,7 +117,7 @@ class GuidanceCache:
         self.hits += 1
         return self._store[key]
 
-    def put(self, key: tuple[str, str, str], value: str) -> None:
+    def put(self, key: tuple[int, str, str], value: str) -> None:
         """Insert; evict the least-recently-used entry if over capacity."""
         self._store[key] = value
         self._store.move_to_end(key)
@@ -144,16 +178,22 @@ class PGAdapter:
         """Direct access to the guidance cache (for tests and observability)."""
         return self._cache
 
-    def cache_key(self, last_action: str, last_obs: str) -> tuple[str, str, str]:
-        """Compute the cache key for a (last_action, last_obs) pair."""
-        return (self._graph.id, last_action, last_obs)
+    def cache_key(
+        self, subgraph: ProceduralGraph, last_action: str, last_obs: str
+    ) -> tuple[int, str, str]:
+        """Compute the cache key for a (subgraph, last_action, last_obs) tuple.
+
+        The subgraph hash is content-based, so mutations to the subgraph
+        automatically invalidate any cached guidance for it.
+        """
+        return (graph_content_fingerprint(subgraph), last_action, last_obs)
 
     async def step(self, *, query: str, trajectory: list[tuple[str, str]]) -> str:
         """Run one agent step: guidance → solver.
 
         Implements paper Eq. 2: locate the active node via `match_node`,
         extract its h-hop neighborhood, generate the guidance paragraph
-        (cached on `(graph_id, last_action, last_obs)`), then call the
+        (cached on `(hash(subgraph), last_action, last_obs)`), then call the
         solver with an `AgentState` carrying the formatted context.
 
         On a `match_node` miss, the full graph is used as fallback (paper
@@ -168,7 +208,7 @@ class PGAdapter:
             else self._graph
         )
 
-        key = self.cache_key(last_action, last_obs)
+        key = self.cache_key(sub, last_action, last_obs)
         cached = self._cache.get(key)
         if cached is not None:
             guidance = cached
@@ -204,4 +244,5 @@ __all__ = [
     "GuidanceCache",
     "PGAdapter",
     "Solver",
+    "graph_content_fingerprint",
 ]

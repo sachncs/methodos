@@ -5,8 +5,8 @@ Subcommands:
 - `inspect`: print a graph summary
 - `serve`: start the FastAPI service via uvicorn
 - `replay`: print trajectories from the trajectory log
-- `evolve`: run self-evolution (requires task files; thin wrapper around
-  the Python SDK; see docs/evaluation.md for the full workflow)
+- `evolve`: run self-evolution (requires train/val task files; uses a
+  stub solver — production use is via the Python SDK)
 - `eval`: run a paper benchmark (only `hotpotqa` is shipped; gated by
   the `[eval]` extra)
 
@@ -26,7 +26,8 @@ from typing import Annotated
 
 import typer
 
-from methodos.repo import Repository, build_repository
+from methodos.adapter import AgentState
+from methodos.repo import Repository, Task, build_repository
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +49,15 @@ def configure_logging(verbose: bool) -> None:
 @cli.callback()
 def main(
     verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Enable debug logging."),
+        bool, typer.Option("--verbose", "-v", help="Enable debug logging.")
     ] = False,
 ) -> None:
     """methodos — queryable know-how for LLM agents."""
     configure_logging(verbose)
 
 
-def _build_repo_from_env() -> Repository:
-    """Default repository from environment."""
+def build_repo_from_env() -> Repository:
+    """Default repository from environment variables."""
     return build_repository()
 
 
@@ -73,8 +74,8 @@ def init(
     """Create a new empty graph (or import one from JSON)."""
     from methodos.schema import ProceduralGraph
 
-    async def _run() -> ProceduralGraph:
-        repo = _build_repo_from_env()
+    async def run() -> ProceduralGraph:
+        repo = build_repo_from_env()
         if from_path is not None:
             data = json.loads(from_path.read_text())
             graph = ProceduralGraph.model_validate(data)
@@ -85,7 +86,7 @@ def init(
         typer.echo(f"created graph {graph_id!r}")
         return graph
 
-    asyncio.run(_run())
+    asyncio.run(run())
 
 
 @cli.command()
@@ -95,9 +96,14 @@ def inspect(
     ] = "default",
 ) -> None:
     """Print a graph summary."""
-    async def _run() -> None:
-        repo = _build_repo_from_env()
+    from methodos.schema import ProceduralGraph
+
+    async def run() -> None:
+        repo = build_repo_from_env()
         graph = await repo.load_graph(graph_id)
+        if not isinstance(graph, ProceduralGraph):
+            typer.echo(f"unexpected return type: {type(graph).__name__}", err=True)
+            raise typer.Exit(code=1)
         typer.echo(f"Graph {graph.id!r}:")
         typer.echo(f"  schema_version: {graph.schema_version}")
         typer.echo(f"  nodes: {len(graph.nodes)}")
@@ -105,7 +111,7 @@ def inspect(
         typer.echo(f"  terminals: {len(graph.terminal_ids)}")
         typer.echo(f"  metadata: {graph.metadata}")
 
-    asyncio.run(_run())
+    asyncio.run(run())
 
 
 @cli.command()
@@ -116,6 +122,7 @@ def serve(
 ) -> None:
     """Start the FastAPI service via uvicorn."""
     import uvicorn
+
     uvicorn.run("methodos.service:app", host=host, port=port, reload=reload)
 
 
@@ -132,8 +139,8 @@ def replay(
     ] = 10,
 ) -> None:
     """Print recent trajectories from the trajectory log."""
-    async def _run() -> None:
-        repo = _build_repo_from_env()
+    async def run() -> None:
+        repo = build_repo_from_env()
         count = 0
         async for traj in repo.read_trajectories(graph_id, split):
             if count >= limit:
@@ -146,7 +153,35 @@ def replay(
         if count == 0:
             typer.echo(f"(no trajectories for graph {graph_id!r} split={split!r})")
 
-    asyncio.run(_run())
+    asyncio.run(run())
+
+
+class _StubSolver:
+    """Alternating-action solver so the rollout doesn't trigger a doom loop.
+
+    This is a placeholder — production deployments supply a real LLM-backed
+    solver via the Python SDK. The CLI exists to demonstrate the
+    evolution loop wiring end-to-end without an API key.
+    """
+    async def step(self, state: AgentState) -> str:
+        if not state.trajectory:
+            return "start"
+        last = state.trajectory[-1][0]
+        if last == "start":
+            return "answer"
+        return "start"
+
+
+def load_tasks(path: Path) -> list[Task]:
+    """Read JSONL tasks from `path`. Each line: {"query": ..., "expected": ...}."""
+    tasks: list[Task] = []
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        record = json.loads(stripped)
+        tasks.append(Task(query=record["query"], expected=record.get("expected")))
+    return tasks
 
 
 @cli.command()
@@ -168,44 +203,55 @@ def evolve(
     model: Annotated[
         str, typer.Option(help="LLM model identifier for refiner + scoring.")
     ] = "gpt-4o-mini",
+    rejection_memory_size: Annotated[
+        int, typer.Option(min=1, max=1000, help="Rejection memory capacity.")
+    ] = 32,
+    allow_cycles: Annotated[
+        bool, typer.Option(help="Permit cycles in candidate graphs (off by default).")
+    ] = False,
 ) -> None:
-    """Run K rounds of self-evolution on the graph (thin wrapper).
+    """Run K rounds of self-evolution on the graph.
 
-    For full evolution runs use the Python SDK directly; this command
-    exists for the common case of inspecting graph state after evolution.
+    This is a thin wrapper around `EvolutionEngine`. The CLI uses an
+    alternating-action stub solver (no API key required) so the wiring
+    can be exercised end-to-end. Production use is via the Python SDK
+    with a real LLM-backed solver.
     """
-    from methodos.repo import Trajectory
+    from methodos.evolution import EvolutionEngine
+    from methodos.llm import LiteLLMClient
 
-    if train_path is None or val_path is None:
-        typer.echo(
-            "Both --train-path and --val-path are required. "
-            "For full evolution use methodos.evolution.EvolutionEngine "
-            "directly in Python.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
-
-    def _load_tasks(path: Path) -> list[Trajectory.Task]:  # type: ignore[name-defined]
-        from methodos.repo import Task
-        tasks: list[Task] = []
-        for line in path.read_text().splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            record = json.loads(stripped)
-            tasks.append(Task(query=record["query"], expected=record.get("expected")))
-        return tasks
-
-    async def _run() -> None:
-        repo = _build_repo_from_env()
+    async def run() -> None:
+        repo = build_repo_from_env()
+        if train_path is None or val_path is None:
+            typer.echo(
+                "Both --train-path and --val-path are required.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
         graph = await repo.load_graph(graph_id)
+        train_tasks = load_tasks(train_path)
+        val_tasks = load_tasks(val_path)
+        llm = LiteLLMClient(model=model)
+        engine = EvolutionEngine(
+            llm=llm,
+            repo=repo,
+            train_tasks=train_tasks,
+            val_tasks=val_tasks,
+            solver=_StubSolver(),
+            k_rounds=k_rounds,
+            rejection_memory_size=rejection_memory_size,
+            allow_cycles=allow_cycles,
+        )
         typer.echo(
-            f"graph loaded: {len(graph.nodes)} nodes, "
-            f"{len(graph.edges)} edges. Use the Python SDK for real "
-            f"evolution; this command demonstrates the wiring."
+            f"starting evolution: graph={graph_id!r} k={k_rounds} "
+            f"train={len(train_tasks)} val={len(val_tasks)} model={model!r}"
+        )
+        final = await engine.run(graph)
+        typer.echo(
+            f"evolution complete: {len(final.nodes)} nodes, {len(final.edges)} edges"
         )
 
-    asyncio.run(_run())
+    asyncio.run(run())
 
 
 @cli.command()
@@ -230,7 +276,7 @@ def eval(
         typer.echo(f"unknown benchmark: {benchmark!r}", err=True)
         raise typer.Exit(code=1)
 
-    async def _run() -> None:
+    async def run() -> None:
         try:
             from eval.hotpotqa.run import run_eval
         except ImportError as exc:
@@ -242,7 +288,7 @@ def eval(
             raise typer.Exit(code=1) from exc
         await run_eval(graph_id=graph_id, n=n, seed=seed, model=model)
 
-    asyncio.run(_run())
+    asyncio.run(run())
 
 
 __all__ = ["cli", "main"]

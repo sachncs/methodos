@@ -70,44 +70,44 @@ class TestGuidanceCache:
     def test_empty_cache(self) -> None:
         cache = GuidanceCache()
         assert len(cache) == 0
-        assert cache.get(("g", "a", "o")) is None
+        assert cache.get((1, "a", "o")) is None
         assert cache.hits == 0
         assert cache.misses == 1
 
     def test_put_then_get(self) -> None:
         cache = GuidanceCache()
-        cache.put(("g", "a", "o"), "guidance")
-        assert cache.get(("g", "a", "o")) == "guidance"
+        cache.put((1, "a", "o"), "guidance")
+        assert cache.get((1, "a", "o")) == "guidance"
         assert cache.hits == 1
         assert cache.misses == 0
 
     def test_lru_eviction(self) -> None:
         cache = GuidanceCache(max_size=2)
-        cache.put(("g", "a", "1"), "v1")
-        cache.put(("g", "a", "2"), "v2")
+        cache.put((1, "a", "1"), "v1")
+        cache.put((1, "a", "2"), "v2")
         # Access the first entry to make it most-recently used
-        assert cache.get(("g", "a", "1")) == "v1"
+        assert cache.get((1, "a", "1")) == "v1"
         # Add a third entry; the second should be evicted
-        cache.put(("g", "a", "3"), "v3")
-        assert cache.get(("g", "a", "2")) is None  # evicted
-        assert cache.get(("g", "a", "1")) == "v1"
-        assert cache.get(("g", "a", "3")) == "v3"
+        cache.put((1, "a", "3"), "v3")
+        assert cache.get((1, "a", "2")) is None  # evicted
+        assert cache.get((1, "a", "1")) == "v1"
+        assert cache.get((1, "a", "3")) == "v3"
         assert len(cache) == 2
 
     def test_overwrite_existing_key(self) -> None:
         cache = GuidanceCache()
-        cache.put(("g", "a", "o"), "v1")
-        cache.put(("g", "a", "o"), "v2")
-        assert cache.get(("g", "a", "o")) == "v2"
+        cache.put((1, "a", "o"), "v1")
+        cache.put((1, "a", "o"), "v2")
+        assert cache.get((1, "a", "o")) == "v2"
         assert len(cache) == 1
 
     def test_clear(self) -> None:
         cache = GuidanceCache()
-        cache.put(("g", "a", "o"), "v1")
-        cache.put(("g", "a", "p"), "v2")
+        cache.put((1, "a", "o"), "v1")
+        cache.put((1, "a", "p"), "v2")
         cache.clear()
         assert len(cache) == 0
-        assert cache.get(("g", "a", "o")) is None
+        assert cache.get((1, "a", "o")) is None
 
     def test_rejects_non_positive_max_size(self) -> None:
         with pytest.raises(ValueError, match="max_size must be positive"):
@@ -240,8 +240,8 @@ class TestPGAdapterStep:
         # Different observation → different cache key → 2 LLM calls
         assert len(llm.calls) == 2
 
-    async def test_cache_key_includes_graph_id(self) -> None:
-        """Two distinct graph instances with the same id share the cache."""
+    async def test_cache_key_includes_graph_content_hash(self) -> None:
+        """Two graphs with identical content share the cache (content-based hash)."""
         graph_a = make_sample_graph()
         graph_b = make_sample_graph()
         assert graph_a is not graph_b  # different objects
@@ -252,7 +252,8 @@ class TestPGAdapterStep:
             solver=solver, graph=graph_a, llm=llm, cache=shared_cache,
         )
         await adapter_a.step(query="q", trajectory=[("start", "")])
-        # Second adapter shares the cache → cache hit, no LLM call.
+        # Second adapter with structurally identical graph → same content hash
+        # → cache hit, no new LLM call.
         adapter_b = PGAdapter(
             solver=solver, graph=graph_b, llm=llm, cache=shared_cache,
         )
@@ -294,6 +295,17 @@ class TestPGAdapterStep:
         # {"search", "answer"}.
         sub = neighborhood(graph, "search", h=2)
         assert set(sub.nodes.keys()) == {"search", "answer"}
+
+    async def test_cache_invalidated_on_graph_mutation(self) -> None:
+        """Mutating the graph produces a different cache key."""
+        from methodos.adapter import graph_content_fingerprint
+        from methodos.graph import apply_edits
+        from methodos.schema import EditAddNode, Node
+
+        original = make_sample_graph()
+        mutated = apply_edits(original, [EditAddNode(node=Node(id="verify"))])
+        # Different content → different fingerprint.
+        assert graph_content_fingerprint(original) != graph_content_fingerprint(mutated)
 
 
 class TestMatchNodeIntegration:

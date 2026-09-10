@@ -597,9 +597,12 @@ class TestStructuralIssue:
 
     def test_inequality_with_non_issue(self) -> None:
         issue = StructuralIssue(code="x", message="y")
-        assert issue != "string"
-        assert issue != 42
-        assert issue != None  # noqa: E711
+        other_string: object = "string"
+        other_int: object = 42
+        assert issue != other_string
+        assert issue != other_int
+        none_obj: object = None
+        assert issue != none_obj
 
 
 # ----------------------------------------------------------------------------

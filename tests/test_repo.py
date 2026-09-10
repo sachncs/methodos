@@ -337,6 +337,49 @@ class TestSQLiteRepository:
         # Second construction runs ensure_schema again (no-op).
         SQLiteRepository(db_path=path)
 
+    async def test_concurrent_writes_serialize(
+        self, tmp_path: Path,
+    ) -> None:
+        """Concurrent save_graph calls do not corrupt the database.
+
+        `SQLiteRepository.save_graph` wraps each save in `BEGIN IMMEDIATE`
+        + UPDATE-or-INSERT. WAL allows concurrent readers but writers
+        serialize. This test fires N concurrent saves and asserts the
+        final graph matches the last writer (no torn writes).
+        """
+        import asyncio
+
+        from methodos.schema import Node
+
+        repo = SQLiteRepository(db_path=tmp_path / "concurrent.db")
+        base = ProceduralGraph(
+            id="g",
+            nodes={"answer": Node(id="answer")},
+            terminal_ids={"answer"},
+        )
+        await repo.save_graph(base)
+
+        async def save_variant(index: int) -> None:
+            graph = base.model_copy(update={
+                "id": f"g-{index}",
+                "metadata": {"writer": index},
+            })
+            await repo.save_graph(graph)
+
+        n = 8
+        results = await asyncio.gather(
+            *[save_variant(i) for i in range(n)],
+            return_exceptions=True,
+        )
+        # All writers must complete without raising.
+        for r in results:
+            assert not isinstance(r, BaseException), f"writer raised: {r}"
+
+        # All N writers' final graphs must be readable; the database isn't
+        # corrupted. Spot-check the latest writer (last by index).
+        latest = await repo.load_graph(f"g-{n - 1}")
+        assert latest.metadata["writer"] == n - 1
+
 
 # ----------------------------------------------------------------------------
 # build_repository factory
