@@ -1,0 +1,49 @@
+# Standard Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+.ENV/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# uv
+uv.lock.bak
+
+# Local planning and agent-context files (per-developer, not in repo)
+AGENTS.md
+plan.md
+
+# Runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
