@@ -143,4 +143,4 @@ disallow_untyped_defs = true
 disallow_untyped_calls = true
 no_implicit_optional = true
 ignore_missing_imports = true
-exclude = ["eval", "examples"]
+exclude = ["eval"]

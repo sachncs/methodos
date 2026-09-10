@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from methodos.adapter import AgentState, GuidanceCache
 from methodos.llm import LLMClient
+from methodos.repo import Trajectory
 from methodos.schema import (
     Attribute,
     Edge,
@@ -108,14 +109,40 @@ class RaisingSolver:
 
 
 class InMemoryRepository:
-    """In-process Repository stub for fast tests.
+    """In-process Repository implementation for tests.
 
-    Phase 4 wires the full `Repository` Protocol; this stub exists so
-    adapter tests can run before Phase 4 lands.
+    Satisfies the `Repository` Protocol so it can be passed where any
+    Repository is expected. State lives in plain dicts / lists.
     """
 
     def __init__(self) -> None:
         self.graphs: dict[str, ProceduralGraph] = {}
+        self.trajectories: list[tuple[str, str, Trajectory]] = []
+        self.snapshots: list[tuple[str, str, ProceduralGraph]] = []
+
+    async def load_graph(self, graph_id: str) -> ProceduralGraph:
+        if graph_id not in self.graphs:
+            raise FileNotFoundError(f"graph {graph_id!r} not found")
+        return self.graphs[graph_id].model_copy(deep=True)
+
+    async def save_graph(self, graph: ProceduralGraph) -> None:
+        self.graphs[graph.id] = graph.model_copy(deep=True)
+
+    async def snapshot(self, graph_id: str, tag: str) -> None:
+        graph = await self.load_graph(graph_id)
+        self.snapshots.append((graph_id, tag, graph))
+
+    async def append_trajectory(
+        self, graph_id: str, split: str, trajectory: Trajectory
+    ) -> None:
+        self.trajectories.append((graph_id, split, trajectory))
+
+    async def read_trajectories(
+        self, graph_id: str, split: str
+    ) -> AsyncIterator[Trajectory]:
+        for gid, sp, traj in self.trajectories:
+            if gid == graph_id and sp == split:
+                yield traj
 
 
 class NoOpVectorIndex:
