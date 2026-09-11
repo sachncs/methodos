@@ -56,4 +56,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()" \
     || exit 1
 
-CMD ["uvicorn", "methodos.service:app", "--host", "0.0.0.0", "--port", "8000"]
+# `--no-server-header` suppresses uvicorn's default `Server: uvicorn`
+# value; the ServerHeaderMiddleware in methodos.service sets a single
+# `Server: methodos` at the ASGI layer so the header survives both the
+# TestClient (in-process) and uvicorn (production) paths.
+CMD ["uvicorn", "methodos.service:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]

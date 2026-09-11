@@ -285,6 +285,13 @@ def create_app(
     # read-only, so the wrapping must happen at the ASGI scope layer).
     app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=body_limit)
 
+    # Server header rewrite is handled at the ASGI layer because uvicorn
+    # sets `Server` on the raw send, bypassing Response.headers. The
+    # ServerHeaderMiddleware does this for in-process TestClient; the
+    # Dockerfile additionally passes --header 'server:methodos' to uvicorn
+    # so production traffic sees a single Server line.
+    app.add_middleware(ServerHeaderMiddleware)
+
     # ---- exception handlers --------------------------------------------------
 
     @app.exception_handler(LLMError)
@@ -361,17 +368,16 @@ def create_app(
 
     @app.middleware("http")
     async def response_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
-        """Set per-response headers: Cache-Control: no-store + Server: methodos.
+        """Set `Cache-Control: no-store` on every response.
 
-        - `Cache-Control: no-store` keeps graph data and metrics out of
-          intermediate caches (which can otherwise serve stale auth
-          checks or stale counters to the next caller).
-        - `Server: methodos` replaces the uvicorn default so the
-          transport doesn't leak in response headers.
+        Kept graph data and metrics out of intermediate caches (which
+        can otherwise serve stale auth checks or stale counters to the
+        next caller). The `Server` header is handled at the ASGI layer
+        because uvicorn sets it on the raw send, bypassing Response
+        headers.
         """
         response: Response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-store")
-        response.headers["Server"] = "methodos"
         return response
 
     # ---- dependencies --------------------------------------------------------
@@ -543,6 +549,59 @@ class _BodyTooLarge(Exception):
     def __init__(self, received: int) -> None:
         super().__init__(f"body too large: {received} bytes")
         self.received = received
+
+
+class ServerHeaderMiddleware:
+    """ASGI middleware that rewrites the `Server` response header.
+
+    uvicorn injects `Server: uvicorn` at the raw ASGI send layer after
+    the FastAPI app has already responded, so a normal Response.headers
+    override shows up alongside uvicorn's value (two `Server:` lines).
+    Intercepting the `http.response.start` send is the only reliable
+    place to take ownership of this header.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: dict[str, object],
+        receive: Callable[[], Awaitable[dict[str, object]]],
+        send: Callable[[dict[str, object]], Awaitable[None]],
+    ) -> None:
+        if scope["type"] != "http":
+
+            async def passthrough_send(message: dict[str, object]) -> None:
+                await send(message)
+
+            await self.app(scope, receive, passthrough_send)
+            return
+
+        already_wrote = False
+
+        async def rewrite_send(message: dict[str, object]) -> None:
+            nonlocal already_wrote
+            if message["type"] == "http.response.start" and not already_wrote:
+                headers_obj = message.get("headers")
+                if isinstance(headers_obj, list):
+                    # Drop any pre-existing Server header and inject ours.
+                    filtered = [
+                        pair
+                        for pair in headers_obj
+                        if not (
+                            isinstance(pair, list)
+                            and len(pair) == 2
+                            and isinstance(pair[0], bytes)
+                            and pair[0].lower() == b"server"
+                        )
+                    ]
+                    filtered.append([b"server", b"methodos"])
+                    message = {**message, "headers": filtered}
+                    already_wrote = True
+            await send(message)
+
+        await self.app(scope, receive, rewrite_send)
 
 
 class BodySizeLimitMiddleware:
