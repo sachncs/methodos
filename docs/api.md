@@ -7,17 +7,17 @@ implementation detail and may change.
 
 ```python
 from methodos.schema import (
-    Relation,         # LEADS_TO, REQUIRES, REPLACES (StrEnum)
-    Attribute,        # condition, guidance, pitfalls (all required, max 2000 chars)
-    Node,             # id (pattern), description
-    Edge,             # src, dst (≠ src), relation, attribute
+    Relation,  # LEADS_TO, REQUIRES, REPLACES (StrEnum)
+    Attribute,  # condition, guidance, pitfalls (all required, max 2000 chars)
+    Node,  # id (pattern), description
+    Edge,  # src, dst (≠ src), relation, attribute
     ProceduralGraph,  # id, schema_version=1, nodes, edges, terminal_ids, metadata
-    Edit,             # discriminated union over 5 variants
-    EditAddNode,      # kind="add_node", node: Node
-    EditDeleteNode,   # kind="delete_node", node_id: str
-    EditAddEdge,      # kind="add_edge", edge: Edge
-    EditDeleteEdge,   # kind="delete_edge", src, dst, relation
-    EditUpdateAttr,   # kind="update_attr", src, dst, relation, attribute
+    Edit,  # discriminated union over 5 variants
+    EditAddNode,  # kind="add_node", node: Node
+    EditDeleteNode,  # kind="delete_node", node_id: str
+    EditAddEdge,  # kind="add_edge", edge: Edge
+    EditDeleteEdge,  # kind="delete_edge", src, dst, relation
+    EditUpdateAttr,  # kind="update_attr", src, dst, relation, attribute
 )
 ```
 
@@ -93,8 +93,10 @@ class AgentState:
     trajectory: tuple[tuple[str, str], ...]
     context: str
 
+
 class Solver(Protocol):
     async def step(self, state: AgentState) -> str: ...
+
 
 class GuidanceCache:
     def __init__(self, max_size: int = 256) -> None: ...
@@ -103,9 +105,11 @@ class GuidanceCache:
     def clear(self) -> None: ...
     def __len__(self) -> int: ...
 
+
 class PGAdapter:
     def __init__(
-        self, *,
+        self,
+        *,
         solver: Solver,
         graph: ProceduralGraph,
         llm: LLMClient,
@@ -131,14 +135,17 @@ class Repository(Protocol):
     async def append_trajectory(self, graph_id, split, trajectory) -> None: ...
     def read_trajectories(self, graph_id, split) -> AsyncIterator[Trajectory]: ...
 
+
 class VectorIndex(Protocol):
     def upsert(self, key, vector) -> None: ...
     def query(self, vector, k) -> list[ScoredMatch]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class Task:
     query: str
     expected: Any = None
+
 
 @dataclass(frozen=True, slots=True)
 class Trajectory:
@@ -146,28 +153,35 @@ class Trajectory:
     steps: tuple[tuple[str, str], ...]
     score: float
 
+
 @dataclass(frozen=True, slots=True)
 class ScoredMatch:
     key: str
     score: float
 
+
 class NoOpVectorIndex: ...
+
 
 class FilesystemRepository:
     def __init__(self, *, root: Path) -> None: ...
 
+
 class SQLiteRepository:
     def __init__(
-        self, *,
+        self,
+        *,
         db_path: Path,
         vector_index: VectorIndex | None = None,
     ) -> None: ...
+
 
 class SqliteVecIndex:
     def __init__(self, *, db_path: Path, dim: int) -> None: ...
     def initialize(self) -> None: ...
     def upsert(self, key, vector) -> None: ...
     def query(self, vector, k) -> list[ScoredMatch]: ...
+
 
 def tail_tokens(text: str, max_tokens: int) -> str: ...
 def build_repository() -> Repository: ...
@@ -178,18 +192,25 @@ def build_repository() -> Repository: ...
 ```python
 REFINER_SYSTEM_PROMPT: str  # refiner prompt (paper §3.3 step 2)
 
+
 @dataclass(frozen=True, slots=True)
 class RolloutResult:
     trajectory: Trajectory
     success: bool
 
+
 TERMINATE_SUCCESS: str = "__methodos_success__"
 TERMINATE_FAILURE: str = "__methodos_failure__"
+
 
 def score(result: RolloutResult) -> float: ...
 def mean_score(results: Iterable[RolloutResult]) -> float: ...
 async def run_rollout(
-    *, graph, solver, llm, task,
+    *,
+    graph,
+    solver,
+    llm,
+    task,
     max_steps: int = 50,
     guidance_hops: int = 2,
     trajectory_window: int = 3,
@@ -197,12 +218,20 @@ async def run_rollout(
 async def execute_action_stub(action: str) -> str: ...
 def tail_concat(traces: Iterable[Trajectory], max_tokens: int) -> str: ...
 async def propose_edits(
-    *, llm, graph, traces, rejected,
+    *,
+    llm,
+    graph,
+    traces,
+    rejected,
     context_tokens: int = 6000,
 ) -> list[Edit]: ...
 def validate_candidate(
-    graph, edits: Sequence[Edit], *, allow_cycles: bool = False,
+    graph,
+    edits: Sequence[Edit],
+    *,
+    allow_cycles: bool = False,
 ) -> ProceduralGraph | None: ...
+
 
 class RejectionMemory:
     def __init__(self, max_size: int = 32) -> None: ...
@@ -210,9 +239,11 @@ class RejectionMemory:
     def add(self, edits, val_score) -> None: ...
     def snapshot(self) -> list[tuple[Edit, float]]: ...
 
+
 class EvolutionEngine:
     def __init__(
-        self, *,
+        self,
+        *,
         llm: LLMClient,
         repo: Repository,
         train_tasks: Sequence[Task],
@@ -248,13 +279,67 @@ Run with: `uvicorn methodos.service:app --host 0.0.0.0 --port 8000`
 ```
 methodos init [--graph-id GRAPH_ID] [--from-path PATH]
 methodos inspect [--graph-id GRAPH_ID]
-methodos serve [--host HOST] [--port PORT] [--reload]
+methodos serve [--host HOST] [--port PORT] [--reload] [--log-json]
 methodos replay [--graph-id GRAPH_ID] [--split SPLIT] [--limit N]
 methodos evolve [--graph-id ID] [--train-path P] [--val-path P] [--model M] [--k-rounds N]
 methodos eval [--benchmark NAME] [--graph-id ID] [--n N] [--seed S] [--model M]
 ```
 
-Use `-v`/`--verbose` for DEBUG logging.
+Use `-v`/`--verbose` for DEBUG logging. Pass `--log-json` to `serve` to
+emit structured JSON log lines.
+
+## `methodos.auth` — API Key Authentication
+
+```python
+class APIKeyAuth:
+    def __init__(self, *, configured_key: str | None) -> None
+    @property
+    def enabled(self) -> bool
+    def check(self, *, authorization: str | None, x_api_key: str | None) -> None  # raises HTTPException(401)
+
+
+def extract_candidate(authorization: str | None, x_api_key: str | None) -> str | None
+def auth_dependency(auth: APIKeyAuth) -> Callable[..., Awaitable[None]]
+def api_key_from_env(env: dict[str, str] | None = None) -> str | None
+```
+
+Used by `methodos.service.create_app` when `PGRAPH_API_KEY` is set; the
+service then requires `Authorization: Bearer <key>` or `X-API-Key: <key>`
+on every `/v1/*` route. Comparison is constant-time via
+`hmac.compare_digest`.
+
+## `methodos.rate_limit` — Token-Bucket Rate Limiting
+
+```python
+@dataclass(slots=True)
+class Bucket:
+    tokens: float
+    last_refill: float
+
+
+class TokenBucketLimiter:
+    def __init__(
+        self,
+        *,
+        capacity: float,
+        refill_per_second: float,
+        idle_ttl_seconds: float = 600.0,
+    ) -> None
+    def check(self, subject: str, *, cost: float = 1.0) -> None  # raises HTTPException(429)
+
+
+def limiter_from_env(env: dict[str, str] | None = None) -> TokenBucketLimiter | None
+def rate_limit_dependency(
+    limiter: TokenBucketLimiter | None,
+    *,
+    api_key_provider: Callable[[Request], str | None] | None = None,
+) -> Callable[..., Awaitable[None]]
+def subject_for_request(request: Request, *, api_key: str | None) -> str
+```
+
+Per-process token bucket; idle buckets are evicted after
+`idle_ttl_seconds`. The limiter is **per-process**; cluster-wide quotas
+need a shared store (e.g., Redis + `slowapi`).
 
 ## `eval.hotpotqa` — Eval Harness
 
@@ -292,3 +377,7 @@ field is pinned to `Literal[1]`; bumping it requires a migration runner
 | `repo.py` Protocols | Stable |
 | `service.py` HTTP routes | Stable (additive only) |
 | `cli.py` subcommands | Stable |
+| `auth.py` APIKeyAuth | Stable |
+| `rate_limit.py` TokenBucketLimiter | Stable |
+| `observability.py` instruments | Stable (label sets are public; metric names are append-only) |
+| `observability.py` formatters | Stable |

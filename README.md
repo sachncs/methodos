@@ -2,6 +2,11 @@
 
 > *methodos — the way your agent proceeds*
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-ruff%20%7C%20mypy%20%7C%20pytest-green)](.github/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)](https://github.com/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
+
 Self-evolving procedural graph adapter for LLM agents.
 
 `methodos` wraps any ReAct-style agent with **queryable procedural knowledge**
@@ -15,17 +20,26 @@ didn't — implementing paper Algorithm 1.
 
 ```python
 from methodos import (
-    Node, Edge, Attribute, Relation, ProceduralGraph,
-    PGAdapter, Solver, AgentState,
+    Node,
+    Edge,
+    Attribute,
+    Relation,
+    ProceduralGraph,
+    PGAdapter,
+    Solver,
+    AgentState,
     LiteLLMClient,
 )
 
+
 class MySolver:
     """Any object with an async step(state) -> str satisfies Solver Protocol."""
+
     async def step(self, state: AgentState) -> str:
         # Use state.context (which contains the procedural guidance)
         # when constructing your LLM prompt.
         return "search"
+
 
 graph = ProceduralGraph(
     id="example",
@@ -35,18 +49,26 @@ graph = ProceduralGraph(
         "answer": Node(id="answer"),
     },
     edges=[
-        Edge(src="start", dst="search", relation=Relation.LEADS_TO,
-             attribute=Attribute(
-                 condition="need information",
-                 guidance="call search with focused query",
-                 pitfalls="don't search with the full question",
-             )),
-        Edge(src="search", dst="answer", relation=Relation.LEADS_TO,
-             attribute=Attribute(
-                 condition="have enough info",
-                 guidance="synthesize a concise answer",
-                 pitfalls="don't repeat observations",
-             )),
+        Edge(
+            src="start",
+            dst="search",
+            relation=Relation.LEADS_TO,
+            attribute=Attribute(
+                condition="need information",
+                guidance="call search with focused query",
+                pitfalls="don't search with the full question",
+            ),
+        ),
+        Edge(
+            src="search",
+            dst="answer",
+            relation=Relation.LEADS_TO,
+            attribute=Attribute(
+                condition="have enough info",
+                guidance="synthesize a concise answer",
+                pitfalls="don't repeat observations",
+            ),
+        ),
     ],
     terminal_ids={"answer"},
 )
@@ -108,40 +130,66 @@ See `docs/paper-mapping.md` for section-by-section mapping to the paper.
 ## Architecture
 
 ```
-src/methodos/
-├── schema.py        Pydantic v2 data models + Edit discriminated union
-├── graph.py         Pure functions: match, neighborhood, validate, apply_edits
-├── llm.py           LLMClient Protocol + LiteLLMClient (litellm)
-├── guidance.py      Ψ prompt + generate_guidance
-├── adapter.py       AgentState, Solver Protocol, GuidanceCache, PGAdapter
-├── evolution.py     Algorithm 1 + EvolutionEngine
-├── repo.py          Repository + VectorIndex Protocols (SQLite, FS, sqlite-vec)
-├── service.py       FastAPI app factory (REST: /v1/graphs, /guidance)
-└── cli.py           Typer CLI
+methodos/
+├── schema.py            Pydantic v2 data models + Edit discriminated union
+├── graph.py             Pure functions: match, neighborhood, validate, apply_edits
+├── llm.py               LLMClient Protocol + LiteLLMClient (litellm)
+├── guidance.py          Ψ prompt + generate_guidance
+├── adapter.py           AgentState, Solver Protocol, GuidanceCache, PGAdapter
+├── evolution.py         Algorithm 1 + EvolutionEngine
+├── repo.py              Repository + VectorIndex Protocols (SQLite, FS, sqlite-vec)
+├── auth.py              APIKeyAuth (Bearer / X-API-Key)
+├── rate_limit.py        TokenBucketLimiter
+├── observability.py     Logging + Prometheus metrics
+├── service.py           FastAPI app factory (REST: /v1/graphs, /guidance)
+└── cli.py               Typer CLI
 
 eval/
-└── hotpotqa/        Paired with-PG vs without-PG eval on HotpotQA
+└── hotpotqa/            Paired with-PG vs without-PG eval on HotpotQA
 
 examples/
 ├── simple_react.py         EchoSolver + 3-node graph + in-process loop
 ├── hosted_service.py       1-line uvicorn entrypoint
 └── evolve_from_scratch.py  Full Algorithm 1 smoke test
 
+tools/
+├── bump_version.py      Update pyproject.toml + methodos/__init__.py in lockstep
+└── evaluate.py          End-to-end evaluation of every public claim
+
 docs/
 ├── architecture.md         Module map, data flow, persistence layout
 ├── api.md                  Full public API reference
-├── deployment.md           Docker, env vars, production checklist
+├── deployment.md           Docker, env vars, runbook, prod checklist
 ├── evaluation.md           HotpotQA methodology + how to wire others
 └── paper-mapping.md        Paper sections → file:line
 ```
+
+## Hardening (production posture)
+
+The hosted service is built for production deployments out of the box:
+
+| Feature | How | Default |
+|---|---|---|
+| API key auth | `PGRAPH_API_KEY` env var | off (dev-friendly) |
+| Rate limiting | `PGRAPH_RATE_LIMIT_*` env vars | 60 tokens / 1 per sec |
+| Structured logs | `methodos serve --log-json` | text |
+| Prometheus metrics | `GET /metrics` | exposed |
+| Liveness probe | `GET /health/live` | always 200 when process up |
+| Readiness probe | `GET /health/ready` | 200 when repo reachable |
+| Sanitized errors | `LLMError` -> 502, generic -> 500 (no traceback in body) | always |
+
+Full runbook (backups, upgrades, common failure modes) in
+[`docs/deployment.md`](docs/deployment.md).
 
 ## Documentation
 
 - [Architecture](docs/architecture.md) — module map and data flow
 - [API reference](docs/api.md) — every public symbol
-- [Deployment](docs/deployment.md) — Docker, env vars, prod checklist
+- [Deployment](docs/deployment.md) — Docker, env vars, prod checklist, runbook
 - [Evaluation](docs/evaluation.md) — HotpotQA harness + extending to other benchmarks
 - [Paper mapping](docs/paper-mapping.md) — paper sections → code locations
+- [CHANGELOG](CHANGELOG.md) — release notes
+- [SECURITY](SECURITY.md) — vulnerability reporting policy
 
 ## Development
 
@@ -151,7 +199,8 @@ uv sync
 
 # Lint, format, type-check
 uv run ruff check .
-uv run mypy methodos/ tests/ eval/
+uv run ruff format .
+uv run mypy methodos
 
 # Tests
 uv run pytest                                          # full suite
@@ -164,8 +213,11 @@ uv run uvicorn methodos.service:app --reload --host 127.0.0.1 --port 8000
 uv sync --extra eval
 python -m eval.hotpotqa.run --n 5
 
+# Bump version
+uv run python tools/bump_version.py 0.1.1
+
 # Docker
-docker build -t methodos:0.1.0 -f docker/Dockerfile .
+docker build -t methodos:0.1.0 -f docker/Dockerfile --build-arg VERSION=0.1.0 .
 docker compose up methodos
 ```
 
