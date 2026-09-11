@@ -1,4 +1,5 @@
 """Tests for `methodos.service` (FastAPI app)."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
@@ -8,7 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from methodos.llm import LLMClient
+from methodos.auth import APIKeyAuth
+from methodos.llm import LLMClient, LLMError
+from methodos.rate_limit import TokenBucketLimiter
 from methodos.repo import (
     FilesystemRepository,
     SQLiteRepository,
@@ -30,6 +33,7 @@ from tests.conftest import FakeLLM
 def graph() -> ProceduralGraph:
     """Standard sample graph for service tests."""
     from methodos.schema import Node
+
     return ProceduralGraph(
         id="g1",
         nodes={
@@ -47,6 +51,7 @@ def seeded_repo(graph: ProceduralGraph, tmp_path: Path) -> Iterator[SQLiteReposi
     """SQLite repo with one pre-saved graph."""
     repo = SQLiteRepository(db_path=tmp_path / "test.db")
     import asyncio
+
     asyncio.run(repo.save_graph(graph))
     yield repo
 
@@ -98,7 +103,8 @@ class TestGetGraph:
 class TestCreateGraph:
     def test_creates_empty_graph(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs", json={"id": "new"},
+            "/v1/graphs",
+            json={"id": "new"},
         )
         assert response.status_code == 201
         assert response.json()["id"] == "new"
@@ -125,7 +131,8 @@ class TestCreateGraph:
 
     def test_extra_fields_rejected(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs", json={"id": "x", "extra": "bad"},
+            "/v1/graphs",
+            json={"id": "x", "extra": "bad"},
         )
         assert response.status_code == 422  # pydantic validation error
 
@@ -206,7 +213,8 @@ class TestGetGuidance:
 class TestEvolveEndpoint:
     def test_returns_501(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs/g1/evolve", json={"k_rounds": 5},
+            "/v1/graphs/g1/evolve",
+            json={"k_rounds": 5},
         )
         assert response.status_code == 501
         body = response.json()
@@ -225,6 +233,7 @@ class TestGraphCreateRequestDTO:
 
     def test_extra_forbidden(self) -> None:
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError):
             GraphCreateRequest(id="x", extra="bad")  # type: ignore[call-arg]
 
@@ -259,10 +268,13 @@ class TestFilesystemRepositoryWiring:
         import asyncio
 
         from methodos.schema import Node
+
         # Pre-seed a graph in the filesystem repo
         fs_repo = FilesystemRepository(root=tmp_path / "fs_home")
         graph = ProceduralGraph(
-            id="fs-g", nodes={"a": Node(id="a")}, terminal_ids={"a"},
+            id="fs-g",
+            nodes={"a": Node(id="a")},
+            terminal_ids={"a"},
         )
         asyncio.run(fs_repo.save_graph(graph))
 
@@ -274,7 +286,9 @@ class TestFilesystemRepositoryWiring:
             assert response.json()["id"] == "fs-g"
 
     def test_default_repo_is_built_from_env(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.delenv("PGRAPH_BACKEND", raising=False)
@@ -283,3 +297,126 @@ class TestFilesystemRepositoryWiring:
         # Lifespan has run; we can hit health at minimum.
         with TestClient(app) as client:
             assert client.get("/health").status_code == 200
+
+
+# ----------------------------------------------------------------------------
+# /health/live, /health/ready, /metrics
+# ----------------------------------------------------------------------------
+
+
+class TestHealthLive:
+    def test_returns_ok(self, client: TestClient) -> None:
+        response = client.get("/health/live")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
+class TestHealthReady:
+    def test_returns_ok_when_repo_healthy(self, client: TestClient) -> None:
+        response = client.get("/health/ready")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ok"
+        assert body["checks"]["repo"] == "ok"
+
+
+class TestMetricsEndpoint:
+    def test_returns_prometheus_payload(self, client: TestClient) -> None:
+        # Hit a route first so the counters have a sample
+        client.get("/health")
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        # Prometheus exposition content type
+        assert "text/plain" in response.headers["content-type"]
+        body = response.text
+        assert "methodos_requests_total" in body
+        assert "methodos_info" in body
+
+    def test_records_request_metric(self, client: TestClient) -> None:
+        client.get("/health")
+        body = client.get("/metrics").text
+        # The /health GET should show up in the counter
+        assert 'method="GET"' in body
+        assert 'path="/health"' in body
+
+
+# ----------------------------------------------------------------------------
+# Exception handlers
+# ----------------------------------------------------------------------------
+
+
+class RaisingLLM(LLMClient):
+    """LLM stub that always raises `LLMError`."""
+
+    async def complete(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        raise LLMError("upstream provider unavailable")
+
+
+class TestExceptionHandlers:
+    def test_llm_error_maps_to_502(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "ex.db")
+        import asyncio
+
+        graph = ProceduralGraph(id="g1")
+        asyncio.run(repo.save_graph(graph))
+        llm = RaisingLLM()
+        app = create_app(repo=repo, llm=llm)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/graphs/g1/guidance",
+                json={"query": "Q?"},
+            )
+            assert response.status_code == 502
+            assert response.json()["detail"] == "upstream LLM call failed"
+
+
+# ----------------------------------------------------------------------------
+# Rate limiting integration
+# ----------------------------------------------------------------------------
+
+
+class TestRateLimitIntegration:
+    def test_rate_limited_returns_429(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM(responses=["g"])
+        limiter = TokenBucketLimiter(capacity=1, refill_per_second=0.001)
+        app = create_app(repo=seeded_repo, llm=fake_llm, rate_limiter=limiter)
+        with TestClient(app) as client:
+            first = client.post(
+                "/v1/graphs/g1/guidance",
+                json={"query": "Q1?"},
+            )
+            assert first.status_code == 200
+            second = client.post(
+                "/v1/graphs/g1/guidance",
+                json={"query": "Q2?"},
+            )
+            assert second.status_code == 429
+            assert "Retry-After" in second.headers
+
+    def test_no_limiter_allows_burst(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM(responses=["g"])
+        app = create_app(repo=seeded_repo, llm=fake_llm, rate_limiter=None)
+        with TestClient(app) as client:
+            for _ in range(3):
+                response = client.post(
+                    "/v1/graphs/g1/guidance",
+                    json={"query": "Q?"},
+                )
+                assert response.status_code == 200
+
+
+# ----------------------------------------------------------------------------
+# Auth integration (already covered in test_auth.py; smoke test here)
+# ----------------------------------------------------------------------------
+
+
+class TestAuthIntegration:
+    def test_auth_enabled_protects_routes(self) -> None:
+        fake_llm = FakeLLM()
+        auth = APIKeyAuth(configured_key="k")
+        app = create_app(repo=None, llm=fake_llm, auth=auth)
+        with TestClient(app) as client:
+            # Health is not behind auth
+            assert client.get("/health").status_code == 200
+            # Graph create is
+            assert client.post("/v1/graphs", json={"id": "x"}).status_code == 401
