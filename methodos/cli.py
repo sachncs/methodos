@@ -16,6 +16,7 @@ Engineering:
 - No `_foo()` markers.
 - Logging configured once in the root callback.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +28,7 @@ from typing import Annotated
 import typer
 
 from methodos.adapter import AgentState
+from methodos.observability import configure_logging as _configure_root_logging
 from methodos.repo import Repository, Task, build_repository
 
 logger = logging.getLogger(__name__)
@@ -38,19 +40,23 @@ cli = typer.Typer(
 )
 
 
-def configure_logging(verbose: bool) -> None:
-    """Configure root logger; --verbose sets DEBUG."""
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+def configure_logging(verbose: bool, json_format: bool = False) -> None:
+    """Configure root logger; --verbose sets DEBUG.
+
+    Args:
+        verbose: When True, set log level to DEBUG; otherwise INFO.
+        json_format: When True, emit structured JSON lines instead of
+            human-readable text (suitable for log aggregators).
+    """
+    _configure_root_logging(
+        level="DEBUG" if verbose else "INFO",
+        json_format=json_format,
     )
 
 
 @cli.callback()
 def main(
-    verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Enable debug logging.")
-    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable debug logging.")] = False,
 ) -> None:
     """methodos — queryable know-how for LLM agents."""
     configure_logging(verbose)
@@ -63,9 +69,7 @@ def build_repo_from_env() -> Repository:
 
 @cli.command()
 def init(
-    graph_id: Annotated[
-        str, typer.Option(help="Graph identifier to create.")
-    ] = "default",
+    graph_id: Annotated[str, typer.Option(help="Graph identifier to create.")] = "default",
     from_path: Annotated[
         Path | None,
         typer.Option(help="Import from existing graph JSON."),
@@ -91,9 +95,7 @@ def init(
 
 @cli.command()
 def inspect(
-    graph_id: Annotated[
-        str, typer.Option(help="Graph identifier to inspect.")
-    ] = "default",
+    graph_id: Annotated[str, typer.Option(help="Graph identifier to inspect.")] = "default",
 ) -> None:
     """Print a graph summary."""
     from methodos.schema import ProceduralGraph
@@ -119,8 +121,13 @@ def serve(
     host: Annotated[str, typer.Option()] = "127.0.0.1",
     port: Annotated[int, typer.Option()] = 8000,
     reload: Annotated[bool, typer.Option()] = False,
+    log_json: Annotated[
+        bool,
+        typer.Option(help="Emit structured JSON log lines."),
+    ] = False,
 ) -> None:
     """Start the FastAPI service via uvicorn."""
+    configure_logging(verbose=False, json_format=log_json)
     import uvicorn
 
     uvicorn.run("methodos.service:app", host=host, port=port, reload=reload)
@@ -131,24 +138,18 @@ def replay(
     graph_id: Annotated[
         str, typer.Option(help="Graph identifier whose trajectories to replay.")
     ] = "default",
-    split: Annotated[
-        str, typer.Option(help="Trajectory split (train/val/test).")
-    ] = "train",
-    limit: Annotated[
-        int, typer.Option(min=1, help="Maximum trajectories to print.")
-    ] = 10,
+    split: Annotated[str, typer.Option(help="Trajectory split (train/val/test).")] = "train",
+    limit: Annotated[int, typer.Option(min=1, help="Maximum trajectories to print.")] = 10,
 ) -> None:
     """Print recent trajectories from the trajectory log."""
+
     async def run() -> None:
         repo = build_repo_from_env()
         count = 0
         async for traj in repo.read_trajectories(graph_id, split):
             if count >= limit:
                 break
-            typer.echo(
-                f"task: {traj.task.query!r} "
-                f"score={traj.score:.2f} steps={len(traj.steps)}"
-            )
+            typer.echo(f"task: {traj.task.query!r} score={traj.score:.2f} steps={len(traj.steps)}")
             count += 1
         if count == 0:
             typer.echo(f"(no trajectories for graph {graph_id!r} split={split!r})")
@@ -163,6 +164,7 @@ class _StubSolver:
     solver via the Python SDK. The CLI exists to demonstrate the
     evolution loop wiring end-to-end without an API key.
     """
+
     async def step(self, state: AgentState) -> str:
         if not state.trajectory:
             return "start"
@@ -186,12 +188,8 @@ def load_tasks(path: Path) -> list[Task]:
 
 @cli.command()
 def evolve(
-    graph_id: Annotated[
-        str, typer.Option(help="Graph identifier to evolve.")
-    ] = "default",
-    k_rounds: Annotated[
-        int, typer.Option(min=1, max=100, help="Evolution rounds.")
-    ] = 10,
+    graph_id: Annotated[str, typer.Option(help="Graph identifier to evolve.")] = "default",
+    k_rounds: Annotated[int, typer.Option(min=1, max=100, help="Evolution rounds.")] = 10,
     train_path: Annotated[
         Path | None,
         typer.Option(help="JSONL of {query, expected} for train tasks."),
@@ -247,9 +245,7 @@ def evolve(
             f"train={len(train_tasks)} val={len(val_tasks)} model={model!r}"
         )
         final = await engine.run(graph)
-        typer.echo(
-            f"evolution complete: {len(final.nodes)} nodes, {len(final.edges)} edges"
-        )
+        typer.echo(f"evolution complete: {len(final.nodes)} nodes, {len(final.edges)} edges")
 
     asyncio.run(run())
 
@@ -263,13 +259,9 @@ def eval(
         str | None,
         typer.Option(help="Optional graph to use during eval."),
     ] = None,
-    n: Annotated[
-        int, typer.Option(min=1, max=10_000, help="Number of examples.")
-    ] = 200,
+    n: Annotated[int, typer.Option(min=1, max=10_000, help="Number of examples.")] = 200,
     seed: Annotated[int, typer.Option()] = 0,
-    model: Annotated[
-        str, typer.Option(help="LLM model for the eval solver.")
-    ] = "gpt-4o-mini",
+    model: Annotated[str, typer.Option(help="LLM model for the eval solver.")] = "gpt-4o-mini",
 ) -> None:
     """Run methodos against a paper benchmark."""
     if benchmark != "hotpotqa":
@@ -281,8 +273,7 @@ def eval(
             from eval.hotpotqa.run import run_eval
         except ImportError as exc:
             typer.echo(
-                f"Eval harness unavailable: {exc}. "
-                f"Install with `pip install methodos[eval]`.",
+                f"Eval harness unavailable: {exc}. Install with `pip install methodos[eval]`.",
                 err=True,
             )
             raise typer.Exit(code=1) from exc

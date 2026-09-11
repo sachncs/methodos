@@ -1,4 +1,5 @@
 """Tests for `methodos.cli` (Typer subcommands)."""
+
 from __future__ import annotations
 
 import json
@@ -25,13 +26,16 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def seeded_filesystem_repo(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> FilesystemRepository:
     """Filesystem repo seeded with one graph; PGRAPH_HOME set."""
     from methodos.schema import Node
+
     monkeypatch.setenv("PGRAPH_HOME", str(tmp_path / "home"))
     repo = FilesystemRepository(root=tmp_path / "home")
     import asyncio
+
     graph = ProceduralGraph(
         id="g",
         nodes={"start": Node(id="start"), "answer": Node(id="answer")},
@@ -39,23 +43,29 @@ def seeded_filesystem_repo(
     )
     asyncio.run(repo.save_graph(graph))
     # Also append one trajectory for replay tests
-    asyncio.run(repo.append_trajectory(
-        "g", "train",
-        Trajectory(task=Task(query="tq"), steps=(("a", "b"),), score=0.7),
-    ))
+    asyncio.run(
+        repo.append_trajectory(
+            "g",
+            "train",
+            Trajectory(task=Task(query="tq"), steps=(("a", "b"),), score=0.7),
+        )
+    )
     return repo
 
 
 @pytest.fixture
 def seeded_sqlite_repo(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> SQLiteRepository:
     """SQLite repo seeded; PGRAPH_HOME set to override default location."""
     from methodos.schema import Node
+
     monkeypatch.setenv("PGRAPH_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("PGRAPH_BACKEND", "sqlite")
     repo = SQLiteRepository(db_path=tmp_path / "home" / "test.db")
     import asyncio
+
     graph = ProceduralGraph(
         id="g",
         nodes={"start": Node(id="start"), "answer": Node(id="answer")},
@@ -72,11 +82,15 @@ def seeded_sqlite_repo(
 
 class TestInitCommand:
     def test_creates_empty_graph(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         result = runner.invoke(
-            cli, ["init", "--graph-id", "new"],
+            cli,
+            ["init", "--graph-id", "new"],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
@@ -84,18 +98,27 @@ class TestInitCommand:
         assert "created graph 'new'" in result.stdout
 
     def test_imports_from_json(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         from methodos.schema import Node
+
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         graph_path = tmp_path / "input.json"
         graph_path.write_text(
-            json.dumps(ProceduralGraph(
-                id="x", nodes={"a": Node(id="a")}, terminal_ids={"a"},
-            ).model_dump(mode="json"))
+            json.dumps(
+                ProceduralGraph(
+                    id="x",
+                    nodes={"a": Node(id="a")},
+                    terminal_ids={"a"},
+                ).model_dump(mode="json")
+            )
         )
         result = runner.invoke(
-            cli, ["init", "--graph-id", "y", "--from-path", str(graph_path)],
+            cli,
+            ["init", "--graph-id", "y", "--from-path", str(graph_path)],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
@@ -103,11 +126,15 @@ class TestInitCommand:
         assert "created graph 'y'" in result.stdout
 
     def test_missing_from_path_fails(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         result = runner.invoke(
-            cli, ["init", "--graph-id", "x", "--from-path", str(tmp_path / "nope.json")],
+            cli,
+            ["init", "--graph-id", "x", "--from-path", str(tmp_path / "nope.json")],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
         )
         assert result.exit_code != 0
@@ -120,11 +147,15 @@ class TestInitCommand:
 
 class TestInspectCommand:
     def test_prints_summary(
-        self, runner: CliRunner, seeded_filesystem_repo: FilesystemRepository,
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
         import os
+
         result = runner.invoke(
-            cli, ["inspect", "--graph-id", "g"],
+            cli,
+            ["inspect", "--graph-id", "g"],
             env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
@@ -134,11 +165,15 @@ class TestInspectCommand:
         assert "edges: 0" in result.stdout
 
     def test_missing_graph_exits_nonzero(
-        self, runner: CliRunner, seeded_filesystem_repo: FilesystemRepository,
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
         import os
+
         result = runner.invoke(
-            cli, ["inspect", "--graph-id", "nope"],
+            cli,
+            ["inspect", "--graph-id", "nope"],
             env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
         )
         assert result.exit_code != 0
@@ -151,11 +186,15 @@ class TestInspectCommand:
 
 class TestReplayCommand:
     def test_prints_trajectories(
-        self, runner: CliRunner, seeded_filesystem_repo: FilesystemRepository,
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
         import os
+
         result = runner.invoke(
-            cli, ["replay", "--graph-id", "g"],
+            cli,
+            ["replay", "--graph-id", "g"],
             env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
@@ -163,11 +202,15 @@ class TestReplayCommand:
         assert "tq" in result.stdout
 
     def test_no_trajectories_prints_marker(
-        self, runner: CliRunner, seeded_filesystem_repo: FilesystemRepository,
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
         import os
+
         result = runner.invoke(
-            cli, ["replay", "--graph-id", "g", "--split", "val"],
+            cli,
+            ["replay", "--graph-id", "g", "--split", "val"],
             env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
@@ -189,11 +232,14 @@ class TestEvalCommand:
         assert "unknown benchmark" in combined
 
     def test_eval_without_extra_fails_gracefully(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # When [eval] extra is not installed, the import fails. The
         # CLI surfaces a clear message and exits non-zero.
         import builtins
+
         original_import = builtins.__import__
 
         def fake_import(
@@ -221,18 +267,25 @@ class TestEvalCommand:
 
 class TestEvolveCommand:
     def test_missing_paths_fails(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         # Typer rejects missing required options with exit code 2.
         result = runner.invoke(
-            cli, ["evolve", "--graph-id", "x"],
+            cli,
+            ["evolve", "--graph-id", "x"],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
         )
         assert result.exit_code != 0
 
     def test_loads_tasks(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """evolve reads JSONL tasks and dispatches to EvolutionEngine."""
         import asyncio
@@ -244,11 +297,15 @@ class TestEvolveCommand:
 
         # Pre-seed a graph.
         repo = FilesystemRepository(root=tmp_path)
-        asyncio.run(repo.save_graph(_PG(
-            id="x",
-            nodes={"start": Node(id="start"), "answer": Node(id="answer")},
-            terminal_ids={"answer"},
-        )))
+        asyncio.run(
+            repo.save_graph(
+                _PG(
+                    id="x",
+                    nodes={"start": Node(id="start"), "answer": Node(id="answer")},
+                    terminal_ids={"answer"},
+                )
+            )
+        )
         train = tmp_path / "train.jsonl"
         train.write_text(json.dumps({"query": "q1"}) + "\n")
         val = tmp_path / "val.jsonl"
@@ -264,12 +321,17 @@ class TestEvolveCommand:
         monkeypatch.setattr(llm_mod, "LiteLLMClient", factory)
 
         result = runner.invoke(
-            cli, [
+            cli,
+            [
                 "evolve",
-                "--graph-id", "x",
-                "--train-path", str(train),
-                "--val-path", str(val),
-                "--k-rounds", "2",
+                "--graph-id",
+                "x",
+                "--train-path",
+                str(train),
+                "--val-path",
+                str(val),
+                "--k-rounds",
+                "2",
             ],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
@@ -293,7 +355,8 @@ class TestRootCallback:
         assert "methodos" in result.stdout
 
     def test_no_args_exits_nonzero_but_shows_usage(
-        self, runner: CliRunner,
+        self,
+        runner: CliRunner,
     ) -> None:
         # Typer's `no_args_is_help=True` triggers a SystemExit(2) when no
         # args are provided; the usage is still printed to stdout.
@@ -302,12 +365,24 @@ class TestRootCallback:
         assert "Usage:" in result.stdout or "methodos" in result.stdout
 
     def test_verbose_flag_accepted(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         result = runner.invoke(
-            cli, ["-v", "init", "--graph-id", "v"],
+            cli,
+            ["-v", "init", "--graph-id", "v"],
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+
+    def test_serve_help_mentions_log_json(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--log-json" in result.stdout
