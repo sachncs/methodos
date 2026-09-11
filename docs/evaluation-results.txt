@@ -1,9 +1,15 @@
-2026-09-11 03:39:09,597 INFO methodos.evolution: initial validation score: 1.000
-2026-09-11 03:39:09,597 INFO methodos.evolution: round 1: accepted (val_score=1.000)
-2026-09-11 03:39:09,597 INFO methodos.evolution: structural rejection: node 'start' already exists
-2026-09-11 03:39:09,597 INFO methodos.evolution: round 2: rejected (structural)
-2026-09-11 03:39:09,597 INFO methodos.evolution: round 3: accepted (val_score=1.000)
-2026-09-11 03:39:09,640 INFO eval.hotpotqa.run: running paired eval over 3 HotpotQA examples
+2026-09-11 09:39:39,091 INFO methodos.evolution: initial validation score: 1.000
+2026-09-11 09:39:39,091 INFO methodos.evolution: round 1: accepted (val_score=1.000)
+2026-09-11 09:39:39,091 INFO methodos.evolution: structural rejection: node 'start' already exists
+2026-09-11 09:39:39,092 INFO methodos.evolution: round 2: rejected (structural)
+2026-09-11 09:39:39,092 INFO methodos.evolution: round 3: accepted (val_score=1.000)
+2026-09-11 09:39:39,095 INFO methodos.evolution: initial validation score: 1.000
+2026-09-11 09:39:39,095 INFO methodos.evolution: round 1: accepted (val_score=1.000)
+2026-09-11 09:39:39,095 INFO methodos.evolution: initial validation score: 1.000
+2026-09-11 09:39:39,096 INFO methodos.evolution: structural rejection: node 'fund_raising_request' already exists
+2026-09-11 09:39:39,096 INFO methodos.evolution: round 1: rejected (structural)
+2026-09-11 09:39:39,096 INFO methodos.evolution: round 2: accepted (val_score=1.000)
+2026-09-11 09:39:39,099 INFO eval.hotpotqa.run: running paired eval over 3 HotpotQA examples
 HotpotQA eval (n=3)
   with PG:    EM=0.0000  F1=0.0000
   without PG: EM=0.0000  F1=0.0000
@@ -24,10 +30,10 @@ HotpotQA eval (n=3)
         has_path_to: big graph n0→end (True), n0→nonexistent (False)
         adjacency: big graph built (51 entries), end has no outgoing
         infer_terminals: big graph → {'end'}
-[[32mPASS[0m] PERSISTENCE — round-trip through FS and SQLite  (0.13s)
+[[32mPASS[0m] PERSISTENCE — round-trip through FS and SQLite  (0.16s)
         FilesystemRepository round-trip: graph_id=persist-test identical after save+load
         FilesystemRepository round-trip: 5 trajectories identical
-        FilesystemRepository snapshot bytes match current graph bytes (2973 bytes)
+        FilesystemRepository snapshot bytes match current graph bytes (3213 bytes)
         SQLiteRepository round-trip: graph_id=persist-test identical
         SQLiteRepository round-trip: 5 trajectories identical
         SQLiteRepository journal_mode=WAL active
@@ -41,8 +47,14 @@ HotpotQA eval (n=3)
         EvolutionEngine round 2: duplicate 'start' rejected (graph unchanged)
         EvolutionEngine round 3: refiner prompt contains REJECTED marker
         EvolutionEngine final graph persisted (id=evo-test)
-[[32mPASS[0m] HOTPOTQA — real dataset, paired with-PG vs without-PG  (0.04s)
+[[32mPASS[0m] PAPER-ALIGNMENT — paper §3.1/§3.2/§3.3/§B.6 algorithms  (0.00s)
+        §3.1: 5 nodes, 4 edges, 3-tuple attribute, 4+ relations, ACTION/STATUS kinds
+        §3.2 Eq. 2: match hit/miss, h=1 neighborhood, unknown-node fallback
+        §3.3: RejectionMemory bounded FIFO (oldest 2 evicted, last 2 retained)
+        App. B.6 line 16: ties-accepted; filler node kept in final graph
+        App. B.6 line 4: rejected candidate never becomes starting graph
+[[32mPASS[0m] HOTPOTQA — real dataset, paired with-PG vs without-PG  (0.00s)
         HotpotQA distractor split downloaded to /Users/sachin/.methodos/eval_data
         HotpotQA eval harness ran end-to-end on 3 real tasks (stub LLM)
 ======================================================================
-[32mALL 5 SECTIONS PASSED  (total 0.18s)[0m
+[32mALL 6 SECTIONS PASSED  (total 0.17s)[0m

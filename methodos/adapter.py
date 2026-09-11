@@ -164,8 +164,8 @@ class PGAdapter:
         self._solver = solver
         self._graph = graph
         self._llm = llm
-        self._guidance_hops = guidance_hops
-        self._trajectory_window = trajectory_window
+        self.guidance_hops = guidance_hops
+        self.trajectory_window = trajectory_window
         self._cache: GuidanceCache = cache if cache is not None else GuidanceCache()
 
     @property
@@ -203,7 +203,7 @@ class PGAdapter:
         last_action, last_obs = self._tail_key(trajectory)
         node_id = match_node(last_action, self._graph.nodes)
         sub = (
-            neighborhood(self._graph, node_id, h=self._guidance_hops)
+            neighborhood(self._graph, node_id, h=self.guidance_hops)
             if node_id is not None
             else self._graph
         )
@@ -218,7 +218,7 @@ class PGAdapter:
                 graph=sub,
                 query=query,
                 trajectory=trajectory,
-                window=self._trajectory_window,
+                window=self.trajectory_window,
             )
             self._cache.put(key, guidance)
 

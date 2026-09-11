@@ -40,7 +40,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import sys
+import tempfile
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -49,10 +51,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
+import methodos.evolution
 from methodos.adapter import AgentState, PGAdapter
 from methodos.evolution import (
     TERMINATE_SUCCESS,
     EvolutionEngine,
+    RejectionMemory,
 )
 from methodos.graph import (
     adjacency,
@@ -77,9 +81,15 @@ from methodos.repo import (
 from methodos.schema import (
     Attribute,
     Edge,
+    EditAddEdge,
+    EditAddNode,
     Node,
     ProceduralGraph,
     Relation,
+)
+from tests.test_paper_alignment import (
+    AlwaysSucceedSolver,
+    ScriptedRoundLLM,
 )
 
 logger = logging.getLogger("evaluate")
@@ -270,7 +280,6 @@ async def section_algorithms() -> SectionResult:
 
         # apply_edits: add a node + edge using proper Pydantic Edit variants.
         # The new node is also made a terminal so reachability is preserved.
-        from methodos.schema import EditAddEdge, EditAddNode
         new_node = Node(id="audit_step", description="audit each step")
         new_edge = Edge(
             src="monthly_close", dst="audit_step",
@@ -409,7 +418,6 @@ async def section_persistence(tmp: Path) -> SectionResult:
         details.append(f"SQLiteRepository round-trip: {len(loaded_trajs)} trajectories identical")
 
         # WAL active
-        import sqlite3
         with sqlite3.connect(sql_path) as conn:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode.lower() == "wal"
@@ -553,6 +561,154 @@ class _StubEvolutionSolver:
         return "search"
 
 
+async def section_paper_alignment() -> SectionResult:
+    """§3.1, §3.2, §3.3, App. B.6 — every paper algorithm is exercised
+    against a hand-built paper-style graph + scripted refiner.
+
+    Mirrors the per-section test classes in tests/test_paper_alignment.py
+    but runs in a single end-to-end script.
+    """
+    start, result = timed("PAPER-ALIGNMENT — paper §3.1/§3.2/§3.3/§B.6 algorithms")
+    details: list[str] = []
+    passed = True
+    try:
+        # §3.1 — Procedural Graph data structure
+        # Add a Start STATUS node and connect it to cash_flow_forecast so
+        # the graph is internally consistent (every node reaches a terminal).
+        g_paper = ProceduralGraph(
+            id="paper",
+            nodes={
+                "Start": Node(id="Start", description="initial marker", kind="STATUS"),
+                "cash_flow_forecast": Node(
+                    id="cash_flow_forecast",
+                    description="Project monthly cash runway",
+                    kind="ACTION",
+                ),
+                "fund_raising_request": Node(
+                    id="fund_raising_request",
+                    description="File a financing round",
+                    kind="ACTION",
+                ),
+                "monthly_close": Node(
+                    id="monthly_close", description="Close books", kind="ACTION",
+                ),
+                "board_update": Node(
+                    id="board_update", description="Publish update", kind="ACTION",
+                ),
+            },
+            edges=[
+                Edge(
+                    src="Start", dst="cash_flow_forecast",
+                    relation=Relation.LEADS_TO,
+                    attribute=Attribute(condition="begin", guidance="begin task", pitfalls="n/a"),
+                ),
+                Edge(
+                    src="cash_flow_forecast", dst="fund_raising_request",
+                    relation=Relation.LEADS_TO,
+                    attribute=Attribute(
+                        condition="projected runway falls below the safety buffer",
+                        guidance="submit the fundraising request early to allow for the financing delivery delay",
+                        pitfalls="do not stack a second request while one is pending",
+                    ),
+                ),
+                Edge(
+                    src="fund_raising_request", dst="monthly_close",
+                    relation=Relation.REQUIRES,
+                    attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
+                ),
+                Edge(
+                    src="monthly_close", dst="board_update",
+                    relation=Relation.LEADS_TO,
+                    attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
+                ),
+            ],
+            terminal_ids={"fund_raising_request", "board_update"},
+        )
+
+        # §3.1: 4 components of (V, R, E, Φ)
+        assert len(g_paper.nodes) == 5
+        assert len(g_paper.edges) == 4
+        for e in g_paper.edges:
+            assert e.attribute.condition and e.attribute.guidance and e.attribute.pitfalls
+        assert {r.value for r in Relation} >= {
+            "leads_to", "triggers", "requires", "converges_to",
+        }
+        assert g_paper.nodes["Start"].kind == "STATUS"
+        assert g_paper.nodes["cash_flow_forecast"].kind == "ACTION"
+        details.append("§3.1: 5 nodes, 4 edges, 3-tuple attribute, 4+ relations, ACTION/STATUS kinds")
+
+        # §3.2 — Eq. 2: locate/extract/generate pipeline
+        assert match_node("cash_flow_forecast", g_paper.nodes) == "cash_flow_forecast"
+        assert match_node("missing", g_paper.nodes) is None
+        sub = neighborhood(g_paper, "cash_flow_forecast", h=1)
+        assert "fund_raising_request" in sub.nodes
+        sub_full = neighborhood(g_paper, "ghost", h=2)
+        assert set(sub_full.nodes.keys()) == set(g_paper.nodes.keys())
+        details.append("§3.2 Eq. 2: match hit/miss, h=1 neighborhood, unknown-node fallback")
+
+        # §3.3 — RejectionMemory is bounded FIFO
+        mem = RejectionMemory(max_size=2)
+        for i in range(4):
+            mem.add([EditAddNode(node=Node(id=f"n{i}"))], float(i))
+        snap = mem.snapshot()
+        assert len(snap) == 2
+        assert snap[0][1] == 2.0
+        assert snap[1][1] == 3.0
+        details.append("§3.3: RejectionMemory bounded FIFO (oldest 2 evicted, last 2 retained)")
+
+        # App. B.6 Algorithm 1 — end-to-end using scripted LLM + patched stub.
+        # Two fresh SQLite repos (so the second engine.run sees a clean DB).
+        repo_a = SQLiteRepository(db_path=Path(tempfile.mkdtemp()) / "a.db")
+        repo_b = SQLiteRepository(db_path=Path(tempfile.mkdtemp()) / "b.db")
+
+        async def succeed_stub(action: str) -> str:
+            return TERMINATE_SUCCESS
+
+        original_stub = methodos.evolution.execute_action_stub
+        methodos.evolution.execute_action_stub = succeed_stub
+        try:
+            # (a) ties-accepted invariant (Algorithm 1 line 16, Eq. 5)
+            llm_ties = ScriptedRoundLLM([[
+                json.dumps([
+                    {"kind": "add_node", "node": {"id": "filler"}},
+                    {"kind": "add_edge", "edge": {
+                        "src": "filler", "dst": "fund_raising_request",
+                        "relation": "leads_to",
+                        "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
+                    }},
+                ]),
+            ]])
+            engine_a = EvolutionEngine(
+                llm=llm_ties, repo=repo_a,
+                train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+                solver=AlwaysSucceedSolver(), k_rounds=1,
+            )
+            final_a = await engine_a.run(g_paper)
+            assert "filler" in final_a.nodes
+            details.append("App. B.6 line 16: ties-accepted; filler node kept in final graph")
+
+            # (b) rejection never becomes starting graph (Algorithm 1 line 4 invariant)
+            llm_reject = ScriptedRoundLLM([
+                [json.dumps([{"kind": "add_node", "node": {"id": "fund_raising_request"}}])],
+                ["[]"],
+            ])
+            engine_b = EvolutionEngine(
+                llm=llm_reject, repo=repo_b,
+                train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+                solver=AlwaysSucceedSolver(), k_rounds=2,
+            )
+            final_b = await engine_b.run(g_paper)
+            assert sum(1 for n in final_b.nodes if n == "fund_raising_request") == 1
+            details.append("App. B.6 line 4: rejected candidate never becomes starting graph")
+        finally:
+            methodos.evolution.execute_action_stub = original_stub
+    except Exception as exc:
+        passed = False
+        result.error = repr(exc) + "\n" + traceback.format_exc()
+
+    return finish(start, result, passed, details)
+
+
 async def section_evolution() -> SectionResult:
     start, result = timed("EVOLUTION — Algorithm 1 against a scriptable refiner")
     details: list[str] = []
@@ -587,16 +743,8 @@ async def section_evolution() -> SectionResult:
         ]
 
         llm = _RoundScriptedLLM(refiner_responses)
-        repo = SQLiteRepository(db_path=Path("/tmp/methodos-evo-eval.db"))
-        # Remove any pre-existing db
-        import os
-        if os.path.exists("/tmp/methodos-evo-eval.db"):
-            os.remove("/tmp/methodos-evo-eval.db")
-        if os.path.exists("/tmp/methodos-evo-eval.db-wal"):
-            os.remove("/tmp/methodos-evo-eval.db-wal")
-        if os.path.exists("/tmp/methodos-evo-eval.db-shm"):
-            os.remove("/tmp/methodos-evo-eval.db-shm")
-        repo = SQLiteRepository(db_path=Path("/tmp/methodos-evo-eval.db"))
+        evo_db_path = Path(tempfile.mkdtemp()) / "evo.db"
+        repo = SQLiteRepository(db_path=evo_db_path)
 
         train = [Task(query=f"train_{i}") for i in range(2)]
         val = [Task(query=f"val_{i}") for i in range(2)]
@@ -612,15 +760,15 @@ async def section_evolution() -> SectionResult:
 
         # Wrap execute_action_stub to return success after a couple of
         # actions so the rollout produces a non-zero score.
-        from methodos import evolution as ev_mod
         async def fake_stub(action: str) -> str:
             return TERMINATE_SUCCESS
-        original_stub = ev_mod.execute_action_stub
-        ev_mod.execute_action_stub = fake_stub
+
+        original_stub = methodos.evolution.execute_action_stub
+        methodos.evolution.execute_action_stub = fake_stub
         try:
             final = await engine.run(initial)
         finally:
-            ev_mod.execute_action_stub = original_stub
+            methodos.evolution.execute_action_stub = original_stub
 
         # Verify: edge was added in round 1, "start" node still unique,
         # round-3 refiner prompt contains REJECTED.
@@ -713,7 +861,6 @@ async def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         sections: list[SectionResult] = []
@@ -721,6 +868,7 @@ async def main() -> int:
         sections.append(await section_persistence(tmp))
         sections.append(await section_guidance())
         sections.append(await section_evolution())
+        sections.append(await section_paper_alignment())
         sections.append(await section_hotpotqa())
 
     print("\n" + "=" * 70)

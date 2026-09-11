@@ -38,8 +38,12 @@ class TestRelation:
         assert isinstance(Relation.REQUIRES, str)
         assert isinstance(Relation.REPLACES, str)
 
-    def test_membership_is_exactly_three(self) -> None:
-        assert {r.value for r in Relation} == {"leads_to", "requires", "replaces"}
+    def test_membership_is_exactly_five(self) -> None:
+        """paper §B.4 specifies LEADS_TO, TRIGGERS, REQUIRES, CONVERGES_TO;
+        REPLACES is a methodos addition for graph editing operations."""
+        assert {r.value for r in Relation} == {
+            "leads_to", "triggers", "requires", "converges_to", "replaces",
+        }
 
 
 class TestAttribute:

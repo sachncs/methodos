@@ -47,22 +47,56 @@ logger = logging.getLogger(__name__)
 REFINER_SYSTEM_PROMPT: str = """\
 You are a procedural-graph refiner. Given successful and failed execution \
 traces of an agent on a task, propose edits to the procedural graph that \
-will reduce future failures.
+will reduce future failures. The refiner is one half of paper Algorithm 1 \
+(App. B.6, line 9) and the seven rules below mirror paper §B.5 verbatim.
 
-Allowed edit operations (return as a JSON array of these objects):
+Allowed edit operations (return as a JSON array):
 - {"kind": "add_node", "node": {"id": "<id>", "description": "<text>"}}
 - {"kind": "delete_node", "node_id": "<id>"}
 - {"kind": "add_edge", "edge": {"src": "<id>", "dst": "<id>",
-  "relation": "leads_to|requires|replaces",
+  "relation": "leads_to|triggers|requires|converges_to|replaces",
   "attribute": {"condition": "<text>", "guidance": "<text>", "pitfalls": "<text>"}}}
-- {"kind": "delete_edge", "src": "<id>", "dst": "<id>", "relation": "leads_to|requires|replaces"}
+- {"kind": "delete_edge", "src": "<id>", "dst": "<id>",
+  "relation": "leads_to|triggers|requires|converges_to|replaces"}
 - {"kind": "update_attr", "src": "<id>", "dst": "<id>",
-  "relation": "leads_to|requires|replaces",
+  "relation": "leads_to|triggers|requires|converges_to|replaces",
   "attribute": {"condition": "<text>", "guidance": "<text>", "pitfalls": "<text>"}}
 
-Constraints:
+Refiner rules (paper §B.5, all seven):
+
+1. ACTION-NODE MATCHING. Any node of kind "ACTION" must match one of the
+   action/tool names in the `Available Tool Actions` list. STATUS nodes
+   (markers like `Start`, `End`, progress indicators) do not need to match.
+
+2. TRANSITION CONDITIONS. Provide a natural-language semantic
+   precondition. Use the string "null" if unconditional. Example:
+   "When dialogue history has been parsed but target constraints are
+   unknown."
+
+3. EXECUTION GUIDANCE (mandatory on every added edge). Must detail exactly
+   what action to take next and the strategic rationale. The guidance text
+   is the most important field for downstream solver behavior.
+
+4. PITFALLS (mandatory on every added edge). Warns against premature
+   actions, forbidden words, common formatting pitfalls. This is the
+   second-most-important field after guidance.
+
+5. GENERALITY & LEAK PREVENTION. The updated Procedural Graph must guide
+   the agent effectively without overfitting to specific details of a
+   single trajectory. Use high-level conceptual descriptions.
+
+6. NODE-ID COMPATIBILITY (static modes). In static modes, you must preserve
+   existing node IDs (e.g., `Month_Start`, `Decide_Capital`, tool names) so
+   they remain compatible with the environment's state tracker. Do not
+   rename them. In scratch modes you may propose new node IDs.
+
+7. GRAPH STRUCTURE. Follow the task's configured cycle policy. Every edge
+   must reference existing nodes, and every node must have a directed
+   path to a terminal node. The environment loop handles repetition
+   across simulation cycles.
+
+Other constraints:
 - All referenced nodes must exist (or be added in the same proposal).
-- Every edge must reference real nodes.
 - Edits must be minimal and targeted; do not propose large rewrites.
 - The agent's reasoning freedom must be preserved.
 
@@ -359,7 +393,7 @@ class EvolutionEngine:
     async def run(self, graph: ProceduralGraph) -> ProceduralGraph:
         """Run K rounds of evolution; return the retained graph."""
         current = graph
-        current_score = await self._score_validation(current)
+        current_score = await self.score_validation(current)
         logger.info("initial validation score: %.3f", current_score)
 
         for round_idx in range(1, self._k + 1):
@@ -379,7 +413,7 @@ class EvolutionEngine:
                 logger.info("round %d: rejected (structural)", round_idx)
                 continue
 
-            candidate_score = await self._score_validation(candidate)
+            candidate_score = await self.score_validation(candidate)
             if candidate_score >= current_score:
                 current = candidate
                 current_score = candidate_score
@@ -411,7 +445,7 @@ class EvolutionEngine:
             traces.append(result.trajectory)
         return traces
 
-    async def _score_validation(self, graph: ProceduralGraph) -> float:
+    async def score_validation(self, graph: ProceduralGraph) -> float:
         scores: list[float] = []
         for task in self._val:
             result = await run_rollout(

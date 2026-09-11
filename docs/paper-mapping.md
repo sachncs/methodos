@@ -25,6 +25,10 @@ Each paper section is implemented at the following location.
 | §5.4 | Self-evolution over rounds | `methodos/evolution.py::EvolutionEngine.run` |
 | §5.5 | Localization vs full graph | Demonstrated by `guidance_hops` parameter in `PGAdapter` |
 | App. B.6 | Algorithm 1 pseudocode | `methodos/evolution.py::EvolutionEngine.run` (verbatim translation) |
+| App. B.6.1 | `PrepareCandidate` structural checks | `methodos/evolution.py::validate_candidate` + `methodos/graph.py::validate` |
+| §B.4 | 5 relations (leads_to, requires, triggers, converges_to, replaces) | `methodos/schema.py::Relation` (StrEnum; `replaces` is operational, 4 paper relations are required) |
+| §B.5 | Node kind ∈ {`ACTION`, `STATUS`} | `methodos/schema.py::Node.kind` (Literal) |
+| §B.5 | Refiner system prompt — 7 rules (action matching, transitions, mandatory guidance/pitfalls, generality, node-id compat, structure) | `methodos/evolution.py::REFINER_SYSTEM_PROMPT` |
 
 ## Notation → Identifier
 
@@ -44,7 +48,7 @@ Each paper section is implemented at the following location.
 | `ψ` (LLM guidance model) | `LLMClient.complete` (called by `generate_guidance`) | `methodos/llm.py` |
 | `T_max` (max token budget) | `l_max_tokens` parameter | `methodos/evolution.py::EvolutionEngine.__init__` |
 | `H_rejected` (rejection history) | `RejectionMemory` | `methodos/evolution.py` |
-| `S_val` (validation score) | `_score_validation` (mean of rollout scores on val tasks) | `methodos/evolution.py` |
+| `S_val` (validation score) | `score_validation` (mean of rollout scores on val tasks) | `methodos/evolution.py` |
 
 ## Paper claims → Evidence in code
 
@@ -58,6 +62,8 @@ Each paper section is implemented at the following location.
 | `Tail_{L_max}` truncates from beginning, preserves end | `methodos/evolution.py::tail_concat` |
 | Subgraphs are 2-hop neighborhoods (default) | `methodos/adapter.py::PGAdapter.__init__` default `guidance_hops=2` |
 | Trajectory window is 3 steps (default) | `methodos/adapter.py::PGAdapter.__init__` default `trajectory_window=3` |
+| Refiner is invoked with rejected-candidate history | `methodos/evolution.py::REFINER_SYSTEM_PROMPT` includes a `## Rejected (do not repeat)` section populated from `RejectionMemory` |
+| Ties accepted (paper §3.3 Eq. 5: `S_k == S_{k-1}`) | `methodos/evolution.py::EvolutionEngine.run` (`if score >= prev_score: keep`) |
 
 ## Deviations from paper
 

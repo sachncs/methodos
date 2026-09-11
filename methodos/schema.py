@@ -23,13 +23,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class Relation(StrEnum):
-    """Edge relation types between procedure nodes.
+    """Edge relation types between procedure nodes (paper §B.4).
+
+    The paper's four-type vocabulary:
+    - LEADS_TO:             u → v — v is the next procedural step
+    - TRIGGERS:             u → v — u fires v (e.g., a user-message event
+                                 triggers an agent-response node)
+    - REQUIRES:             u → v — u cannot proceed without v
+    - CONVERGES_TO:         u → v — v is a terminal that u eventually
+                                 settles into (often multiple distinct
+                                 paths resolve to one summary node)
 
     Values are stable wire format — do NOT rename. Adding new variants is
     safe; renaming or removing existing ones is a breaking change.
     """
     LEADS_TO = "leads_to"
+    TRIGGERS = "triggers"
     REQUIRES = "requires"
+    CONVERGES_TO = "converges_to"
     REPLACES = "replaces"
 
 
@@ -53,11 +64,18 @@ class Node(BaseModel):
     Node ids must match `^[a-zA-Z0-9_\\-\\.]+$` and must NOT start with `.`.
     The leading-dot restriction prevents accidental id collisions with
     metadata keys when nodes are flattened for persistence.
+
+    `kind` discriminates between ACTION nodes (tool calls, skills,
+    reasoning steps — these match tools in the host environment) and
+    STATUS nodes (task-state markers like `Start`, `End`, intermediate
+    progress indicators — paper §B.5: "type": "ACTION" or "STATUS").
+    Default is `ACTION` for backward compatibility.
     """
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_\-\.]+$")
     description: str = Field(default="", max_length=2000)
+    kind: Literal["ACTION", "STATUS"] = Field(default="ACTION")
 
     @field_validator("id")
     @classmethod
