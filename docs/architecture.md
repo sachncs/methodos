@@ -17,9 +17,34 @@ methodos/
 ├── adapter.py       AgentState, Solver Protocol, GuidanceCache, PGAdapter
 ├── evolution.py     Algorithm 1 (refiner + rollback) + EvolutionEngine
 ├── repo.py          Repository + VectorIndex Protocols, Filesystem + SQLite + SqliteVec
+├── auth.py          APIKeyAuth (Bearer / X-API-Key)
+├── rate_limit.py    TokenBucketLimiter
+├── observability.py Structured logging + Prometheus metrics (single module)
 ├── service.py       FastAPI app factory (REST: /v1/graphs, /guidance, /evolve)
 └── cli.py           Typer CLI (init, inspect, serve, replay, evolve, eval)
 ```
+
+### Why `observability.py` holds both logging and metrics
+
+`methodos.observability` co-locates the two observability concerns
+(structured logging via `configure_logging` / `JSONFormatter` and
+Prometheus instruments). They are deliberately in one module rather
+than `logging.py` + `metrics.py` because:
+
+- **Same audience.** Operators wiring the hosted service need both
+  halves; pairing them in one import keeps the public API discoverable.
+- **Same deployment surface.** Both wire into the FastAPI
+  `create_app()` factory and the `methodos serve --log-json` CLI flag;
+  no cross-module coordination is needed.
+- **Shared constants.** `RESERVED_LOG_KEYS` (logging) and the metric
+  label tuples (`method`, `path`, `status`) live next to each other so
+  label cardinality decisions stay in sync with what the JSON formatter
+  emits.
+
+If either half grows beyond ~500 lines or acquires independent release
+cadence, the natural split is `observability/logging.py` +
+`observability/metrics.py` under a package - the public API is stable
+either way.
 
 ## Data Flow
 
