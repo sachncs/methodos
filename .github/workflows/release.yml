@@ -77,6 +77,8 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/methodos
+    permissions:
+      id-token: write  # for PyPI OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
 
@@ -93,14 +95,17 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
+        # OIDC trusted publishing - no PYPI_TOKEN secret required.
+        # Configure the trusted publisher at https://pypi.org/manage/account/publishing/
+        # pointing at this repo + workflow file + 'pypi' environment.
 
   github-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
-    needs: [docker, pypi]
+    # Deliberately NOT depending on docker/pypi - a transient failure in
+    # either must not block the GitHub release. The release notes are
+    # useful even if the artifact upload is retrying.
     permissions:
       contents: write
     steps:
