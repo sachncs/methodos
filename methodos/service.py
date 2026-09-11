@@ -359,6 +359,21 @@ def create_app(
         ).observe(elapsed)
         return response
 
+    @app.middleware("http")
+    async def response_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Set per-response headers: Cache-Control: no-store + Server: methodos.
+
+        - `Cache-Control: no-store` keeps graph data and metrics out of
+          intermediate caches (which can otherwise serve stale auth
+          checks or stale counters to the next caller).
+        - `Server: methodos` replaces the uvicorn default so the
+          transport doesn't leak in response headers.
+        """
+        response: Response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers["Server"] = "methodos"
+        return response
+
     # ---- dependencies --------------------------------------------------------
 
     def get_repo() -> Repository:

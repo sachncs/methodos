@@ -649,3 +649,32 @@ class TestEvolveShortCircuit:
             response = client.post("/v1/graphs/anything/evolve", json={"k_rounds": 3})
             assert response.status_code == 501
             assert "Python SDK" in response.json()["detail"]
+
+
+# ----------------------------------------------------------------------------
+# Response headers (Cache-Control + Server)
+# ----------------------------------------------------------------------------
+
+
+class TestResponseHeaders:
+    def test_cache_control_no_store_on_health(self, client: TestClient) -> None:
+        response = client.get("/health")
+        assert response.headers.get("cache-control") == "no-store"
+
+    def test_cache_control_no_store_on_v1(self, client: TestClient) -> None:
+        response = client.get("/v1/graphs/g1")
+        assert response.headers.get("cache-control") == "no-store"
+
+    def test_cache_control_no_store_on_metrics(self, client: TestClient) -> None:
+        response = client.get("/metrics")
+        assert response.headers.get("cache-control") == "no-store"
+
+    def test_server_header_is_methodos(self, client: TestClient) -> None:
+        response = client.get("/health")
+        assert response.headers.get("server") == "methodos"
+
+    def test_server_header_overrides_uvicorn(self, client: TestClient) -> None:
+        # uvicorn sets "server: uvicorn" by default; our middleware must
+        # replace it, not append.
+        response = client.get("/health")
+        assert "uvicorn" not in response.headers.get("server", "")
