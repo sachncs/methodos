@@ -231,14 +231,14 @@ def reset_prometheus_counters() -> None:
     children (label combinations) - the metric definitions stay
     registered so labels can still be referenced.
     """
+    import contextlib
+
     from prometheus_client import REGISTRY
 
     yield
     for collector in list(REGISTRY._collector_to_names.keys()):  # type: ignore[attr-defined]
-        try:
+        with contextlib.suppress(AttributeError):
             collector._metrics.clear()  # type: ignore[attr-defined]
-        except AttributeError:
-            pass
 
 
 __all__ = [
