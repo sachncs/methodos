@@ -165,10 +165,13 @@ class TestFormatterStandalone:
 
 class TestMetricsInstruments:
     def test_increment_request_counter(self) -> None:
-        before = REQUESTS_TOTAL.labels(method="GET", path="/x", status="200")._value.get()  # type: ignore[attr-defined]
+        # The autouse `reset_prometheus_counters` fixture in conftest
+        # gives us a clean slate, so a single .inc() must equal 1.
         REQUESTS_TOTAL.labels(method="GET", path="/x", status="200").inc()
-        after = REQUESTS_TOTAL.labels(method="GET", path="/x", status="200")._value.get()  # type: ignore[attr-defined]
-        assert after == before + 1
+        assert (
+            REQUESTS_TOTAL.labels(method="GET", path="/x", status="200")._value.get()  # type: ignore[attr-defined]
+            == 1.0
+        )
 
     def test_observe_request_duration(self) -> None:
         # Smoke test: recording samples does not raise.
@@ -178,15 +181,26 @@ class TestMetricsInstruments:
     def test_guidance_cache_counter(self) -> None:
         GUIDANCE_CACHE_TOTAL.labels(result="hit").inc()
         GUIDANCE_CACHE_TOTAL.labels(result="miss").inc(2)
+        assert GUIDANCE_CACHE_TOTAL.labels(result="hit")._value.get() == 1.0  # type: ignore[attr-defined]
+        assert GUIDANCE_CACHE_TOTAL.labels(result="miss")._value.get() == 2.0  # type: ignore[attr-defined]
 
     def test_llm_attempts_counter(self) -> None:
         LLM_ATTEMPTS_TOTAL.labels(outcome="success", model="gpt-4o-mini").inc()
         LLM_ATTEMPTS_TOTAL.labels(outcome="retry", model="gpt-4o-mini").inc()
         LLM_ATTEMPTS_TOTAL.labels(outcome="exhausted", model="claude").inc()
+        assert (
+            LLM_ATTEMPTS_TOTAL.labels(
+                outcome="success", model="gpt-4o-mini"
+            )._value.get()  # type: ignore[attr-defined]
+            == 1.0
+        )
 
     def test_evolution_rounds_counter(self) -> None:
         EVOLUTION_ROUNDS_TOTAL.labels(outcome="accepted").inc()
         EVOLUTION_ROUNDS_TOTAL.labels(outcome="rejected").inc()
+        assert (
+            EVOLUTION_ROUNDS_TOTAL.labels(outcome="accepted")._value.get() == 1.0  # type: ignore[attr-defined]
+        )
 
     def test_info_gauge(self) -> None:
         INFO.labels(version="test", component="service").set(1)

@@ -221,6 +221,26 @@ def in_memory_repository() -> InMemoryRepository:
     return InMemoryRepository()
 
 
+@pytest.fixture(autouse=True)
+def reset_prometheus_counters() -> None:
+    """Clear Prometheus counter values between tests.
+
+    The default `prometheus_client` registry is process-global; without
+    this fixture, counters bleed across tests and assertions about
+    `inc()` effects become order-dependent. We only clear counter
+    children (label combinations) - the metric definitions stay
+    registered so labels can still be referenced.
+    """
+    from prometheus_client import REGISTRY
+
+    yield
+    for collector in list(REGISTRY._collector_to_names.keys()):  # type: ignore[attr-defined]
+        try:
+            collector._metrics.clear()  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
+
 __all__ = [
     "FakeLLM",
     "InMemoryRepository",
