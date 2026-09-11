@@ -1,4 +1,5 @@
 """Tests for `methodos.guidance`."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,7 +33,9 @@ def _make_graph() -> ProceduralGraph:
         },
         edges=[
             Edge(
-                src="start", dst="search", relation=Relation.LEADS_TO,
+                src="start",
+                dst="search",
+                relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="need information",
                     guidance="call search with focused query",
@@ -40,7 +43,9 @@ def _make_graph() -> ProceduralGraph:
                 ),
             ),
             Edge(
-                src="search", dst="answer", relation=Relation.LEADS_TO,
+                src="search",
+                dst="answer",
+                relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="have enough info",
                     guidance="synthesize a concise answer",
@@ -67,12 +72,14 @@ class FakeLLM(LLMClient):
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
     ) -> str:
-        self.calls.append({
-            "system": system,
-            "user": user,
-            "json_schema": json_schema,
-            "temperature": temperature,
-        })
+        self.calls.append(
+            {
+                "system": system,
+                "user": user,
+                "json_schema": json_schema,
+                "temperature": temperature,
+            }
+        )
         if not self._responses:
             return ""
         return self._responses.pop(0)
@@ -149,9 +156,11 @@ class TestFormatTrajectoryWindow:
 
     def test_iterable_input(self) -> None:
         """Trajectory may be any iterable, not just a list."""
+
         def gen() -> Any:
             yield ("a", "b")
             yield ("c", "d")
+
         out = format_trajectory_window(gen(), window=5)
         assert "ACTION: a" in out
         assert "ACTION: c" in out
@@ -175,22 +184,29 @@ class TestGenerateGuidance:
     async def test_calls_llm_with_system_prompt(self) -> None:
         fake = FakeLLM(["x"])
         await generate_guidance(
-            llm=fake, graph=_make_graph(), query="q", trajectory=[],
+            llm=fake,
+            graph=_make_graph(),
+            query="q",
+            trajectory=[],
         )
         assert fake.calls[0]["system"] == GUIDANCE_SYSTEM_PROMPT
 
     async def test_user_prompt_includes_query(self) -> None:
         fake = FakeLLM(["x"])
         await generate_guidance(
-            llm=fake, graph=_make_graph(),
-            query="Tell me about Paris.", trajectory=[],
+            llm=fake,
+            graph=_make_graph(),
+            query="Tell me about Paris.",
+            trajectory=[],
         )
         assert "Tell me about Paris." in fake.calls[0]["user"]
 
     async def test_user_prompt_includes_trajectory(self) -> None:
         fake = FakeLLM(["x"])
         await generate_guidance(
-            llm=fake, graph=_make_graph(), query="q",
+            llm=fake,
+            graph=_make_graph(),
+            query="q",
             trajectory=[("search", "found Paris is the capital")],
         )
         assert "ACTION: search" in fake.calls[0]["user"]
@@ -200,7 +216,10 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         graph = _make_graph()
         await generate_guidance(
-            llm=fake, graph=graph, query="q", trajectory=[],
+            llm=fake,
+            graph=graph,
+            query="q",
+            trajectory=[],
         )
         user_prompt = fake.calls[0]["user"]
         # Graph metadata appears
@@ -212,7 +231,10 @@ class TestGenerateGuidance:
     async def test_temperature_is_zero(self) -> None:
         fake = FakeLLM(["x"])
         await generate_guidance(
-            llm=fake, graph=_make_graph(), query="q", trajectory=[],
+            llm=fake,
+            graph=_make_graph(),
+            query="q",
+            trajectory=[],
         )
         assert fake.calls[0]["temperature"] == 0.0
 
@@ -222,7 +244,10 @@ class TestGenerateGuidance:
         # 5-step trajectory
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
         await generate_guidance(
-            llm=fake, graph=graph, query="q", trajectory=trajectory,
+            llm=fake,
+            graph=graph,
+            query="q",
+            trajectory=trajectory,
         )
         # Last 3 steps appear
         user_prompt = fake.calls[0]["user"]
@@ -236,7 +261,10 @@ class TestGenerateGuidance:
         graph = _make_graph()
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
         await generate_guidance(
-            llm=fake, graph=graph, query="q", trajectory=trajectory,
+            llm=fake,
+            graph=graph,
+            query="q",
+            trajectory=trajectory,
             window=2,
         )
         user_prompt = fake.calls[0]["user"]
@@ -247,7 +275,10 @@ class TestGenerateGuidance:
     async def test_returns_string_even_on_empty_response(self) -> None:
         fake = FakeLLM([""])
         out = await generate_guidance(
-            llm=fake, graph=_make_graph(), query="q", trajectory=[],
+            llm=fake,
+            graph=_make_graph(),
+            query="q",
+            trajectory=[],
         )
         assert out == ""
 
@@ -255,7 +286,10 @@ class TestGenerateGuidance:
         """generate_guidance doesn't pass a structured-output schema."""
         fake = FakeLLM(["x"])
         await generate_guidance(
-            llm=fake, graph=_make_graph(), query="q", trajectory=[],
+            llm=fake,
+            graph=_make_graph(),
+            query="q",
+            trajectory=[],
         )
         assert fake.calls[0]["json_schema"] is None
 

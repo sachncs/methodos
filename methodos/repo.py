@@ -21,6 +21,7 @@ Engineering notes:
 - `Task` and `Trajectory` live here (not in `evolution`) because they
   are persistence shapes; `evolution` imports them.
 """
+
 from __future__ import annotations
 
 import json
@@ -56,6 +57,7 @@ class Task:
         expected: opaque expected outcome for scoring (callable, string,
             dict, etc.). Caller-defined.
     """
+
     query: str
     expected: Any = None
 
@@ -69,6 +71,7 @@ class Trajectory:
         steps: ((action, observation), ...) in order.
         score: numeric outcome in [0.0, 1.0].
     """
+
     task: Task
     steps: tuple[tuple[str, str], ...]
     score: float
@@ -100,9 +103,7 @@ class Repository(Protocol):
         self, graph_id: str, split: str, trajectory: Trajectory
     ) -> None: ...
 
-    def read_trajectories(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]: ...
+    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]: ...
 
 
 @runtime_checkable
@@ -120,6 +121,7 @@ class VectorIndex(Protocol):
 @dataclass(frozen=True, slots=True)
 class ScoredMatch:
     """One result of a `VectorIndex.query` call."""
+
     key: str
     score: float
 
@@ -208,7 +210,9 @@ class FilesystemRepository:
         target = graph_dir / "graph.json"
         # Atomic write: write to a sibling temp file, then replace.
         fd, tmp_path_str = tempfile.mkstemp(
-            prefix="graph_", suffix=".json.tmp", dir=str(graph_dir),
+            prefix="graph_",
+            suffix=".json.tmp",
+            dir=str(graph_dir),
         )
         tmp_path = Path(tmp_path_str)
         try:
@@ -235,24 +239,22 @@ class FilesystemRepository:
             await f.write(data)
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
-    async def append_trajectory(
-        self, graph_id: str, split: str, trajectory: Trajectory
-    ) -> None:
+    async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         graph_dir = self._graph_dir(graph_id)
         traj_dir = graph_dir / "trajectories"
         traj_dir.mkdir(parents=True, exist_ok=True)
         path = traj_dir / f"{split}.jsonl"
-        record = json.dumps({
-            "task_query": trajectory.task.query,
-            "score": trajectory.score,
-            "steps": [list(s) for s in trajectory.steps],
-        })
+        record = json.dumps(
+            {
+                "task_query": trajectory.task.query,
+                "score": trajectory.score,
+                "steps": [list(s) for s in trajectory.steps],
+            }
+        )
         async with aiofiles.open(path, "a", encoding="utf-8") as f:
             await f.write(record + "\n")
 
-    def read_trajectories(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]:
+    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Return an async iterator over trajectories.
 
         Synchronous method that returns an `AsyncIterator` (the standard
@@ -260,9 +262,7 @@ class FilesystemRepository:
         """
         return self._read_trajectories_impl(graph_id, split)
 
-    async def _read_trajectories_impl(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]:
+    async def _read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         path = self._graph_dir(graph_id) / "trajectories" / f"{split}.jsonl"
         if not path.exists():
             return
@@ -361,9 +361,7 @@ class SQLiteRepository:
                 if cleaned:
                     conn.execute(cleaned)
             # Record schema version if missing.
-            existing = conn.execute(
-                "SELECT version FROM schema_meta"
-            ).fetchone()
+            existing = conn.execute("SELECT version FROM schema_meta").fetchone()
             if existing is None:
                 conn.execute(
                     "INSERT INTO schema_meta (version) VALUES (?)",
@@ -375,7 +373,8 @@ class SQLiteRepository:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
-                "SELECT body FROM graphs WHERE id = ?", (graph_id,),
+                "SELECT body FROM graphs WHERE id = ?",
+                (graph_id,),
             ) as cur:
                 row = await cur.fetchone()
                 if row is None:
@@ -394,7 +393,8 @@ class SQLiteRepository:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
-                    "SELECT 1 FROM graphs WHERE id = ?", (graph.id,),
+                    "SELECT 1 FROM graphs WHERE id = ?",
+                    (graph.id,),
                 ) as cur:
                     existing = await cur.fetchone()
                 if existing is None:
@@ -420,7 +420,8 @@ class SQLiteRepository:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
-                "SELECT body FROM graphs WHERE id = ?", (graph_id,),
+                "SELECT body FROM graphs WHERE id = ?",
+                (graph_id,),
             ) as cur:
                 row = await cur.fetchone()
                 if row is None:
@@ -428,21 +429,20 @@ class SQLiteRepository:
                 body = row["body"]
             ts = time.time()
             await db.execute(
-                "INSERT OR REPLACE INTO snapshots (graph_id, tag, body, ts) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO snapshots (graph_id, tag, body, ts) VALUES (?, ?, ?, ?)",
                 (graph_id, tag, body, ts),
             )
             await db.commit()
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
-    async def append_trajectory(
-        self, graph_id: str, split: str, trajectory: Trajectory
-    ) -> None:
-        body = json.dumps({
-            "task_query": trajectory.task.query,
-            "score": trajectory.score,
-            "steps": [list(s) for s in trajectory.steps],
-        })
+    async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
+        body = json.dumps(
+            {
+                "task_query": trajectory.task.query,
+                "score": trajectory.score,
+                "steps": [list(s) for s in trajectory.steps],
+            }
+        )
         ts = time.time()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -452,9 +452,7 @@ class SQLiteRepository:
             )
             await db.commit()
 
-    def read_trajectories(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]:
+    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Return an async iterator over trajectories for (graph_id, split).
 
         Synchronous method that returns an `AsyncIterator` (the standard
@@ -462,15 +460,12 @@ class SQLiteRepository:
         """
         return self._read_trajectories_impl(graph_id, split)
 
-    async def _read_trajectories_impl(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]:
+    async def _read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
-                "SELECT body FROM trajectories "
-                "WHERE graph_id = ? AND split = ? ORDER BY ts ASC",
+                "SELECT body FROM trajectories WHERE graph_id = ? AND split = ? ORDER BY ts ASC",
                 (graph_id, split),
             ) as cur:
                 async for row in cur:
@@ -499,9 +494,7 @@ class SqliteVecIndex:
         try:
             import sqlite_vec
         except ImportError as exc:
-            raise RuntimeError(
-                "sqlite-vec is not installed. `pip install methodos[vec]`."
-            ) from exc
+            raise RuntimeError("sqlite-vec is not installed. `pip install methodos[vec]`.") from exc
         self._db_path = Path(db_path)
         self._dim = dim
         self._sqlite_vec = sqlite_vec
@@ -527,9 +520,7 @@ class SqliteVecIndex:
 
     def upsert(self, key: str, vector: list[float]) -> None:
         if len(vector) != self._dim:
-            raise ValueError(
-                f"vector length {len(vector)} != dim {self._dim}"
-            )
+            raise ValueError(f"vector length {len(vector)} != dim {self._dim}")
         packed = self._sqlite_vec.serialize_float32(vector)
         with self._connect() as conn:
             conn.execute(
@@ -539,9 +530,7 @@ class SqliteVecIndex:
 
     def query(self, vector: list[float], k: int) -> list[ScoredMatch]:
         if len(vector) != self._dim:
-            raise ValueError(
-                f"vector length {len(vector)} != dim {self._dim}"
-            )
+            raise ValueError(f"vector length {len(vector)} != dim {self._dim}")
         if k <= 0:
             return []
         packed = self._sqlite_vec.serialize_float32(vector)

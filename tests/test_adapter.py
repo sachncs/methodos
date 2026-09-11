@@ -1,4 +1,5 @@
 """Tests for `methodos.adapter` (PGAdapter, AgentState, Solver, GuidanceCache)."""
+
 from __future__ import annotations
 
 import pytest
@@ -166,7 +167,8 @@ class TestPGAdapterStep:
         solver = StaticSolver(action="answer")
         graph = make_sample_graph()
         adapter = PGAdapter(
-            solver=solver, graph=graph,
+            solver=solver,
+            graph=graph,
             llm=FakeLLM(responses=["do this"]),
         )
         action = await adapter.step(
@@ -184,7 +186,8 @@ class TestPGAdapterStep:
     async def test_context_contains_guidance(self) -> None:
         solver = StaticSolver()
         adapter = PGAdapter(
-            solver=solver, graph=make_sample_graph(),
+            solver=solver,
+            graph=make_sample_graph(),
             llm=FakeLLM(responses=["GUIDANCE-BODY"]),
         )
         await adapter.step(query="q", trajectory=[])
@@ -249,13 +252,19 @@ class TestPGAdapterStep:
         solver = StaticSolver()
         llm = FakeLLM(responses=["g"])
         adapter_a = PGAdapter(
-            solver=solver, graph=graph_a, llm=llm, cache=shared_cache,
+            solver=solver,
+            graph=graph_a,
+            llm=llm,
+            cache=shared_cache,
         )
         await adapter_a.step(query="q", trajectory=[("start", "")])
         # Second adapter with structurally identical graph → same content hash
         # → cache hit, no new LLM call.
         adapter_b = PGAdapter(
-            solver=solver, graph=graph_b, llm=llm, cache=shared_cache,
+            solver=solver,
+            graph=graph_b,
+            llm=llm,
+            cache=shared_cache,
         )
         await adapter_b.step(query="q", trajectory=[("start", "")])
         assert len(llm.calls) == 1
@@ -265,7 +274,8 @@ class TestPGAdapterStep:
         """The trajectory in AgentState is a tuple, not a list (immutable)."""
         solver = StaticSolver()
         adapter = PGAdapter(
-            solver=solver, graph=make_sample_graph(),
+            solver=solver,
+            graph=make_sample_graph(),
             llm=FakeLLM(),
         )
         trajectory = [("a", "1"), ("b", "2"), ("c", "3")]

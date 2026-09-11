@@ -1,4 +1,5 @@
 """Tests for `methodos.llm`."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -20,6 +21,7 @@ class _SimpleSchema(BaseModel):
 
 def test_llm_client_is_runtime_checkable_protocol() -> None:
     """LLMClient is `runtime_checkable` so isinstance checks work at runtime."""
+
     # Confirm @runtime_checkable was applied; `isinstance` against a Protocol
     # without that decorator returns False even for matching shapes.
     class StubClient:

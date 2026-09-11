@@ -1,4 +1,5 @@
 """Tests for `methodos.schema` Pydantic models."""
+
 from __future__ import annotations
 
 from typing import ClassVar
@@ -42,7 +43,11 @@ class TestRelation:
         """paper §B.4 specifies LEADS_TO, TRIGGERS, REQUIRES, CONVERGES_TO;
         REPLACES is a methodos addition for graph editing operations."""
         assert {r.value for r in Relation} == {
-            "leads_to", "triggers", "requires", "converges_to", "replaces",
+            "leads_to",
+            "triggers",
+            "requires",
+            "converges_to",
+            "replaces",
         }
 
 
@@ -144,8 +149,11 @@ class TestEdge:
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
             Edge(
-                src="a", dst="b", relation=Relation.LEADS_TO,
-                attribute=self._attr(), extra="nope",  # type: ignore[call-arg]
+                src="a",
+                dst="b",
+                relation=Relation.LEADS_TO,
+                attribute=self._attr(),
+                extra="nope",  # type: ignore[call-arg]
             )
 
 
@@ -228,7 +236,9 @@ class TestEditUnion:
         raw = {
             "kind": "add_edge",
             "edge": {
-                "src": "a", "dst": "b", "relation": "leads_to",
+                "src": "a",
+                "dst": "b",
+                "relation": "leads_to",
                 "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
             },
         }
@@ -246,7 +256,9 @@ class TestEditUnion:
     def test_parse_update_attr(self) -> None:
         raw = {
             "kind": "update_attr",
-            "src": "a", "dst": "b", "relation": "leads_to",
+            "src": "a",
+            "dst": "b",
+            "relation": "leads_to",
             "attribute": {"condition": "c2", "guidance": "g2", "pitfalls": "p2"},
         }
         parsed = self.adapter.validate_python(raw)

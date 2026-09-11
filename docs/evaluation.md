@@ -55,8 +55,10 @@ production, replace it with a real retriever:
 from eval.hotpotqa.solver import noop_search
 from eval.hotpotqa import solver as solver_mod
 
+
 async def real_search(query: str) -> str:
     return await my_retriever.search(query)
+
 
 solver_mod.noop_search = real_search
 ```

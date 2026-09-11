@@ -1,4 +1,5 @@
 """Sanity test for the package skeleton; replaced as phases land."""
+
 from __future__ import annotations
 
 import methodos

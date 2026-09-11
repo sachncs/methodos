@@ -6,6 +6,7 @@ template for wiring methodos into a real agent environment.
 Requirements: `pip install methodos` and an OPENAI_API_KEY (or
 equivalent) configured in your environment.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,6 +32,7 @@ class StubSolver:
     (which contains the procedural guidance) when constructing its
     prompt. This stub demonstrates the wiring only.
     """
+
     async def step(self, state: AgentState) -> str:
         return "answer"
 
@@ -63,10 +65,7 @@ async def main() -> None:
         k_rounds=3,
     )
     final_graph = await engine.run(graph)
-    print(
-        f"final graph: {len(final_graph.nodes)} nodes, "
-        f"{len(final_graph.edges)} edges"
-    )
+    print(f"final graph: {len(final_graph.nodes)} nodes, {len(final_graph.edges)} edges")
 
 
 if __name__ == "__main__":

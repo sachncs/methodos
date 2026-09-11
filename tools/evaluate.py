@@ -35,6 +35,7 @@ What it proves (each section prints PASS/FAIL and a numeric summary):
 
 Exit code is 0 only if every section reports PASS.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -164,7 +165,8 @@ def paper_example_graph() -> ProceduralGraph:
         },
         edges=[
             Edge(
-                src="cash_flow_forecast", dst="fund_raising_request",
+                src="cash_flow_forecast",
+                dst="fund_raising_request",
                 relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="projected runway falls below the safety buffer",
@@ -173,7 +175,8 @@ def paper_example_graph() -> ProceduralGraph:
                 ),
             ),
             Edge(
-                src="fund_raising_request", dst="monthly_close",
+                src="fund_raising_request",
+                dst="monthly_close",
                 relation=Relation.REQUIRES,
                 attribute=Attribute(
                     condition="funding cycle in progress",
@@ -182,7 +185,8 @@ def paper_example_graph() -> ProceduralGraph:
                 ),
             ),
             Edge(
-                src="monthly_close", dst="board_update",
+                src="monthly_close",
+                dst="board_update",
                 relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="month closed",
@@ -205,18 +209,26 @@ def larger_graph() -> ProceduralGraph:
         if i > 0:
             attr = Attribute(
                 condition="prev step done",
-                guidance=f"continue from n{i-1}",
-                pitfalls=f"do not skip n{i-1}",
+                guidance=f"continue from n{i - 1}",
+                pitfalls=f"do not skip n{i - 1}",
             )
-            edges.append(Edge(
-                src=f"n{i-1}", dst=nid, relation=Relation.LEADS_TO, attribute=attr,
-            ))
+            edges.append(
+                Edge(
+                    src=f"n{i - 1}",
+                    dst=nid,
+                    relation=Relation.LEADS_TO,
+                    attribute=attr,
+                )
+            )
     nodes["end"] = Node(id="end", description="done")
-    edges.append(Edge(
-        src=f"n{len(nodes) - 2}", dst="end",
-        relation=Relation.LEADS_TO,
-        attribute=Attribute(condition="all prior done", guidance="finish", pitfalls="n/a"),
-    ))
+    edges.append(
+        Edge(
+            src=f"n{len(nodes) - 2}",
+            dst="end",
+            relation=Relation.LEADS_TO,
+            attribute=Attribute(condition="all prior done", guidance="finish", pitfalls="n/a"),
+        )
+    )
     return ProceduralGraph(
         id="big",
         nodes=nodes,
@@ -231,7 +243,9 @@ def cycle_graph() -> ProceduralGraph:
     return ProceduralGraph(
         id="cycle",
         nodes={
-            "a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c"),
+            "a": Node(id="a"),
+            "b": Node(id="b"),
+            "c": Node(id="c"),
         },
         edges=[
             Edge(src="a", dst="b", relation=Relation.LEADS_TO, attribute=attr),
@@ -276,13 +290,16 @@ async def section_algorithms() -> SectionResult:
         assert issues == [], f"paper graph issues: {issues}"
         cycle_issues = validate(g_cycle, allow_cycles=True)
         assert not any(i.code == "cycle_detected" for i in cycle_issues)
-        details.append("validate: paper graph clean (0 issues); cycle graph flagged when disallowed")
+        details.append(
+            "validate: paper graph clean (0 issues); cycle graph flagged when disallowed"
+        )
 
         # apply_edits: add a node + edge using proper Pydantic Edit variants.
         # The new node is also made a terminal so reachability is preserved.
         new_node = Node(id="audit_step", description="audit each step")
         new_edge = Edge(
-            src="monthly_close", dst="audit_step",
+            src="monthly_close",
+            dst="audit_step",
             relation=Relation.LEADS_TO,
             attribute=Attribute(
                 condition="month closed",
@@ -290,10 +307,13 @@ async def section_algorithms() -> SectionResult:
                 pitfalls="do not skip sample checks",
             ),
         )
-        grown = apply_edits(g_paper, [
-            EditAddNode(node=new_node),
-            EditAddEdge(edge=new_edge),
-        ])
+        grown = apply_edits(
+            g_paper,
+            [
+                EditAddNode(node=new_node),
+                EditAddEdge(edge=new_edge),
+            ],
+        )
         # Make the new node a terminal to preserve reachability.
         grown = grown.model_copy(update={"terminal_ids": grown.terminal_ids | {"audit_step"}})
         assert "audit_step" in grown.nodes
@@ -301,7 +321,9 @@ async def section_algorithms() -> SectionResult:
         # Reachability preserved: every node reaches a terminal.
         for nid in grown.nodes:
             assert has_reachable_terminal(grown, nid), f"{nid} cannot reach a terminal"
-        details.append("apply_edits: paper graph grew by 1 node + 1 edge; all nodes still reach a terminal")
+        details.append(
+            "apply_edits: paper graph grew by 1 node + 1 edge; all nodes still reach a terminal"
+        )
 
         # apply_single_edit dispatched correctly via the Pydantic Edit variants
         grown3 = apply_single_edit(g_paper, EditAddNode(node=Node(id="x")))
@@ -350,12 +372,9 @@ async def section_persistence(tmp: Path) -> SectionResult:
         )
         g = ProceduralGraph(
             id="persist-test",
-            nodes={
-                f"n{i}": Node(id=f"n{i}", description=f"node {i}")
-                for i in range(10)
-            },
+            nodes={f"n{i}": Node(id=f"n{i}", description=f"node {i}") for i in range(10)},
             edges=[
-                Edge(src=f"n{i}", dst=f"n{i+1}", relation=Relation.LEADS_TO, attribute=attr)
+                Edge(src=f"n{i}", dst=f"n{i + 1}", relation=Relation.LEADS_TO, attribute=attr)
                 for i in range(9)
             ],
             terminal_ids={"n9"},
@@ -366,7 +385,7 @@ async def section_persistence(tmp: Path) -> SectionResult:
         trajectories = [
             Trajectory(
                 task=Task(query=f"task_{i}", expected=f"answer_{i}"),
-                steps=((f"n{i % 9}", f"obs_{i}"), (f"n{(i + 1) % 9}", f"obs_{i+1}")),
+                steps=((f"n{i % 9}", f"obs_{i}"), (f"n{(i + 1) % 9}", f"obs_{i + 1}")),
                 score=float(i % 2),
             )
             for i in range(5)
@@ -382,7 +401,9 @@ async def section_persistence(tmp: Path) -> SectionResult:
 
         loaded_g = await fs_repo.load_graph(g.id)
         assert loaded_g == g, f"FS round-trip mismatch: {loaded_g != g}"
-        details.append(f"FilesystemRepository round-trip: graph_id={g.id} identical after save+load")
+        details.append(
+            f"FilesystemRepository round-trip: graph_id={g.id} identical after save+load"
+        )
 
         # Trajectory round-trip
         loaded_trajs = [t async for t in fs_repo.read_trajectories(g.id, "train")]
@@ -391,7 +412,9 @@ async def section_persistence(tmp: Path) -> SectionResult:
             assert orig.task.query == got.task.query
             assert orig.score == got.score
             assert orig.steps == got.steps
-        details.append(f"FilesystemRepository round-trip: {len(loaded_trajs)} trajectories identical")
+        details.append(
+            f"FilesystemRepository round-trip: {len(loaded_trajs)} trajectories identical"
+        )
 
         # Snapshot persisted
         snap_path = fs_root / "graphs" / g.id / "snapshots" / "v1.json"
@@ -399,7 +422,9 @@ async def section_persistence(tmp: Path) -> SectionResult:
         snap_bytes = snap_path.read_bytes()
         graph_bytes = (fs_root / "graphs" / g.id / "graph.json").read_bytes()
         assert snap_bytes == graph_bytes, "snapshot bytes differ from current graph"
-        details.append(f"FilesystemRepository snapshot bytes match current graph bytes ({len(snap_bytes)} bytes)")
+        details.append(
+            f"FilesystemRepository snapshot bytes match current graph bytes ({len(snap_bytes)} bytes)"
+        )
 
         # ---- SQLiteRepository ----
         sql_path = tmp / "methodos.db"
@@ -425,12 +450,16 @@ async def section_persistence(tmp: Path) -> SectionResult:
 
         # Concurrent saves
         n = 16
+
         async def save(i: int) -> None:
-            graph_i = g.model_copy(update={
-                "id": f"{g.id}-{i}",
-                "metadata": {"writer": i},
-            })
+            graph_i = g.model_copy(
+                update={
+                    "id": f"{g.id}-{i}",
+                    "metadata": {"writer": i},
+                }
+            )
             await sql_repo.save_graph(graph_i)
+
         results = await asyncio.gather(*[save(i) for i in range(n)], return_exceptions=True)
         for r in results:
             assert not isinstance(r, BaseException), f"writer raised: {r}"
@@ -455,7 +484,10 @@ class _ScriptedLLM(LLMClient):
         self.calls: list[str] = []
 
     async def complete(
-        self, *, system: str, user: str,
+        self,
+        *,
+        system: str,
+        user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
     ) -> str:
@@ -494,7 +526,11 @@ async def section_guidance() -> SectionResult:
         # Direct generate_guidance call
         llm = _ScriptedLLM(["mock-guidance-text"])
         guidance = await generate_guidance(
-            llm=llm, graph=g, query="What now?", trajectory=[], window=3,
+            llm=llm,
+            graph=g,
+            query="What now?",
+            trajectory=[],
+            window=3,
         )
         assert guidance == "mock-guidance-text"
         assert GUIDANCE_SYSTEM_PROMPT in llm.calls[0].split("\n")[0] or len(llm.calls[0]) > 0
@@ -539,7 +575,10 @@ class _RoundScriptedLLM(LLMClient):
         self.calls: list[dict[str, Any]] = []
 
     async def complete(
-        self, *, system: str, user: str,
+        self,
+        *,
+        system: str,
+        user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
     ) -> str:
@@ -590,20 +629,26 @@ async def section_paper_alignment() -> SectionResult:
                     kind="ACTION",
                 ),
                 "monthly_close": Node(
-                    id="monthly_close", description="Close books", kind="ACTION",
+                    id="monthly_close",
+                    description="Close books",
+                    kind="ACTION",
                 ),
                 "board_update": Node(
-                    id="board_update", description="Publish update", kind="ACTION",
+                    id="board_update",
+                    description="Publish update",
+                    kind="ACTION",
                 ),
             },
             edges=[
                 Edge(
-                    src="Start", dst="cash_flow_forecast",
+                    src="Start",
+                    dst="cash_flow_forecast",
                     relation=Relation.LEADS_TO,
                     attribute=Attribute(condition="begin", guidance="begin task", pitfalls="n/a"),
                 ),
                 Edge(
-                    src="cash_flow_forecast", dst="fund_raising_request",
+                    src="cash_flow_forecast",
+                    dst="fund_raising_request",
                     relation=Relation.LEADS_TO,
                     attribute=Attribute(
                         condition="projected runway falls below the safety buffer",
@@ -612,12 +657,14 @@ async def section_paper_alignment() -> SectionResult:
                     ),
                 ),
                 Edge(
-                    src="fund_raising_request", dst="monthly_close",
+                    src="fund_raising_request",
+                    dst="monthly_close",
                     relation=Relation.REQUIRES,
                     attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
                 ),
                 Edge(
-                    src="monthly_close", dst="board_update",
+                    src="monthly_close",
+                    dst="board_update",
                     relation=Relation.LEADS_TO,
                     attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
                 ),
@@ -631,11 +678,16 @@ async def section_paper_alignment() -> SectionResult:
         for e in g_paper.edges:
             assert e.attribute.condition and e.attribute.guidance and e.attribute.pitfalls
         assert {r.value for r in Relation} >= {
-            "leads_to", "triggers", "requires", "converges_to",
+            "leads_to",
+            "triggers",
+            "requires",
+            "converges_to",
         }
         assert g_paper.nodes["Start"].kind == "STATUS"
         assert g_paper.nodes["cash_flow_forecast"].kind == "ACTION"
-        details.append("§3.1: 5 nodes, 4 edges, 3-tuple attribute, 4+ relations, ACTION/STATUS kinds")
+        details.append(
+            "§3.1: 5 nodes, 4 edges, 3-tuple attribute, 4+ relations, ACTION/STATUS kinds"
+        )
 
         # §3.2 — Eq. 2: locate/extract/generate pipeline
         assert match_node("cash_flow_forecast", g_paper.nodes) == "cash_flow_forecast"
@@ -668,34 +720,56 @@ async def section_paper_alignment() -> SectionResult:
         methodos.evolution.execute_action_stub = succeed_stub
         try:
             # (a) ties-accepted invariant (Algorithm 1 line 16, Eq. 5)
-            llm_ties = ScriptedRoundLLM([[
-                json.dumps([
-                    {"kind": "add_node", "node": {"id": "filler"}},
-                    {"kind": "add_edge", "edge": {
-                        "src": "filler", "dst": "fund_raising_request",
-                        "relation": "leads_to",
-                        "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
-                    }},
-                ]),
-            ]])
+            llm_ties = ScriptedRoundLLM(
+                [
+                    [
+                        json.dumps(
+                            [
+                                {"kind": "add_node", "node": {"id": "filler"}},
+                                {
+                                    "kind": "add_edge",
+                                    "edge": {
+                                        "src": "filler",
+                                        "dst": "fund_raising_request",
+                                        "relation": "leads_to",
+                                        "attribute": {
+                                            "condition": "c",
+                                            "guidance": "g",
+                                            "pitfalls": "p",
+                                        },
+                                    },
+                                },
+                            ]
+                        ),
+                    ]
+                ]
+            )
             engine_a = EvolutionEngine(
-                llm=llm_ties, repo=repo_a,
-                train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
-                solver=AlwaysSucceedSolver(), k_rounds=1,
+                llm=llm_ties,
+                repo=repo_a,
+                train_tasks=[Task(query="t")],
+                val_tasks=[Task(query="v")],
+                solver=AlwaysSucceedSolver(),
+                k_rounds=1,
             )
             final_a = await engine_a.run(g_paper)
             assert "filler" in final_a.nodes
             details.append("App. B.6 line 16: ties-accepted; filler node kept in final graph")
 
             # (b) rejection never becomes starting graph (Algorithm 1 line 4 invariant)
-            llm_reject = ScriptedRoundLLM([
-                [json.dumps([{"kind": "add_node", "node": {"id": "fund_raising_request"}}])],
-                ["[]"],
-            ])
+            llm_reject = ScriptedRoundLLM(
+                [
+                    [json.dumps([{"kind": "add_node", "node": {"id": "fund_raising_request"}}])],
+                    ["[]"],
+                ]
+            )
             engine_b = EvolutionEngine(
-                llm=llm_reject, repo=repo_b,
-                train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
-                solver=AlwaysSucceedSolver(), k_rounds=2,
+                llm=llm_reject,
+                repo=repo_b,
+                train_tasks=[Task(query="t")],
+                val_tasks=[Task(query="v")],
+                solver=AlwaysSucceedSolver(),
+                k_rounds=2,
             )
             final_b = await engine_b.run(g_paper)
             assert sum(1 for n in final_b.nodes if n == "fund_raising_request") == 1
@@ -730,14 +804,21 @@ async def section_evolution() -> SectionResult:
         #   Round 3: add edge start→answer (also valid; this tests that the
         #             rejection memory is included in the round-3 prompt)
         refiner_responses = [
-            [json.dumps([{
-                "kind": "add_edge",
-                "edge": {
-                    "src": "start", "dst": "answer",
-                    "relation": "leads_to",
-                    "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
-                },
-            }])],
+            [
+                json.dumps(
+                    [
+                        {
+                            "kind": "add_edge",
+                            "edge": {
+                                "src": "start",
+                                "dst": "answer",
+                                "relation": "leads_to",
+                                "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
+                            },
+                        }
+                    ]
+                )
+            ],
             [json.dumps([{"kind": "add_node", "node": {"id": "start"}}])],
             [json.dumps([])],
         ]
@@ -772,8 +853,9 @@ async def section_evolution() -> SectionResult:
 
         # Verify: edge was added in round 1, "start" node still unique,
         # round-3 refiner prompt contains REJECTED.
-        assert any(e.dst == "answer" for e in final.edges), \
+        assert any(e.dst == "answer" for e in final.edges), (
             "round-1 edge not present in final graph"
+        )
         details.append("EvolutionEngine round 1: edge start→answer accepted")
 
         # Round-2 rejection was structural (duplicate "start"). The
@@ -783,11 +865,11 @@ async def section_evolution() -> SectionResult:
         details.append("EvolutionEngine round 2: duplicate 'start' rejected (graph unchanged)")
 
         # Round-3 prompt should contain REJECTED marker
-        refiner_calls = [
-            c for c in llm.calls if "Propose a JSON array of edits." in c["user"]
-        ]
+        refiner_calls = [c for c in llm.calls if "Propose a JSON array of edits." in c["user"]]
         assert len(refiner_calls) >= 2
-        round_3_prompt = refiner_calls[2]["user"] if len(refiner_calls) > 2 else refiner_calls[-1]["user"]
+        round_3_prompt = (
+            refiner_calls[2]["user"] if len(refiner_calls) > 2 else refiner_calls[-1]["user"]
+        )
         assert "REJECTED" in round_3_prompt, "round-3 refiner prompt missing REJECTED"
         details.append("EvolutionEngine round 3: refiner prompt contains REJECTED marker")
 
@@ -815,10 +897,13 @@ async def section_hotpotqa() -> SectionResult:
         # Try to download real HotpotQA. Skip gracefully if network/datasets unavailable.
         try:
             from eval.hotpotqa.tasks import DEFAULT_DATA_DIR, download_if_missing
+
             download_if_missing(target_dir=DEFAULT_DATA_DIR, limit=5)
             details.append(f"HotpotQA distractor split downloaded to {DEFAULT_DATA_DIR}")
         except Exception as exc:
-            details.append(f"{YELLOW}HotpotQA download unavailable: {exc}; using built-in fallback{RESET}")
+            details.append(
+                f"{YELLOW}HotpotQA download unavailable: {exc}; using built-in fallback{RESET}"
+            )
             return finish(start, result, True, details)
 
         # Patch run_eval's LLM to avoid API keys. The eval harness calls

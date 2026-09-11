@@ -15,6 +15,7 @@ Engineering notes:
 - `LiteLLMClient` does NOT use lazy imports: `litellm` is a hard
   dependency, so it sits in the top-of-file import block.
 """
+
 from __future__ import annotations
 
 import logging
@@ -139,8 +140,7 @@ class LiteLLMClient:
                 content = response["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise LLMError(
-                        f"expected str content from {self._model}, "
-                        f"got {type(content).__name__}"
+                        f"expected str content from {self._model}, got {type(content).__name__}"
                     )
                 return content
             except LLMError:

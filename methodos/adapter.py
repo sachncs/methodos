@@ -15,6 +15,7 @@ Engineering notes:
 - No lazy imports; no `_foo()` markers. The cache is exposed publicly
   so callers can introspect hit/miss behavior if desired.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,26 +42,28 @@ def graph_content_fingerprint(graph: ProceduralGraph) -> int:
     Used as the first element of `GuidanceCache` keys so that mutating a
     graph invalidates the cached guidance without requiring a new `id`.
     """
-    nodes_part = tuple(
-        sorted((nid, n.description) for nid, n in graph.nodes.items())
-    )
-    edges_part = tuple(sorted(
-        (
-            e.src,
-            e.dst,
-            e.relation.value,
-            e.attribute.condition,
-            e.attribute.guidance,
-            e.attribute.pitfalls,
+    nodes_part = tuple(sorted((nid, n.description) for nid, n in graph.nodes.items()))
+    edges_part = tuple(
+        sorted(
+            (
+                e.src,
+                e.dst,
+                e.relation.value,
+                e.attribute.condition,
+                e.attribute.guidance,
+                e.attribute.pitfalls,
+            )
+            for e in graph.edges
         )
-        for e in graph.edges
-    ))
-    return hash((
-        nodes_part,
-        edges_part,
-        frozenset(graph.terminal_ids),
-        tuple(sorted(graph.metadata.items())),
-    ))
+    )
+    return hash(
+        (
+            nodes_part,
+            edges_part,
+            frozenset(graph.terminal_ids),
+            tuple(sorted(graph.metadata.items())),
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,7 @@ class AgentState:
             when constructing its prompt. methodos injects the procedural
             guidance here; hosts may append tool schemas or other context.
     """
+
     query: str
     trajectory: tuple[tuple[str, str], ...]
     context: str
@@ -158,9 +162,7 @@ class PGAdapter:
         if guidance_hops < 0:
             raise ValueError(f"guidance_hops must be non-negative, got {guidance_hops}")
         if trajectory_window < 0:
-            raise ValueError(
-                f"trajectory_window must be non-negative, got {trajectory_window}"
-            )
+            raise ValueError(f"trajectory_window must be non-negative, got {trajectory_window}")
         self._solver = solver
         self._graph = graph
         self._llm = llm

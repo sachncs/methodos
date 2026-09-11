@@ -14,6 +14,7 @@ Engineering notes:
 - The Edit discriminated union has exactly five variants; adding a
   sixth requires updating `graph.apply_edits` dispatch.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -37,6 +38,7 @@ class Relation(StrEnum):
     Values are stable wire format — do NOT rename. Adding new variants is
     safe; renaming or removing existing ones is a breaking change.
     """
+
     LEADS_TO = "leads_to"
     TRIGGERS = "triggers"
     REQUIRES = "requires"
@@ -51,6 +53,7 @@ class Attribute(BaseModel):
     guidance: how to proceed along this transition
     pitfalls: what to avoid when taking this transition
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     condition: str = Field(min_length=1, max_length=2000)
@@ -71,6 +74,7 @@ class Node(BaseModel):
     progress indicators — paper §B.5: "type": "ACTION" or "STATUS").
     Default is `ACTION` for backward compatibility.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_\-\.]+$")
@@ -88,6 +92,7 @@ class Node(BaseModel):
 
 class Edge(BaseModel):
     """A directed, attributed triplet between two procedure nodes."""
+
     model_config = ConfigDict(extra="forbid")
 
     src: str = Field(min_length=1, max_length=128)
@@ -111,6 +116,7 @@ class ProceduralGraph(BaseModel):
     - All `edges[].src` and `edges[].dst` refer to existing nodes.
     - `schema_version` is pinned to 1; migration runner deferred to v2.
     """
+
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     id: str = Field(min_length=1, max_length=128)
@@ -142,6 +148,7 @@ class ProceduralGraph(BaseModel):
 
 class EditAddNode(BaseModel):
     """Insert a new node. Fails if the id already exists."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["add_node"] = "add_node"
     node: Node
@@ -149,6 +156,7 @@ class EditAddNode(BaseModel):
 
 class EditDeleteNode(BaseModel):
     """Remove a node and all incident edges."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["delete_node"] = "delete_node"
     node_id: str = Field(min_length=1, max_length=128)
@@ -156,6 +164,7 @@ class EditDeleteNode(BaseModel):
 
 class EditAddEdge(BaseModel):
     """Insert a new edge. Fails if the exact triplet already exists."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["add_edge"] = "add_edge"
     edge: Edge
@@ -163,6 +172,7 @@ class EditAddEdge(BaseModel):
 
 class EditDeleteEdge(BaseModel):
     """Remove a matching (src, dst, relation) triplet."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["delete_edge"] = "delete_edge"
     src: str = Field(min_length=1, max_length=128)
@@ -172,6 +182,7 @@ class EditDeleteEdge(BaseModel):
 
 class EditUpdateAttr(BaseModel):
     """Replace the attribute on a matching (src, dst, relation) edge."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["update_attr"] = "update_attr"
     src: str = Field(min_length=1, max_length=128)

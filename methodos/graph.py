@@ -12,6 +12,7 @@ Engineering notes:
 - `neighborhood` falls back to a deep copy of the full graph when the root
   node is missing, matching paper §3.2.
 """
+
 from __future__ import annotations
 
 import logging
@@ -62,9 +63,7 @@ def match_node(action_name: str, nodes: dict[str, Node]) -> str | None:
     return action_name if action_name in nodes else None
 
 
-def neighborhood(
-    graph: ProceduralGraph, node_id: str, *, h: int = 2
-) -> ProceduralGraph:
+def neighborhood(graph: ProceduralGraph, node_id: str, *, h: int = 2) -> ProceduralGraph:
     """Extract the h-hop directed subgraph reachable from `node_id`.
 
     The returned graph contains `node_id` and all nodes reachable within
@@ -89,9 +88,7 @@ def neighborhood(
         # We construct an explicit subgraph (rather than returning the
         # original) so the resulting object has a distinct id, metadata,
         # and equality semantics.
-        logger.debug(
-            "neighborhood: node_id %r not in graph; returning full graph", node_id
-        )
+        logger.debug("neighborhood: node_id %r not in graph; returning full graph", node_id)
         return ProceduralGraph(
             id=f"{graph.id}::full_fallback",
             nodes=dict(graph.nodes),
@@ -124,8 +121,7 @@ def neighborhood(
 
     sub_nodes: dict[str, Node] = {nid: graph.nodes[nid] for nid in visited}
     sub_edges: list[Edge] = [
-        edge for edge in graph.edges
-        if edge.src in visited and edge.dst in visited
+        edge for edge in graph.edges if edge.src in visited and edge.dst in visited
     ]
     sub_terminals: set[str] = graph.terminal_ids & visited
     return ProceduralGraph(
@@ -141,9 +137,7 @@ def neighborhood(
     )
 
 
-def validate(
-    graph: ProceduralGraph, *, allow_cycles: bool = False
-) -> list[StructuralIssue]:
+def validate(graph: ProceduralGraph, *, allow_cycles: bool = False) -> list[StructuralIssue]:
     """Run structural checks; return a list of issues (empty == healthy).
 
     Checks performed:
@@ -167,17 +161,21 @@ def validate(
 
     for nid in node_ids:
         if not has_path_to(graph, nid, targets):
-            issues.append(StructuralIssue(
-                code="unreachable_from_terminal",
-                message=f"node {nid!r} cannot reach any terminal",
-                node_id=nid,
-            ))
+            issues.append(
+                StructuralIssue(
+                    code="unreachable_from_terminal",
+                    message=f"node {nid!r} cannot reach any terminal",
+                    node_id=nid,
+                )
+            )
 
     if not allow_cycles and has_cycle(graph):
-        issues.append(StructuralIssue(
-            code="cycle_detected",
-            message="graph contains a cycle and allow_cycles=False",
-        ))
+        issues.append(
+            StructuralIssue(
+                code="cycle_detected",
+                message="graph contains a cycle and allow_cycles=False",
+            )
+        )
 
     return issues
 
@@ -194,9 +192,7 @@ def has_reachable_terminal(graph: ProceduralGraph, node_id: str) -> bool:
     return has_path_to(graph, node_id, graph.terminal_ids)
 
 
-def has_path_to(
-    graph: ProceduralGraph, src: str, targets: Iterable[str]
-) -> bool:
+def has_path_to(graph: ProceduralGraph, src: str, targets: Iterable[str]) -> bool:
     """Whether `src` has a directed path to any node in `targets`.
 
     BFS from `src` until either a target is reached or the reachable
@@ -222,9 +218,7 @@ def has_path_to(
     return False
 
 
-def apply_edits(
-    graph: ProceduralGraph, edits: Sequence[Edit]
-) -> ProceduralGraph:
+def apply_edits(graph: ProceduralGraph, edits: Sequence[Edit]) -> ProceduralGraph:
     """Apply a sequence of edits to a copy of `graph`; return the new graph.
 
     Edits are applied in order. The original `graph` is not mutated.
@@ -263,15 +257,16 @@ def apply_single_edit(graph: ProceduralGraph, edit: Edit) -> ProceduralGraph:
             raise ValueError(f"cannot delete unknown node {edit.node_id!r}")
         new_nodes = {k: v for k, v in graph.nodes.items() if k != edit.node_id}
         new_edges = [
-            edge for edge in graph.edges
-            if edge.src != edit.node_id and edge.dst != edit.node_id
+            edge for edge in graph.edges if edge.src != edit.node_id and edge.dst != edit.node_id
         ]
         new_terminals = graph.terminal_ids - {edit.node_id}
-        return graph.model_copy(update={
-            "nodes": new_nodes,
-            "edges": new_edges,
-            "terminal_ids": new_terminals,
-        })
+        return graph.model_copy(
+            update={
+                "nodes": new_nodes,
+                "edges": new_edges,
+                "terminal_ids": new_terminals,
+            }
+        )
 
     if isinstance(edit, EditAddEdge):
         edge = edit.edge
@@ -286,17 +281,15 @@ def apply_single_edit(graph: ProceduralGraph, edit: Edit) -> ProceduralGraph:
 
     if isinstance(edit, EditDeleteEdge):
         remaining = [
-            edge for edge in graph.edges
+            edge
+            for edge in graph.edges
             if not (
-                edge.src == edit.src
-                and edge.dst == edit.dst
-                and edge.relation == edit.relation
+                edge.src == edit.src and edge.dst == edit.dst and edge.relation == edit.relation
             )
         ]
         if len(remaining) == len(graph.edges):
             raise ValueError(
-                f"no matching edge to delete: "
-                f"{edit.src}->{edit.dst} ({edit.relation.value})"
+                f"no matching edge to delete: {edit.src}->{edit.dst} ({edit.relation.value})"
             )
         return graph.model_copy(update={"edges": remaining})
 
@@ -309,19 +302,20 @@ def apply_single_edit(graph: ProceduralGraph, edit: Edit) -> ProceduralGraph:
                 and existing.dst == edit.dst
                 and existing.relation == edit.relation
             ):
-                updated_edges.append(Edge(
-                    src=existing.src,
-                    dst=existing.dst,
-                    relation=existing.relation,
-                    attribute=edit.attribute,
-                ))
+                updated_edges.append(
+                    Edge(
+                        src=existing.src,
+                        dst=existing.dst,
+                        relation=existing.relation,
+                        attribute=edit.attribute,
+                    )
+                )
                 replaced = True
             else:
                 updated_edges.append(existing)
         if not replaced:
             raise ValueError(
-                f"no matching edge to update: "
-                f"{edit.src}->{edit.dst} ({edit.relation.value})"
+                f"no matching edge to update: {edit.src}->{edit.dst} ({edit.relation.value})"
             )
         return graph.model_copy(update={"edges": updated_edges})
 

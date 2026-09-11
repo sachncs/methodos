@@ -1,4 +1,5 @@
 """Tests for `methodos.repo`."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,6 +34,7 @@ def make_trajectory(query: str, score: float = 1.0) -> Trajectory:
 def make_graph(graph_id: str = "test") -> ProceduralGraph:
     """Minimal two-node graph for repository round-trips."""
     from methodos.schema import Node
+
     return ProceduralGraph(
         id=graph_id,
         nodes={"start": Node(id="start"), "answer": Node(id="answer")},
@@ -163,7 +165,8 @@ class TestFilesystemRepository:
         assert trajectories[1].score == 0.5
 
     async def test_read_trajectories_filtered_by_split(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -175,7 +178,8 @@ class TestFilesystemRepository:
         assert len(val) == 1 and val[0].task.query == "v"
 
     async def test_read_trajectories_missing_split_empty(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -186,8 +190,11 @@ class TestFilesystemRepository:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
         from methodos.schema import Node
+
         new_graph = ProceduralGraph(
-            id="g", nodes={"answer": Node(id="answer")}, terminal_ids={"answer"},
+            id="g",
+            nodes={"answer": Node(id="answer")},
+            terminal_ids={"answer"},
         )
         await repo.save_graph(new_graph)
         loaded = await repo.load_graph("g")
@@ -221,8 +228,11 @@ class TestSQLiteRepository:
         # Re-saving the same graph updates the body in place; the row
         # is preserved (no DELETE+INSERT side effects).
         from methodos.schema import Node
+
         updated = ProceduralGraph(
-            id="g", nodes={"answer": Node(id="answer")}, terminal_ids={"answer"},
+            id="g",
+            nodes={"answer": Node(id="answer")},
+            terminal_ids={"answer"},
         )
         await repo.save_graph(updated)
         loaded = await repo.load_graph("g")
@@ -238,6 +248,7 @@ class TestSQLiteRepository:
         await repo.save_graph(make_graph("g"))
         # Load snapshot via direct SQL to verify.
         import sqlite3
+
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute(
                 "SELECT body FROM snapshots WHERE graph_id = ? AND tag = ?",
@@ -260,19 +271,23 @@ class TestSQLiteRepository:
         assert [t.task.query for t in trajectories] == ["q1", "q2"]
 
     async def test_trajectories_ordered_by_timestamp(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
         for i in range(3):
             await repo.append_trajectory(
-                "g", "train", make_trajectory(f"q{i}"),
+                "g",
+                "train",
+                make_trajectory(f"q{i}"),
             )
         trajectories = [t async for t in repo.read_trajectories("g", "train")]
         assert [t.task.query for t in trajectories] == ["q0", "q1", "q2"]
 
     async def test_read_trajectories_filtered_by_split(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
@@ -284,7 +299,8 @@ class TestSQLiteRepository:
         assert len(val) == 1
 
     async def test_fk_cascade_delete_trajectories(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Deleting a graph cascades to its trajectories via FK."""
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
@@ -292,6 +308,7 @@ class TestSQLiteRepository:
         await repo.append_trajectory("g", "train", make_trajectory("q"))
         # Manually delete the graph row; trajectories should cascade.
         import sqlite3
+
         with sqlite3.connect(tmp_path / "test.db") as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("DELETE FROM graphs WHERE id = 'g'")
@@ -305,6 +322,7 @@ class TestSQLiteRepository:
         """Verify journal_mode is WAL after init."""
         SQLiteRepository(db_path=tmp_path / "test.db")
         import sqlite3
+
         with sqlite3.connect(tmp_path / "test.db") as conn:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode.lower() == "wal"
@@ -313,10 +331,10 @@ class TestSQLiteRepository:
         """Verify the (graph_id, split, ts) index exists."""
         SQLiteRepository(db_path=tmp_path / "test.db")
         import sqlite3
+
         with sqlite3.connect(tmp_path / "test.db") as conn:
             indices = conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'index' AND name LIKE 'idx_%'"
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'"
             ).fetchall()
             index_names = {row[0] for row in indices}
             assert "idx_trajectories_graph_split" in index_names
@@ -326,6 +344,7 @@ class TestSQLiteRepository:
         """After init, schema_meta contains version 1."""
         SQLiteRepository(db_path=tmp_path / "test.db")
         import sqlite3
+
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute("SELECT version FROM schema_meta").fetchone()
             assert row[0] == 1
@@ -338,7 +357,8 @@ class TestSQLiteRepository:
         SQLiteRepository(db_path=path)
 
     async def test_concurrent_writes_serialize(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Concurrent save_graph calls do not corrupt the database.
 
@@ -360,10 +380,12 @@ class TestSQLiteRepository:
         await repo.save_graph(base)
 
         async def save_variant(index: int) -> None:
-            graph = base.model_copy(update={
-                "id": f"g-{index}",
-                "metadata": {"writer": index},
-            })
+            graph = base.model_copy(
+                update={
+                    "id": f"g-{index}",
+                    "metadata": {"writer": index},
+                }
+            )
             await repo.save_graph(graph)
 
         n = 8
@@ -390,7 +412,9 @@ class TestBuildRepository:
     """`build_repository` selects backend from env vars."""
 
     def test_default_returns_sqlite(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.delenv("PGRAPH_BACKEND", raising=False)
@@ -398,7 +422,9 @@ class TestBuildRepository:
         assert isinstance(repo, SQLiteRepository)
 
     def test_filesystem_backend(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.setenv("PGRAPH_BACKEND", "filesystem")
@@ -406,7 +432,9 @@ class TestBuildRepository:
         assert isinstance(repo, FilesystemRepository)
 
     def test_unknown_backend_raises(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.setenv("PGRAPH_BACKEND", "bogus")
@@ -470,10 +498,13 @@ class TestSqliteVecIndexIfAvailable:
             SqliteVecIndex(db_path=tmp_path / "vec.db", dim=0)
 
     def test_raises_when_dep_missing(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         # Simulate missing dep.
         import builtins
+
         original_import = builtins.__import__
 
         def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:

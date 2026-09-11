@@ -1,4 +1,5 @@
 """Tests for `eval.hotpotqa` helpers (EM, F1, task loading)."""
+
 from __future__ import annotations
 
 import json
@@ -123,7 +124,9 @@ class TestHotpotQATaskIsFrozen:
 
 class TestDownloadIfMissing:
     def test_returns_path_when_already_exists(  # type: ignore[no-untyped-def]
-        self, tmp_path: Path, monkeypatch,
+        self,
+        tmp_path: Path,
+        monkeypatch,
     ) -> None:
         """If JSONL is already at target_dir, return without calling datasets."""
         out = tmp_path / "hotpotqa_dev_distractor.jsonl"
@@ -131,6 +134,7 @@ class TestDownloadIfMissing:
 
         # Verify datasets package is not even imported.
         import builtins
+
         original_import = builtins.__import__
         called: list[str] = []
 
@@ -147,16 +151,20 @@ class TestDownloadIfMissing:
         monkeypatch.setattr(builtins, "__import__", fake_import)
 
         from eval.hotpotqa.tasks import download_if_missing
+
         path = download_if_missing(target_dir=tmp_path)
         assert path == out
         assert "datasets" not in called
 
     def test_raises_when_datasets_missing(  # type: ignore[no-untyped-def]
-        self, tmp_path: Path, monkeypatch,
+        self,
+        tmp_path: Path,
+        monkeypatch,
     ) -> None:
         """If JSONL is absent and datasets is not installed, raise."""
         # Block the datasets import.
         import builtins
+
         original_import = builtins.__import__
 
         def fake_import(
@@ -173,5 +181,6 @@ class TestDownloadIfMissing:
         monkeypatch.setattr(builtins, "__import__", fake_import)
 
         from eval.hotpotqa.tasks import download_if_missing
+
         with pytest.raises(RuntimeError, match="datasets package required"):
             download_if_missing(target_dir=tmp_path)
