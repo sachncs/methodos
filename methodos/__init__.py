@@ -15,7 +15,10 @@ Re-exports the entire public API documented in ``docs/api.md``:
   tail_tokens.
 - Guidance (guidance.py): GUIDANCE_SYSTEM_PROMPT.
 - Graph (graph.py): StructuralIssue.
+- Service hardening (auth.py, rate_limit.py): APIKeyAuth,
+  TokenBucketLimiter for operators wiring custom deployments.
 """
+
 from __future__ import annotations
 
 from methodos.adapter import (
@@ -24,6 +27,7 @@ from methodos.adapter import (
     PGAdapter,
     Solver,
 )
+from methodos.auth import APIKeyAuth
 from methodos.evolution import (
     REFINER_SYSTEM_PROMPT,
     TERMINATE_FAILURE,
@@ -42,6 +46,7 @@ from methodos.evolution import (
 from methodos.graph import StructuralIssue
 from methodos.guidance import GUIDANCE_SYSTEM_PROMPT, generate_guidance
 from methodos.llm import LiteLLMClient, LLMClient, LLMError
+from methodos.rate_limit import TokenBucketLimiter
 from methodos.repo import (
     FilesystemRepository,
     NoOpVectorIndex,
@@ -73,6 +78,7 @@ __all__ = [
     "REFINER_SYSTEM_PROMPT",
     "TERMINATE_FAILURE",
     "TERMINATE_SUCCESS",
+    "APIKeyAuth",
     "AgentState",
     "Attribute",
     "Edge",
@@ -100,6 +106,7 @@ __all__ = [
     "SqliteVecIndex",
     "StructuralIssue",
     "Task",
+    "TokenBucketLimiter",
     "Trajectory",
     "VectorIndex",
     "__version__",
