@@ -28,5 +28,16 @@ jobs:
       - name: Type check
         run: uv run mypy methodos
 
+      - name: Vulnerability scan
+        # pip-audit checks the resolved dependency tree against the OSV
+        # database. Fails the build on any known CVE so a vulnerable
+        # upgrade can't land via a routine uv lock refresh.
+        # We export the resolved tree (excluding the local methodos
+        # package itself) so pip-audit doesn't try to look it up on
+        # PyPI where it doesn't exist.
+        run: |
+          uv export --no-hashes --no-emit-project -o /tmp/reqs.txt
+          uv run pip-audit --strict -r /tmp/reqs.txt
+
       - name: Test
         run: uv run pytest --cov=methodos --cov-fail-under=95
