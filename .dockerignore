@@ -1,0 +1,63 @@
+# Build context for docker/Dockerfile.
+# Files outside this list are not sent to the Docker daemon.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# CI
+.github
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+*~
+
+# Python build artifacts
+.venv
+venv
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+build
+dist
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+.tox
+.cache
+
+# Docs (image is self-contained; docs live on the web/registry)
+docs
+*.md
+!README.md
+
+# Tests (not shipped in runtime image)
+tests
+
+# Eval harness (opt-in extra, not part of base image)
+eval
+
+# Local data and configs
+data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env
+.env.*
+docker-compose*.yml
+
+# Tooling / scripts
+tools
+scripts
+
+# This file itself
+.dockerignore

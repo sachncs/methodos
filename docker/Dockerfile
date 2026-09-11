@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
+ARG VERSION=dev
+
 FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -23,10 +25,13 @@ RUN uv sync --frozen --no-dev --no-install-project
 # ---- Runtime stage ----
 FROM python:3.12-slim
 
+ARG VERSION
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PGRAPH_BACKEND=sqlite \
-    PGRAPH_HOME=/data
+    PGRAPH_HOME=/data \
+    METHODOS_VERSION=${VERSION}
 
 # Create non-root user
 RUN groupadd --system --gid 1000 methodos \
