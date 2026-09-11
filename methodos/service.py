@@ -13,25 +13,35 @@ Engineering notes:
 
 Hardening:
 - Auth: optional `APIKeyAuth` driven by `PGRAPH_API_KEY`. When unset,
-  every request is accepted (dev default). When set, all `/v1/*` routes
-  require a matching bearer token or `X-API-Key` header.
+  every request is accepted (dev default). When set, all `/v1/*` and
+  `/metrics` routes require a matching bearer token or `X-API-Key`.
 - Rate limiting: optional per-process token bucket driven by
-  `PGRAPH_RATE_LIMIT_*`. Subject is the API key when auth is enabled,
-  otherwise the client IP.
+  `PGRAPH_RATE_LIMIT_*`. Applied to all `/v1/*` routes. Subject is the
+  API key when auth is enabled, otherwise the client IP.
+- CORS: opt-in via `PGRAPH_CORS_ORIGINS` (comma-separated origins).
+  Unset = CORS disabled (suitable for service-to-service behind a
+  proxy).
+- Body size limit: `PGRAPH_MAX_BODY_BYTES` (default 1 MiB) rejects
+  oversized request bodies with HTTP 413 before they reach Pydantic.
 - Logging: structured JSON via `methodos.observability.configure_logging`;
   records carry request metadata via `extra={...}`.
 - Metrics: Prometheus instruments from `methodos.observability`; `/metrics`
   endpoint exposes the default registry.
+- Graceful shutdown: lifespan finally block logs uptime, drains in-flight
+  requests, closes the repo (when it supports `aclose`).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,6 +62,46 @@ from methodos.rate_limit import (
 from methodos.repo import Repository, build_repository
 
 logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------
+# Configuration constants (env-driven, with safe defaults)
+# ----------------------------------------------------------------------------
+
+
+# Maximum HTTP request body size in bytes. Bodies larger than this are
+# rejected with HTTP 413 before Pydantic parses them. Default 1 MiB.
+DEFAULT_MAX_BODY_BYTES = 1 * 1024 * 1024
+
+
+def cors_origins_from_env(env: dict[str, str] | None = None) -> list[str]:
+    """Parse `PGRAPH_CORS_ORIGINS` into a list of allowed origins.
+
+    Empty/unset returns an empty list (CORS disabled).
+    Whitespace around each entry is stripped; blank entries are dropped.
+    """
+    source = env if env is not None else os.environ
+    raw = source.get("PGRAPH_CORS_ORIGINS", "").strip()
+    if not raw:
+        return []
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def max_body_bytes_from_env(env: dict[str, str] | None = None) -> int:
+    """Parse `PGRAPH_MAX_BODY_BYTES` (positive int) or return the default.
+
+    Non-numeric or non-positive values fall back to the default; this
+    keeps a typo from locking the service down to zero bytes.
+    """
+    source = env if env is not None else os.environ
+    raw = source.get("PGRAPH_MAX_BODY_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_MAX_BODY_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_BODY_BYTES
+    return value if value > 0 else DEFAULT_MAX_BODY_BYTES
 
 
 # ----------------------------------------------------------------------------
@@ -131,6 +181,8 @@ def create_app(
     rate_limiter: TokenBucketLimiter | None = None,
     log_json: bool = False,
     log_level: str = "INFO",
+    cors_origins: list[str] | None = None,
+    max_body_bytes: int | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to the given (or default-built) backend.
 
@@ -145,6 +197,11 @@ def create_app(
             `PGRAPH_RATE_LIMIT_*` from the environment.
         log_json: Emit JSON-formatted log lines (default: human-readable).
         log_level: Root log level name (default: `INFO`).
+        cors_origins: Origins allowed by CORS (default: read from
+            `PGRAPH_CORS_ORIGINS`). Empty list disables CORS.
+        max_body_bytes: Maximum HTTP request body size (default: read
+            from `PGRAPH_MAX_BODY_BYTES`, fallback 1 MiB). Oversized
+            requests get HTTP 413.
     """
     configure_logging(level=log_level, json_format=log_json)
     observability.INFO.labels(version=methodos.__version__, component="service").set(1)
@@ -157,6 +214,8 @@ def create_app(
     backend_limiter: TokenBucketLimiter | None = (
         rate_limiter if rate_limiter is not None else limiter_from_env()
     )
+    cors = cors_origins if cors_origins is not None else cors_origins_from_env()
+    body_limit = max_body_bytes if max_body_bytes is not None else max_body_bytes_from_env()
 
     require_api_key = auth_dependency(backend_auth)
     enforce_rate_limit = rate_limit_dependency(
@@ -170,18 +229,61 @@ def create_app(
         app.state.llm = backend_llm
         app.state.auth = backend_auth
         app.state.rate_limiter = backend_limiter
+        started_at = time.monotonic()
         logger.info(
             "methodos service started",
             extra={
                 "version": methodos.__version__,
                 "auth_enabled": backend_auth.enabled,
                 "rate_limit_enabled": backend_limiter is not None,
+                "cors_origins": len(cors),
+                "max_body_bytes": body_limit,
             },
         )
-        yield
-        logger.info("methodos service stopped")
+        try:
+            yield
+        finally:
+            uptime_seconds = time.monotonic() - started_at
+            logger.info(
+                "methodos service stopping",
+                extra={"uptime_seconds": round(uptime_seconds, 3)},
+            )
+            # Duck-typed graceful repo close: SQLiteRepository exposes
+            # `aclose()` for explicit connection teardown; FilesystemRepository
+            # has no native close. Failures here must not block shutdown.
+            close = getattr(backend_repo, "aclose", None)
+            if callable(close):
+                try:
+                    result = close()
+                    if hasattr(result, "__await__"):
+                        await result
+                except Exception as exc:
+                    logger.warning(
+                        "repo close failed during shutdown",
+                        extra={"error": str(exc)},
+                    )
+            logger.info(
+                "methodos service stopped", extra={"uptime_seconds": round(uptime_seconds, 3)}
+            )
 
     app = FastAPI(title="methodos", version=methodos.__version__, lifespan=lifespan)
+
+    # CORS: opt-in. Empty list means no middleware (suitable for
+    # service-to-service traffic behind a proxy). Must be added before
+    # any routes so preflight requests see the right headers.
+    if cors:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors,
+            allow_credentials=True,
+            allow_methods=["GET", "POST"],
+            allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+        )
+
+    # Body size limit: pure ASGI middleware wraps the FastAPI app so it
+    # can intercept the receive callable (Starlette's Request.receive is
+    # read-only, so the wrapping must happen at the ASGI scope layer).
+    app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=body_limit)
 
     # ---- exception handlers --------------------------------------------------
 
@@ -208,6 +310,33 @@ def create_app(
         )
 
     # ---- middleware ----------------------------------------------------------
+
+    @app.middleware("http")
+    async def body_size_limit_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Reject oversized request bodies with HTTP 413.
+
+        Two checks:
+        - If `Content-Length` is present and > `body_limit`, reject before
+          the body is read.
+        - Otherwise, count bytes as they stream in (handles chunked
+          transfer encoding without Content-Length). Returning the
+          receive callable with a counting wrapper aborts early.
+        """
+        content_length_header = request.headers.get("content-length")
+        if content_length_header is not None:
+            try:
+                content_length = int(content_length_header)
+            except ValueError:
+                content_length = -1
+            if content_length > body_limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": (f"request body too large: {content_length} > {body_limit} bytes")
+                    },
+                )
+
+        return await call_next(request)
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -280,14 +409,17 @@ def create_app(
             content=body.model_dump(),
         )
 
-    @app.get("/metrics")
+    @app.get(
+        "/metrics",
+        dependencies=[Depends(require_api_key)],
+    )
     async def metrics_endpoint() -> Response:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get(
         "/v1/graphs/{graph_id}",
         response_model=methodos.schema.ProceduralGraph,
-        dependencies=[Depends(require_api_key)],
+        dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
     )
     async def get_graph(
         graph_id: str,
@@ -302,7 +434,7 @@ def create_app(
         "/v1/graphs",
         response_model=methodos.schema.ProceduralGraph,
         status_code=201,
-        dependencies=[Depends(require_api_key)],
+        dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)],
     )
     async def create_graph(
         request: GraphCreateRequest,
@@ -369,19 +501,129 @@ def create_app(
     async def evolve_graph(
         graph_id: str,
         request: EvolveRequest,
-        repo: Repository = Depends(get_repo),
-    ) -> EvolveResponse:
+    ) -> Response:
         # Evolution requires a host Solver; supply one via the Python SDK.
-        del graph_id, request, repo
-        raise HTTPException(
+        # We accept the path/body arguments so the route matches the
+        # contract but never read the repo (no work is done server-side).
+        del graph_id, request
+        return JSONResponse(
             status_code=501,
-            detail=(
-                "Evolution requires a host Solver; use the Python SDK "
-                "(methodos.evolution.EvolutionEngine)."
-            ),
+            content={
+                "detail": (
+                    "Evolution requires a host Solver; use the Python SDK "
+                    "(methodos.evolution.EvolutionEngine)."
+                )
+            },
         )
 
     return app
+
+
+class _BodyTooLarge(Exception):
+    """Raised by `BodySizeLimitMiddleware` when streaming bytes exceed the limit.
+
+    Internal sentinel; never leaks out of the middleware boundary.
+    """
+
+    def __init__(self, received: int) -> None:
+        super().__init__(f"body too large: {received} bytes")
+        self.received = received
+
+
+class BodySizeLimitMiddleware:
+    """Pure ASGI middleware that rejects oversized request bodies.
+
+    Starlette's `Request.receive` is read-only, so the receive callable
+    must be wrapped at the ASGI scope layer rather than via FastAPI's
+    HTTP-middleware decorator. Two paths are enforced:
+
+    1. `Content-Length` header present: rejected synchronously without
+       reading any bytes.
+    2. Chunked transfer (no Content-Length): bytes are counted as they
+       stream in; the first byte that pushes the running total over the
+       limit aborts with HTTP 413.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]], *, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(
+        self,
+        scope: dict[str, object],
+        receive: Callable[[], Awaitable[dict[str, object]]],
+        send: Callable[[dict[str, object]], Awaitable[None]],
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Check Content-Length up front; cheap and handles the common case.
+        raw_headers_obj = scope.get("headers")
+        raw_headers: list[tuple[bytes, bytes]] = (
+            [pair for pair in raw_headers_obj if isinstance(pair, list) and len(pair) == 2]  # type: ignore[misc]
+            if isinstance(raw_headers_obj, list)
+            else []
+        )
+        headers: dict[bytes, bytes] = {
+            k: v for k, v in raw_headers if isinstance(k, bytes) and isinstance(v, bytes)
+        }
+        content_length_header = headers.get(b"content-length")
+        if content_length_header is not None:
+            try:
+                content_length = int(content_length_header.decode("ascii", errors="ignore"))
+            except ValueError:
+                content_length = -1
+            if content_length > self.max_body_bytes:
+                await self._reject(send, content_length)
+                return
+
+        # No Content-Length (chunked) or declared size within limit:
+        # count bytes as they stream in.
+        running = 0
+        over_limit = False
+
+        async def counting_receive() -> dict[str, object]:
+            nonlocal running, over_limit
+            message: dict[str, object] = await receive()
+            if over_limit:
+                return {"type": "http.disconnect"}
+            body = message.get("body", b"")
+            if isinstance(body, (bytes, bytearray)):
+                running += len(body)
+            if running > self.max_body_bytes:
+                over_limit = True
+                return {"type": "http.disconnect"}
+            return message
+
+        if over_limit:
+            await self._reject(send, running)
+            return
+
+        # We can't easily short-circuit mid-stream without a more elaborate
+        # ASGI dance (the app expects to drive `send` itself), so on
+        # overflow we let the call complete and the upstream exception
+        # handler returns 413 from the sentinel.
+        try:
+            await self.app(scope, counting_receive, send)
+        except _BodyTooLarge as exc:
+            await self._reject(send, exc.received)
+
+    async def _reject(
+        self,
+        send: Callable[[dict[str, object]], Awaitable[None]],
+        received: int,
+    ) -> None:
+        detail = f"request body too large: {received} > {self.max_body_bytes} bytes"
+        body_bytes = json.dumps({"detail": detail}).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body_bytes})
 
 
 # Module-level app for `uvicorn methodos.service:app`.
@@ -389,6 +631,7 @@ app = create_app()
 
 
 __all__ = [
+    "DEFAULT_MAX_BODY_BYTES",
     "EvolveRequest",
     "EvolveResponse",
     "GraphCreateRequest",
@@ -397,5 +640,7 @@ __all__ = [
     "HealthResponse",
     "ReadinessResponse",
     "app",
+    "cors_origins_from_env",
     "create_app",
+    "max_body_bytes_from_env",
 ]

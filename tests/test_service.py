@@ -420,3 +420,232 @@ class TestAuthIntegration:
             assert client.get("/health").status_code == 200
             # Graph create is
             assert client.post("/v1/graphs", json={"id": "x"}).status_code == 401
+
+
+# ----------------------------------------------------------------------------
+# /metrics auth gating
+# ----------------------------------------------------------------------------
+
+
+class TestMetricsAuthGating:
+    def test_metrics_open_when_auth_disabled(self, client: TestClient) -> None:
+        # No PGRAPH_API_KEY set in the fixture; auth is disabled.
+        response = client.get("/metrics")
+        assert response.status_code == 200
+
+    def test_metrics_requires_auth_when_enabled(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM()
+        auth = APIKeyAuth(configured_key="secret")
+        app = create_app(repo=seeded_repo, llm=fake_llm, auth=auth)
+        with TestClient(app) as client:
+            # No key -> 401
+            response = client.get("/metrics")
+            assert response.status_code == 401
+            # Valid key -> 200
+            response = client.get("/metrics", headers={"Authorization": "Bearer secret"})
+            assert response.status_code == 200
+
+
+# ----------------------------------------------------------------------------
+# CORS
+# ----------------------------------------------------------------------------
+
+
+class TestCors:
+    def test_cors_disabled_by_default(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM()
+        app = create_app(repo=seeded_repo, llm=fake_llm)
+        with TestClient(app) as client:
+            # Preflight without CORS config: no Access-Control-Allow-Origin.
+            response = client.options(
+                "/v1/graphs",
+                headers={
+                    "Origin": "https://example.com",
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+            assert "access-control-allow-origin" not in {k.lower() for k in response.headers}
+
+    def test_cors_enabled_with_origins(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM()
+        app = create_app(
+            repo=seeded_repo,
+            llm=fake_llm,
+            cors_origins=["https://app.example.com"],
+        )
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/graphs/g1",
+                headers={"Origin": "https://app.example.com"},
+            )
+            assert response.headers.get("access-control-allow-origin") == "https://app.example.com"
+
+
+# ----------------------------------------------------------------------------
+# Body size limit
+# ----------------------------------------------------------------------------
+
+
+class TestBodySizeLimit:
+    def test_content_length_too_large(self) -> None:
+        fake_llm = FakeLLM()
+        # 100-byte cap so the request body advertises itself as too big.
+        app = create_app(repo=None, llm=fake_llm, max_body_bytes=100)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/graphs",
+                content=b'{"id":"x","padding":"' + b"a" * 200 + b'"}',
+                headers={"Content-Type": "application/json"},
+            )
+            assert response.status_code == 413
+            assert "too large" in response.json()["detail"]
+
+    def test_body_within_limit_passes(self) -> None:
+        fake_llm = FakeLLM()
+        app = create_app(repo=None, llm=fake_llm, max_body_bytes=10_000)
+        with TestClient(app) as client:
+            response = client.post("/v1/graphs", json={"id": "ok"})
+            assert response.status_code == 201
+
+    def test_invalid_content_length_rejected(self) -> None:
+        fake_llm = FakeLLM()
+        app = create_app(repo=None, llm=fake_llm, max_body_bytes=100)
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/graphs",
+                content=b'{"id":"x"}',
+                headers={"Content-Type": "application/json", "Content-Length": "abc"},
+            )
+            # Invalid Content-Length is treated as -1 (under the limit),
+            # so the request is allowed; subsequent Pydantic parsing may
+            # then succeed.
+            assert response.status_code in (201, 422)
+
+
+# ----------------------------------------------------------------------------
+# Rate limit on GET/POST /v1/graphs
+# ----------------------------------------------------------------------------
+
+
+class TestRateLimitOnGraphRoutes:
+    def test_get_graph_429_when_exhausted(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM(responses=["g"])
+        limiter = TokenBucketLimiter(capacity=1, refill_per_second=0.001)
+        app = create_app(repo=seeded_repo, llm=fake_llm, rate_limiter=limiter)
+        with TestClient(app) as client:
+            first = client.get("/v1/graphs/g1")
+            assert first.status_code == 200
+            second = client.get("/v1/graphs/g1")
+            assert second.status_code == 429
+            assert "Retry-After" in second.headers
+
+    def test_post_graph_429_when_exhausted(self, seeded_repo: SQLiteRepository) -> None:
+        fake_llm = FakeLLM(responses=["g"])
+        limiter = TokenBucketLimiter(capacity=1, refill_per_second=0.001)
+        app = create_app(repo=seeded_repo, llm=fake_llm, rate_limiter=limiter)
+        with TestClient(app) as client:
+            first = client.post("/v1/graphs", json={"id": "a"})
+            assert first.status_code == 201
+            second = client.post("/v1/graphs", json={"id": "b"})
+            assert second.status_code == 429
+
+
+# ----------------------------------------------------------------------------
+# Graceful shutdown / lifespan
+# ----------------------------------------------------------------------------
+
+
+class TestGracefulShutdown:
+    def test_repo_aclose_called_on_shutdown(self) -> None:
+        class AclosingRepo:
+            def __init__(self) -> None:
+                self.aclose_called = False
+
+            async def load_graph(self, graph_id: str) -> object:  # pragma: no cover
+                raise FileNotFoundError(graph_id)
+
+            async def aclose(self) -> None:
+                self.aclose_called = True
+
+        fake_llm = FakeLLM()
+        repo = AclosingRepo()
+        app = create_app(repo=repo, llm=fake_llm)
+        with TestClient(app) as client:
+            client.get("/health/live")
+        assert repo.aclose_called is True
+
+    def test_repo_without_aclose_does_not_crash(self) -> None:
+        class PlainRepo:
+            async def load_graph(self, graph_id: str) -> object:  # pragma: no cover
+                raise FileNotFoundError(graph_id)
+
+        fake_llm = FakeLLM()
+        repo = PlainRepo()
+        app = create_app(repo=repo, llm=fake_llm)
+        with TestClient(app) as client:
+            # Should not raise on shutdown.
+            client.get("/health/live")
+
+
+# ----------------------------------------------------------------------------
+# Env helpers (no FastAPI roundtrip needed)
+# ----------------------------------------------------------------------------
+
+
+class TestServiceEnvHelpers:
+    def test_cors_origins_from_env_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import cors_origins_from_env
+
+        monkeypatch.delenv("PGRAPH_CORS_ORIGINS", raising=False)
+        assert cors_origins_from_env() == []
+
+    def test_cors_origins_from_env_parses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import cors_origins_from_env
+
+        monkeypatch.setenv("PGRAPH_CORS_ORIGINS", "https://a.example.com, https://b.example.com ")
+        assert cors_origins_from_env() == ["https://a.example.com", "https://b.example.com"]
+
+    def test_max_body_bytes_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import DEFAULT_MAX_BODY_BYTES, max_body_bytes_from_env
+
+        monkeypatch.delenv("PGRAPH_MAX_BODY_BYTES", raising=False)
+        assert max_body_bytes_from_env() == DEFAULT_MAX_BODY_BYTES
+
+    def test_max_body_bytes_custom(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import max_body_bytes_from_env
+
+        monkeypatch.setenv("PGRAPH_MAX_BODY_BYTES", "65536")
+        assert max_body_bytes_from_env() == 65536
+
+    def test_max_body_bytes_invalid_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import DEFAULT_MAX_BODY_BYTES, max_body_bytes_from_env
+
+        monkeypatch.setenv("PGRAPH_MAX_BODY_BYTES", "not-a-number")
+        assert max_body_bytes_from_env() == DEFAULT_MAX_BODY_BYTES
+
+    def test_max_body_bytes_zero_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from methodos.service import DEFAULT_MAX_BODY_BYTES, max_body_bytes_from_env
+
+        monkeypatch.setenv("PGRAPH_MAX_BODY_BYTES", "0")
+        assert max_body_bytes_from_env() == DEFAULT_MAX_BODY_BYTES
+
+
+# ----------------------------------------------------------------------------
+# Evolve handler (501 short-circuit)
+# ----------------------------------------------------------------------------
+
+
+class TestEvolveShortCircuit:
+    def test_evolve_does_not_touch_repo(self) -> None:
+        # Repo raises if load_graph is called; 501 must come back without
+        # invoking it.
+        class ExplodingRepo:
+            async def load_graph(self, graph_id: str) -> object:  # pragma: no cover
+                raise AssertionError("evolve must not load the graph")
+
+        fake_llm = FakeLLM()
+        app = create_app(repo=ExplodingRepo(), llm=fake_llm)
+        with TestClient(app) as client:
+            response = client.post("/v1/graphs/anything/evolve", json={"k_rounds": 3})
+            assert response.status_code == 501
+            assert "Python SDK" in response.json()["detail"]
