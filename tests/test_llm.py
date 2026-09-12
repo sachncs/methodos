@@ -12,7 +12,7 @@ import methodos.llm as llm_module
 from methodos.llm import LiteLLMClient, LLMClient, LLMError
 
 
-class _SimpleSchema(BaseModel):
+class SimpleSchema(BaseModel):
     """Sample Pydantic schema for structured-output tests."""
 
     answer: str
@@ -24,7 +24,7 @@ def test_llm_client_is_runtime_checkable_protocol() -> None:
 
     # Confirm @runtime_checkable was applied; `isinstance` against a Protocol
     # without that decorator returns False even for matching shapes.
-    class StubClient:
+    class ProtocolClient:
         async def complete(
             self,
             *,
@@ -35,7 +35,7 @@ def test_llm_client_is_runtime_checkable_protocol() -> None:
         ) -> str:
             return "ok"
 
-    assert isinstance(StubClient(), LLMClient)
+    assert isinstance(ProtocolClient(), LLMClient)
 
 
 def test_litellm_client_construct_rejects_empty_model() -> None:
@@ -60,14 +60,16 @@ def test_litellm_client_model_property() -> None:
     assert client.model == "gpt-4o-mini"
 
 
-@pytest.fixture
-def patched_litellm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[dict[str, Any]]:
-    """Patch `litellm.acompletion` to record calls and return canned responses.
+class LitellmModuleDouble:
+    """Module-shaped double for monkeypatching `litellm` in tests."""
 
-    Yields a state dict the test can mutate to drive responses/exceptions.
-    """
+    def __init__(self, fake_acompletion: Any) -> None:
+        self.acompletion = staticmethod(fake_acompletion)
+
+
+@pytest.fixture
+def patched_litellm(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+    """Patch `litellm.acompletion` to record calls and return canned responses."""
     state: dict[str, Any] = {
         "calls": [],
         "responses": [{"choices": [{"message": {"content": "ok"}}]}],
@@ -84,13 +86,7 @@ def patched_litellm(
             return response
         return {"choices": [{"message": {"content": "default"}}]}
 
-    # Build a module-shaped stand-in so `litellm.acompletion(...)` resolves
-    # to the patched function. A bare function would not work because the
-    # production code accesses the attribute through the module.
-    class _LiteLLMStub:
-        acompletion = staticmethod(fake_acompletion)
-
-    monkeypatch.setattr(llm_module, "litellm", _LiteLLMStub)
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
     yield state
 
 
@@ -129,12 +125,12 @@ async def test_litellm_complete_includes_structured_output(
     patched_litellm: dict[str, Any],
 ) -> None:
     client = LiteLLMClient(model="gpt-4o-mini")
-    await client.complete(system="s", user="u", json_schema=_SimpleSchema)
+    await client.complete(system="s", user="u", json_schema=SimpleSchema)
     call = patched_litellm["calls"][0]
     assert "response_format" in call
     assert call["response_format"]["type"] == "json_schema"
     schema = call["response_format"]["json_schema"]
-    assert schema["name"] == "_SimpleSchema"
+    assert schema["name"] == "SimpleSchema"
     assert "properties" in schema["schema"]
 
 
@@ -150,10 +146,7 @@ async def test_litellm_complete_retries_on_transient_failure(
             raise RuntimeError(f"transient {call_count['n']}")
         return {"choices": [{"message": {"content": "recovered"}}]}
 
-    class _Stub:
-        acompletion = staticmethod(fake_acompletion)
-
-    monkeypatch.setattr(llm_module, "litellm", _Stub)
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=3)
     out = await client.complete(system="s", user="u")
@@ -169,16 +162,12 @@ async def test_litellm_complete_raises_llm_error_after_exhausting_retries(
     async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("always fails")
 
-    class _Stub:
-        acompletion = staticmethod(fake_acompletion)
-
-    monkeypatch.setattr(llm_module, "litellm", _Stub)
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=2)
     with pytest.raises(LLMError) as excinfo:
         await client.complete(system="s", user="u")
     assert "failed after 3 attempts" in str(excinfo.value)
-    # The underlying cause is preserved via `from` chaining.
     assert isinstance(excinfo.value.__cause__, RuntimeError)
     assert "always fails" in str(excinfo.value.__cause__)
 
@@ -194,15 +183,11 @@ async def test_litellm_complete_does_not_retry_on_programmatic_error(
         # Return a content payload that is NOT a string → triggers LLMError.
         return {"choices": [{"message": {"content": 42}}]}
 
-    class _Stub:
-        acompletion = staticmethod(fake_acompletion)
-
-    monkeypatch.setattr(llm_module, "litellm", _Stub)
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=5)
     with pytest.raises(LLMError, match="expected str content"):
         await client.complete(system="s", user="u")
-    # Should not retry on programmatic errors.
     assert call_count["n"] == 1
 
 
