@@ -41,10 +41,12 @@ class LocalAgent:
     """
 
     async def step(self, state: AgentState) -> str:
+        """Return the next action name; this demo always returns `answer`."""
         return "answer"
 
 
 async def main() -> None:
+    """Run the example end-to-end (requires `OPENAI_API_KEY`)."""
     logging.basicConfig(level=logging.INFO)
 
     graph = ProceduralGraph(

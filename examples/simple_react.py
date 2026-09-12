@@ -36,10 +36,12 @@ class LocalAgent:
     """
 
     async def step(self, state: AgentState) -> str:
+        """Return the next action name; this demo always returns `search`."""
         return "search"
 
 
 async def main() -> None:
+    """Run the example end-to-end (requires `OPENAI_API_KEY`)."""
     graph = ProceduralGraph(
         id="example",
         nodes={
@@ -96,6 +98,11 @@ class LiveDemoLLM:
     """
 
     def __init__(self, model: str = "gpt-4o-mini") -> None:
+        """Initialize the live LLM wrapper.
+
+        Args:
+            model: litellm model identifier.
+        """
         self.client = LiteLLMClient(model=model)
 
     async def complete(
@@ -106,6 +113,7 @@ class LiveDemoLLM:
         json_schema: type | None = None,
         temperature: float = 0.0,
     ) -> str:
+        """Delegate to the underlying LiteLLMClient.complete()."""
         return await self.client.complete(
             system=system,
             user=user,
