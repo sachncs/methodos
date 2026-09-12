@@ -10,10 +10,8 @@ This module defines:
 
 Engineering notes:
 - All I/O is `async def`. litellm exposes `acompletion`.
-- The Protocol uses ellipsis method bodies — runtime duck typing plus
-  static `typing.Protocol` conformance via mypy.
-- `LiteLLMClient` does NOT use lazy imports: `litellm` is a hard
-  dependency, so it sits in the top-of-file import block.
+- All attributes are public (no `self._foo` markers).
+- No lazy imports: `litellm` is a hard dependency at the top of the file.
 """
 
 from __future__ import annotations
@@ -29,12 +27,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class LLMClient(Protocol):
-    """Contract any LLM backend must satisfy.
-
-    Methods:
-        complete: send a chat-completion request and return the assistant
-            message text (and optionally parse as `json_schema`).
-    """
+    """Contract any LLM backend must satisfy."""
 
     async def complete(
         self,
@@ -79,16 +72,11 @@ class LiteLLMClient:
             raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         if max_retries < 0:
             raise ValueError(f"max_retries must be non-negative, got {max_retries}")
-        self._model = model
-        self._api_key = api_key
-        self._api_base = api_base
-        self._timeout = timeout_seconds
-        self._max_retries = max_retries
-
-    @property
-    def model(self) -> str:
-        """Configured model identifier (read-only)."""
-        return self._model
+        self.model = model
+        self.api_key = api_key
+        self.api_base = api_base
+        self.timeout = timeout_seconds
+        self.max_retries = max_retries
 
     async def complete(
         self,
@@ -100,29 +88,22 @@ class LiteLLMClient:
     ) -> str:
         """Send a chat-completion request and return the assistant text.
 
-        Retries up to `max_retries` times on transient failures (network
-        errors, rate limits). After exhaustion, raises the last
-        underlying exception as `LLMError`.
-
-        When `json_schema` is provided, the response is requested with
-        litellm's `response_format` set to a JSON Schema describing the
-        target Pydantic model. The returned text is the model's JSON
-        response (not parsed — parsing is the caller's responsibility).
+        Retries up to `max_retries` times on transient failures.
         """
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
         kwargs: dict[str, Any] = {
-            "model": self._model,
+            "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "timeout": self._timeout,
+            "timeout": self.timeout,
         }
-        if self._api_key is not None:
-            kwargs["api_key"] = self._api_key
-        if self._api_base is not None:
-            kwargs["api_base"] = self._api_base
+        if self.api_key is not None:
+            kwargs["api_key"] = self.api_key
+        if self.api_base is not None:
+            kwargs["api_base"] = self.api_base
         if json_schema is not None:
             kwargs["response_format"] = {
                 "type": "json_schema",
@@ -133,18 +114,17 @@ class LiteLLMClient:
             }
 
         last_exc: Exception | None = None
-        total_attempts = self._max_retries + 1
+        total_attempts = self.max_retries + 1
         for attempt in range(total_attempts):
             try:
                 response = await litellm.acompletion(**kwargs)
                 content = response["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise LLMError(
-                        f"expected str content from {self._model}, got {type(content).__name__}"
+                        f"expected str content from {self.model}, got {type(content).__name__}"
                     )
                 return content
             except LLMError:
-                # Programmatic content-shape errors should not be retried.
                 raise
             except Exception as exc:
                 last_exc = exc
@@ -152,17 +132,17 @@ class LiteLLMClient:
                     "litellm attempt %d/%d for model %s failed: %s",
                     attempt + 1,
                     total_attempts,
-                    self._model,
+                    self.model,
                     exc,
                 )
         assert last_exc is not None
         logger.error(
             "litellm exhausted %d attempts for model %s",
             total_attempts,
-            self._model,
+            self.model,
         )
         raise LLMError(
-            f"LLM call to {self._model} failed after {total_attempts} attempts"
+            f"LLM call to {self.model} failed after {total_attempts} attempts"
         ) from last_exc
 
 
