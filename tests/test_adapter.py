@@ -36,9 +36,10 @@ class TestAgentState:
         import dataclasses
 
         state = AgentState(query="q", trajectory=(), context="")
-        # Frozen dataclasses expose `__dataclass_params__.frozen = True`.
+        # Frozen dataclasses raise FrozenInstanceError on attribute assignment.
         assert dataclasses.is_dataclass(state)
-        assert state.__dataclass_params__.frozen is True
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            state.query = "modified"  # type: ignore[misc]
 
     def test_default_trajectory_is_empty_tuple(self) -> None:
         state = AgentState(query="q", trajectory=(), context="")
