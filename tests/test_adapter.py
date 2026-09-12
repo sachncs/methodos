@@ -52,17 +52,17 @@ class TestSolverProtocol:
     """`Solver` is a runtime-checkable Protocol."""
 
     def test_satisfies_protocol(self) -> None:
-        class Stub:
+        class ProtocolSolver:
             async def step(self, state: AgentState) -> str:
                 return "ok"
 
-        assert isinstance(Stub(), Solver)
+        assert isinstance(ProtocolSolver(), Solver)
 
     def test_does_not_satisfy_without_step(self) -> None:
-        class Stub:
+        class NoStepSolver:
             pass
 
-        assert not isinstance(Stub(), Solver)
+        assert not isinstance(NoStepSolver(), Solver)
 
 
 class TestGuidanceCache:

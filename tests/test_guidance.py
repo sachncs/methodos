@@ -23,7 +23,7 @@ from methodos.schema import (
 )
 
 
-def _make_graph() -> ProceduralGraph:
+def make_graph() -> ProceduralGraph:
     return ProceduralGraph(
         id="g1",
         nodes={
@@ -89,13 +89,13 @@ class TestFormatGraphForPrompt:
     """`format_graph_for_prompt` produces a stable, parseable serialization."""
 
     def test_includes_header(self) -> None:
-        text = format_graph_for_prompt(_make_graph())
+        text = format_graph_for_prompt(make_graph())
         assert "# Subgraph: g1" in text
         assert "# Nodes (3):" in text
         assert "# Edges (2):" in text
 
     def test_includes_node_descriptions(self) -> None:
-        text = format_graph_for_prompt(_make_graph())
+        text = format_graph_for_prompt(make_graph())
         assert "begin task" in text
         assert "search Wikipedia" in text
 
@@ -109,14 +109,14 @@ class TestFormatGraphForPrompt:
         assert "(no description)" in text
 
     def test_includes_edge_attributes(self) -> None:
-        text = format_graph_for_prompt(_make_graph())
+        text = format_graph_for_prompt(make_graph())
         # Each edge's three attributes appear.
         assert "need information" in text
         assert "call search with focused query" in text
         assert "don't search with full question" in text
 
     def test_includes_relation_token(self) -> None:
-        text = format_graph_for_prompt(_make_graph())
+        text = format_graph_for_prompt(make_graph())
         assert "--leads_to-->" in text
 
     def test_empty_graph_renders(self) -> None:
@@ -171,7 +171,7 @@ class TestGenerateGuidance:
 
     async def test_returns_llm_response(self) -> None:
         fake = FakeLLM(["guidance-text"])
-        graph = _make_graph()
+        graph = make_graph()
         out = await generate_guidance(
             llm=fake,
             graph=graph,
@@ -185,7 +185,7 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="q",
             trajectory=[],
         )
@@ -195,7 +195,7 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="Tell me about Paris.",
             trajectory=[],
         )
@@ -205,7 +205,7 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="q",
             trajectory=[("search", "found Paris is the capital")],
         )
@@ -214,7 +214,7 @@ class TestGenerateGuidance:
 
     async def test_user_prompt_includes_graph(self) -> None:
         fake = FakeLLM(["x"])
-        graph = _make_graph()
+        graph = make_graph()
         await generate_guidance(
             llm=fake,
             graph=graph,
@@ -232,7 +232,7 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="q",
             trajectory=[],
         )
@@ -240,7 +240,7 @@ class TestGenerateGuidance:
 
     async def test_default_window_is_three(self) -> None:
         fake = FakeLLM(["x"])
-        graph = _make_graph()
+        graph = make_graph()
         # 5-step trajectory
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
         await generate_guidance(
@@ -258,7 +258,7 @@ class TestGenerateGuidance:
 
     async def test_explicit_window_overrides_default(self) -> None:
         fake = FakeLLM(["x"])
-        graph = _make_graph()
+        graph = make_graph()
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
         await generate_guidance(
             llm=fake,
@@ -276,7 +276,7 @@ class TestGenerateGuidance:
         fake = FakeLLM([""])
         out = await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="q",
             trajectory=[],
         )
@@ -287,7 +287,7 @@ class TestGenerateGuidance:
         fake = FakeLLM(["x"])
         await generate_guidance(
             llm=fake,
-            graph=_make_graph(),
+            graph=make_graph(),
             query="q",
             trajectory=[],
         )
