@@ -11,7 +11,7 @@ import pytest
 
 from methodos.repo import (
     FilesystemRepository,
-    NoOpVectorIndex,
+    SilentVectorIndex,
     Repository,
     ScoredMatch,
     SQLiteRepository,
@@ -64,7 +64,7 @@ class TestVectorIndexProtocol:
     """`VectorIndex` is runtime-checkable."""
 
     def test_noop_satisfies_protocol(self) -> None:
-        assert isinstance(NoOpVectorIndex(), VectorIndex)
+        assert isinstance(SilentVectorIndex(), VectorIndex)
 
 
 # ----------------------------------------------------------------------------
@@ -101,17 +101,17 @@ class TestTailTokens:
 
 
 # ----------------------------------------------------------------------------
-# NoOpVectorIndex
+# SilentVectorIndex
 # ----------------------------------------------------------------------------
 
 
-class TestNoOpVectorIndex:
+class TestSilentVectorIndex:
     def test_upsert_is_silent(self) -> None:
-        idx = NoOpVectorIndex()
+        idx = SilentVectorIndex()
         idx.upsert("k", [0.1, 0.2, 0.3])  # no error
 
     def test_query_returns_empty(self) -> None:
-        idx = NoOpVectorIndex()
+        idx = SilentVectorIndex()
         assert idx.query([0.1, 0.2], 5) == []
 
 
