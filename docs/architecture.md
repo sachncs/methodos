@@ -73,16 +73,18 @@ methodos/
 class ProceduralGraph:
     id: str
     schema_version: Literal[1] = 1
-    nodes: dict[str, Node]              # id → Node
-    edges: list[Edge]                    # (src, dst, relation, attribute)
-    terminal_ids: set[str]               # nodes with no outgoing edges (or declared)
+    nodes: dict[str, Node]  # id → Node
+    edges: list[Edge]  # (src, dst, relation, attribute)
+    terminal_ids: set[str]  # nodes with no outgoing edges (or declared)
     metadata: dict[str, Any]
+
 
 class Edge:
     src: str
     dst: str  # != src
     relation: Relation  # leads_to | requires | replaces
     attribute: Attribute  # condition, guidance, pitfalls
+
 
 Edit = EditAddNode | EditDeleteNode | EditAddEdge | EditDeleteEdge | EditUpdateAttr
 ```

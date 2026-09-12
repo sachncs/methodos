@@ -7,17 +7,17 @@ implementation detail and may change.
 
 ```python
 from methodos.schema import (
-    Relation,         # LEADS_TO, REQUIRES, REPLACES (StrEnum)
-    Attribute,        # condition, guidance, pitfalls (all required, max 2000 chars)
-    Node,             # id (pattern), description
-    Edge,             # src, dst (≠ src), relation, attribute
+    Relation,  # LEADS_TO, REQUIRES, REPLACES (StrEnum)
+    Attribute,  # condition, guidance, pitfalls (all required, max 2000 chars)
+    Node,  # id (pattern), description
+    Edge,  # src, dst (≠ src), relation, attribute
     ProceduralGraph,  # id, schema_version=1, nodes, edges, terminal_ids, metadata
-    Edit,             # discriminated union over 5 variants
-    EditAddNode,      # kind="add_node", node: Node
-    EditDeleteNode,   # kind="delete_node", node_id: str
-    EditAddEdge,      # kind="add_edge", edge: Edge
-    EditDeleteEdge,   # kind="delete_edge", src, dst, relation
-    EditUpdateAttr,   # kind="update_attr", src, dst, relation, attribute
+    Edit,  # discriminated union over 5 variants
+    EditAddNode,  # kind="add_node", node: Node
+    EditDeleteNode,  # kind="delete_node", node_id: str
+    EditAddEdge,  # kind="add_edge", edge: Edge
+    EditDeleteEdge,  # kind="delete_edge", src, dst, relation
+    EditUpdateAttr,  # kind="update_attr", src, dst, relation, attribute
 )
 ```
 
@@ -93,8 +93,10 @@ class AgentState:
     trajectory: tuple[tuple[str, str], ...]
     context: str
 
+
 class Solver(Protocol):
     async def step(self, state: AgentState) -> str: ...
+
 
 class GuidanceCache:
     def __init__(self, max_size: int = 256) -> None: ...
@@ -103,9 +105,11 @@ class GuidanceCache:
     def clear(self) -> None: ...
     def __len__(self) -> int: ...
 
+
 class PGAdapter:
     def __init__(
-        self, *,
+        self,
+        *,
         solver: Solver,
         graph: ProceduralGraph,
         llm: LLMClient,
@@ -131,14 +135,17 @@ class Repository(Protocol):
     async def append_trajectory(self, graph_id, split, trajectory) -> None: ...
     def read_trajectories(self, graph_id, split) -> AsyncIterator[Trajectory]: ...
 
+
 class VectorIndex(Protocol):
     def upsert(self, key, vector) -> None: ...
     def query(self, vector, k) -> list[ScoredMatch]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class Task:
     query: str
     expected: Any = None
+
 
 @dataclass(frozen=True, slots=True)
 class Trajectory:
@@ -146,28 +153,35 @@ class Trajectory:
     steps: tuple[tuple[str, str], ...]
     score: float
 
+
 @dataclass(frozen=True, slots=True)
 class ScoredMatch:
     key: str
     score: float
 
+
 class NoOpVectorIndex: ...
+
 
 class FilesystemRepository:
     def __init__(self, *, root: Path) -> None: ...
 
+
 class SQLiteRepository:
     def __init__(
-        self, *,
+        self,
+        *,
         db_path: Path,
         vector_index: VectorIndex | None = None,
     ) -> None: ...
+
 
 class SqliteVecIndex:
     def __init__(self, *, db_path: Path, dim: int) -> None: ...
     def initialize(self) -> None: ...
     def upsert(self, key, vector) -> None: ...
     def query(self, vector, k) -> list[ScoredMatch]: ...
+
 
 def tail_tokens(text: str, max_tokens: int) -> str: ...
 def build_repository() -> Repository: ...
@@ -178,18 +192,25 @@ def build_repository() -> Repository: ...
 ```python
 REFINER_SYSTEM_PROMPT: str  # refiner prompt (paper §3.3 step 2)
 
+
 @dataclass(frozen=True, slots=True)
 class RolloutResult:
     trajectory: Trajectory
     success: bool
 
+
 TERMINATE_SUCCESS: str = "__methodos_success__"
 TERMINATE_FAILURE: str = "__methodos_failure__"
+
 
 def score(result: RolloutResult) -> float: ...
 def mean_score(results: Iterable[RolloutResult]) -> float: ...
 async def run_rollout(
-    *, graph, solver, llm, task,
+    *,
+    graph,
+    solver,
+    llm,
+    task,
     max_steps: int = 50,
     guidance_hops: int = 2,
     trajectory_window: int = 3,
@@ -197,12 +218,20 @@ async def run_rollout(
 async def execute_action_stub(action: str) -> str: ...
 def tail_concat(traces: Iterable[Trajectory], max_tokens: int) -> str: ...
 async def propose_edits(
-    *, llm, graph, traces, rejected,
+    *,
+    llm,
+    graph,
+    traces,
+    rejected,
     context_tokens: int = 6000,
 ) -> list[Edit]: ...
 def validate_candidate(
-    graph, edits: Sequence[Edit], *, allow_cycles: bool = False,
+    graph,
+    edits: Sequence[Edit],
+    *,
+    allow_cycles: bool = False,
 ) -> ProceduralGraph | None: ...
+
 
 class RejectionMemory:
     def __init__(self, max_size: int = 32) -> None: ...
@@ -210,9 +239,11 @@ class RejectionMemory:
     def add(self, edits, val_score) -> None: ...
     def snapshot(self) -> list[tuple[Edit, float]]: ...
 
+
 class EvolutionEngine:
     def __init__(
-        self, *,
+        self,
+        *,
         llm: LLMClient,
         repo: Repository,
         train_tasks: Sequence[Task],

@@ -15,17 +15,26 @@ didn't — implementing paper Algorithm 1.
 
 ```python
 from methodos import (
-    Node, Edge, Attribute, Relation, ProceduralGraph,
-    PGAdapter, Solver, AgentState,
+    Node,
+    Edge,
+    Attribute,
+    Relation,
+    ProceduralGraph,
+    PGAdapter,
+    Solver,
+    AgentState,
     LiteLLMClient,
 )
 
+
 class MySolver:
     """Any object with an async step(state) -> str satisfies Solver Protocol."""
+
     async def step(self, state: AgentState) -> str:
         # Use state.context (which contains the procedural guidance)
         # when constructing your LLM prompt.
         return "search"
+
 
 graph = ProceduralGraph(
     id="example",
@@ -35,18 +44,26 @@ graph = ProceduralGraph(
         "answer": Node(id="answer"),
     },
     edges=[
-        Edge(src="start", dst="search", relation=Relation.LEADS_TO,
-             attribute=Attribute(
-                 condition="need information",
-                 guidance="call search with focused query",
-                 pitfalls="don't search with the full question",
-             )),
-        Edge(src="search", dst="answer", relation=Relation.LEADS_TO,
-             attribute=Attribute(
-                 condition="have enough info",
-                 guidance="synthesize a concise answer",
-                 pitfalls="don't repeat observations",
-             )),
+        Edge(
+            src="start",
+            dst="search",
+            relation=Relation.LEADS_TO,
+            attribute=Attribute(
+                condition="need information",
+                guidance="call search with focused query",
+                pitfalls="don't search with the full question",
+            ),
+        ),
+        Edge(
+            src="search",
+            dst="answer",
+            relation=Relation.LEADS_TO,
+            attribute=Attribute(
+                condition="have enough info",
+                guidance="synthesize a concise answer",
+                pitfalls="don't repeat observations",
+            ),
+        ),
     ],
     terminal_ids={"answer"},
 )
