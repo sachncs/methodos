@@ -65,7 +65,7 @@ methodos/
 | `Solver` | `async step(state) -> str` | host agent |
 | `LLMClient` | `async complete(system, user, json_schema, temperature) -> str` | `LiteLLMClient` (litellm) |
 | `Repository` | `load_graph`, `save_graph`, `snapshot`, `append_trajectory`, `read_trajectories` | `FilesystemRepository`, `SQLiteRepository`, `InMemoryRepository` (test) |
-| `VectorIndex` | `upsert`, `query` | `NoOpVectorIndex`, `SqliteVecIndex` |
+| `VectorIndex` | `upsert`, `query` | `SilentVectorIndex`, `SqliteVecIndex` |
 
 ## Data Model (Pydantic v2)
 

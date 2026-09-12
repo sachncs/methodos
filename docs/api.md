@@ -160,7 +160,7 @@ class ScoredMatch:
     score: float
 
 
-class NoOpVectorIndex: ...
+class SilentVectorIndex: ...
 
 
 class FilesystemRepository:
