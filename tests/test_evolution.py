@@ -557,7 +557,7 @@ class ScriptedRoundLLM(LLMClient):
 
 
 class TestEvolutionEngineRun:
-    """Algorithm 1 behavior end-to-end with deterministic fakes."""
+    """Algorithm 1 behavior end-to-end with deterministic doubles."""
 
     async def test_accepts_initial_when_no_edits(self) -> None:
         # Refiner returns no edits → initial graph survives; engine
