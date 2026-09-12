@@ -94,17 +94,27 @@ class Repository(Protocol):
     iterator (the standard Python pattern for async iteration).
     """
 
-    async def load_graph(self, graph_id: str) -> ProceduralGraph: ...
+    async def load_graph(self, graph_id: str) -> ProceduralGraph:
+        """Load the graph identified by `graph_id`."""
+        ...
 
-    async def save_graph(self, graph: ProceduralGraph) -> None: ...
+    async def save_graph(self, graph: ProceduralGraph) -> None:
+        """Persist `graph`, replacing any existing entry with the same id."""
+        ...
 
-    async def snapshot(self, graph_id: str, tag: str) -> None: ...
+    async def snapshot(self, graph_id: str, tag: str) -> None:
+        """Persist a tagged snapshot of the current state of `graph_id`."""
+        ...
 
     async def append_trajectory(
         self, graph_id: str, split: str, trajectory: Trajectory
-    ) -> None: ...
+    ) -> None:
+        """Append `trajectory` to the named `split` for `graph_id`."""
+        ...
 
-    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]: ...
+    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        """Yield trajectories for `graph_id` from `split`, oldest first."""
+        ...
 
 
 @runtime_checkable
@@ -114,9 +124,13 @@ class VectorIndex(Protocol):
     Implementations: `SilentVectorIndex` (default), `SqliteVecIndex`.
     """
 
-    def upsert(self, key: str, vector: list[float]) -> None: ...
+    def upsert(self, key: str, vector: list[float]) -> None:
+        """Store `vector` under `key`, replacing any existing entry."""
+        ...
 
-    def query(self, vector: list[float], k: int) -> list[ScoredMatch]: ...
+    def query(self, vector: list[float], k: int) -> list[ScoredMatch]:
+        """Return up to `k` matches nearest to `vector` by cosine distance."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,13 +195,24 @@ class FilesystemRepository:
     """
 
     def __init__(self, *, root: Path) -> None:
+        """Initialize the filesystem-backed repository.
+
+        Args:
+            root: Filesystem root under which `graphs/<id>/...` is stored.
+        """
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
     def graph_dir(self, graph_id: str) -> Path:
+        """Return the directory where artifacts for `graph_id` are stored."""
         return self.root / "graphs" / graph_id
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
+        """Load and return the graph identified by `graph_id`.
+
+        Raises:
+            FileNotFoundError: If `graph.json` does not exist for `graph_id`.
+        """
         path = self.graph_dir(graph_id) / "graph.json"
         if not path.exists():
             raise FileNotFoundError(f"graph {graph_id!r} not found at {path}")
@@ -196,10 +221,10 @@ class FilesystemRepository:
         return ProceduralGraph.model_validate(data)
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
+        """Persist `graph` atomically (temp-file + rename)."""
         graph_dir = self.graph_dir(graph.id)
         graph_dir.mkdir(parents=True, exist_ok=True)
         target = graph_dir / "graph.json"
-        # Atomic write: write to a sibling temp file, then replace.
         fd, tmp_path_str = tempfile.mkstemp(
             prefix="graph_",
             suffix=".json.tmp",
@@ -218,6 +243,7 @@ class FilesystemRepository:
         logger.debug("saved graph %s to %s", graph.id, target)
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
+        """Persist a tagged snapshot of `graph_id`'s current state."""
         graph_dir = self.graph_dir(graph_id)
         src = graph_dir / "graph.json"
         if not src.exists():
@@ -231,6 +257,7 @@ class FilesystemRepository:
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
+        """Append `trajectory` to `graph_id`'s `split` log."""
         graph_dir = self.graph_dir(graph_id)
         traj_dir = graph_dir / "trajectories"
         traj_dir.mkdir(parents=True, exist_ok=True)
@@ -250,6 +277,7 @@ class FilesystemRepository:
         return self.read_trajectories_impl(graph_id, split)
 
     async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        """Yield trajectories for `graph_id` from `split`, oldest first."""
         path = self.graph_dir(graph_id) / "trajectories" / f"{split}.jsonl"
         if not path.exists():
             return
@@ -327,12 +355,21 @@ class SQLiteRepository:
         db_path: Path,
         vector_index: VectorIndex | None = None,
     ) -> None:
+        """Initialize the SQLite-backed repository.
+
+        Args:
+            db_path: SQLite file path (shared with `SqliteVecIndex`).
+            vector_index: Optional vector index; defaults to a silent
+                no-op index. Set to a `SqliteVecIndex` to enable semantic
+                recall.
+        """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.vector_index: VectorIndex = vector_index or SilentVectorIndex()
         self.ensure_schema()
 
     def connect(self) -> sqlite3.Connection:
+        """Open a SQLite connection with WAL and FK enabled."""
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
@@ -355,6 +392,11 @@ class SQLiteRepository:
                 )
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
+        """Load and return the graph identified by `graph_id`.
+
+        Raises:
+            FileNotFoundError: If `graph_id` has no row in `graphs`.
+        """
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
@@ -368,7 +410,7 @@ class SQLiteRepository:
                 return ProceduralGraph.model_validate_json(row["body"])
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
-        """Upsert the graph row. Uses UPDATE-then-INSERT so snapshots survive."""
+        """Upsert `graph`; uses UPDATE-then-INSERT so snapshot rows survive."""
         body = graph.model_dump_json()
         ts = time.time()
         async with aiosqlite.connect(self.db_path) as db:
@@ -399,6 +441,7 @@ class SQLiteRepository:
         logger.debug("saved graph %s", graph.id)
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
+        """Persist a tagged snapshot of `graph_id`'s current state."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
@@ -419,6 +462,7 @@ class SQLiteRepository:
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
+        """Append `trajectory` to `graph_id`'s `split` log."""
         body = json.dumps(
             {
                 "task_query": trajectory.task.query,
@@ -440,6 +484,7 @@ class SQLiteRepository:
         return self.read_trajectories_impl(graph_id, split)
 
     async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        """Yield trajectories for `graph_id` from `split`, oldest first."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
@@ -468,6 +513,12 @@ class SqliteVecIndex:
     """
 
     def __init__(self, *, db_path: Path, dim: int) -> None:
+        """Initialize the vector index.
+
+        Args:
+            db_path: SQLite file path (shared with `SQLiteRepository`).
+            dim: Embedding dimensionality; must be positive.
+        """
         if dim <= 0:
             raise ValueError(f"dim must be positive, got {dim}")
         self.db_path = Path(db_path)
@@ -476,6 +527,7 @@ class SqliteVecIndex:
         self.ensure_table()
 
     def connect(self) -> sqlite3.Connection:
+        """Open a sqlite-vec-enabled connection for vector queries."""
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.row_factory = sqlite3.Row
@@ -485,6 +537,7 @@ class SqliteVecIndex:
         return conn
 
     def ensure_table(self) -> None:
+        """Create the `vec_nodes` virtual table if it does not exist."""
         with self.connect() as conn:
             conn.execute(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes "
@@ -492,6 +545,15 @@ class SqliteVecIndex:
             )
 
     def upsert(self, key: str, vector: list[float]) -> None:
+        """Store a vector under `key`, replacing any existing entry.
+
+        Args:
+            key: Unique identifier for the vector.
+            vector: Embedding values; must have length equal to `dim`.
+
+        Raises:
+            ValueError: If `len(vector) != dim`.
+        """
         if len(vector) != self.dim:
             raise ValueError(f"vector length {len(vector)} != dim {self.dim}")
         packed = self.vec.serialize_float32(vector)
@@ -502,6 +564,16 @@ class SqliteVecIndex:
             )
 
     def query(self, vector: list[float], k: int) -> list[ScoredMatch]:
+        """Return up to `k` vectors nearest to `vector` by cosine distance.
+
+        Args:
+            vector: Query embedding; must have length equal to `dim`.
+            k: Maximum number of matches to return.
+
+        Returns:
+            Matches sorted by similarity (highest first). Empty when `k <= 0`,
+            the query vector has wrong length, or the index is empty.
+        """
         if len(vector) != self.dim:
             raise ValueError(f"vector length {len(vector)} != dim {self.dim}")
         if k <= 0:

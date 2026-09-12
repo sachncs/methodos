@@ -107,6 +107,7 @@ extend-exclude = ["eval"]
 [tool.ruff.lint]
 # Google Python Style — opinionated but bounded; NOT `select = ["ALL"]`.
 select = [
+    "D",   # pydocstyle (Google convention)
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # pyflakes (undefined names, unused, etc.)
@@ -121,7 +122,17 @@ ignore = [
     "COM812", # conflicts with formatter
     "ISC001", # conflicts with formatter
     "CPY001", # copyright covered by LICENSE
+    # Pragmatic relaxations for Google docstring enforcement:
+    "D100",   # missing docstring in public module (we don't want every file to require one)
+    "D104",   # missing docstring in public package (same)
+    "D205",   # 1 blank line between summary and description (we may have 2)
+    "D401",   # first line imperative (some classes use descriptive first line)
+    "D403",   # first line not imperative (allow descriptive)
+    "D413",   # missing blank line after last section (allow tight sections)
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["F401", "B011"]
