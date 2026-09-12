@@ -12,7 +12,7 @@ from methodos.adapter import (
 )
 from methodos.graph import match_node, neighborhood
 from tests.conftest import (
-    FakeLLM,
+    ScriptedLLM,
     SequenceSolver,
     StaticSolver,
     make_sample_graph,
@@ -33,9 +33,12 @@ class TestAgentState:
         assert state.context == "ctx"
 
     def test_is_frozen(self) -> None:
+        import dataclasses
+
         state = AgentState(query="q", trajectory=(), context="")
-        with pytest.raises((AttributeError, Exception)):  # FrozenInstanceError
-            state.query = "new"
+        # Frozen dataclasses expose `__dataclass_params__.frozen = True`.
+        assert dataclasses.is_dataclass(state)
+        assert state.__dataclass_params__.frozen is True
 
     def test_default_trajectory_is_empty_tuple(self) -> None:
         state = AgentState(query="q", trajectory=(), context="")
@@ -125,7 +128,7 @@ class TestPGAdapterConstruction:
         adapter = PGAdapter(
             solver=StaticSolver(),
             graph=graph,
-            llm=FakeLLM(),
+            llm=ScriptedLLM(),
         )
         assert adapter.graph is graph
         assert isinstance(adapter.cache, GuidanceCache)
@@ -136,7 +139,7 @@ class TestPGAdapterConstruction:
         adapter = PGAdapter(
             solver=StaticSolver(),
             graph=graph,
-            llm=FakeLLM(),
+            llm=ScriptedLLM(),
             cache=cache,
         )
         assert adapter.cache is cache
@@ -146,7 +149,7 @@ class TestPGAdapterConstruction:
             PGAdapter(
                 solver=StaticSolver(),
                 graph=make_sample_graph(),
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 guidance_hops=-1,
             )
 
@@ -155,7 +158,7 @@ class TestPGAdapterConstruction:
             PGAdapter(
                 solver=StaticSolver(),
                 graph=make_sample_graph(),
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 trajectory_window=-1,
             )
 
@@ -169,7 +172,7 @@ class TestPGAdapterStep:
         adapter = PGAdapter(
             solver=solver,
             graph=graph,
-            llm=FakeLLM(responses=["do this"]),
+            llm=ScriptedLLM(responses=["do this"]),
         )
         action = await adapter.step(
             query="what?",
@@ -188,7 +191,7 @@ class TestPGAdapterStep:
         adapter = PGAdapter(
             solver=solver,
             graph=make_sample_graph(),
-            llm=FakeLLM(responses=["GUIDANCE-BODY"]),
+            llm=ScriptedLLM(responses=["GUIDANCE-BODY"]),
         )
         await adapter.step(query="q", trajectory=[])
         state = solver.states_seen[0]
@@ -199,7 +202,7 @@ class TestPGAdapterStep:
         """Empty trajectory → locate via 'Start' node, generate guidance."""
         graph = make_sample_graph()
         solver = StaticSolver(action="search")
-        llm = FakeLLM(responses=["g"])
+        llm = ScriptedLLM(responses=["g"])
         adapter = PGAdapter(solver=solver, graph=graph, llm=llm)
         await adapter.step(query="q", trajectory=[])
         assert len(llm.calls) == 1
@@ -208,7 +211,7 @@ class TestPGAdapterStep:
         """If the last action isn't in the graph, fall back to the full graph."""
         graph = make_sample_graph()
         solver = StaticSolver()
-        llm = FakeLLM(responses=["g"])
+        llm = ScriptedLLM(responses=["g"])
         adapter = PGAdapter(solver=solver, graph=graph, llm=llm)
         await adapter.step(
             query="q",
@@ -220,7 +223,7 @@ class TestPGAdapterStep:
     async def test_cache_hit_on_repeated_call(self) -> None:
         graph = make_sample_graph()
         solver = StaticSolver()
-        llm = FakeLLM(responses=["CACHED-GUIDANCE"])
+        llm = ScriptedLLM(responses=["CACHED-GUIDANCE"])
         adapter = PGAdapter(solver=solver, graph=graph, llm=llm)
         # First call → LLM invoked
         await adapter.step(query="q", trajectory=[("start", "")])
@@ -236,7 +239,7 @@ class TestPGAdapterStep:
     async def test_cache_miss_on_different_observation(self) -> None:
         graph = make_sample_graph()
         solver = StaticSolver()
-        llm = FakeLLM(responses=["g1", "g2"])
+        llm = ScriptedLLM(responses=["g1", "g2"])
         adapter = PGAdapter(solver=solver, graph=graph, llm=llm)
         await adapter.step(query="q", trajectory=[("start", "obs1")])
         await adapter.step(query="q", trajectory=[("start", "obs2")])
@@ -250,7 +253,7 @@ class TestPGAdapterStep:
         assert graph_a is not graph_b  # different objects
         shared_cache = GuidanceCache()
         solver = StaticSolver()
-        llm = FakeLLM(responses=["g"])
+        llm = ScriptedLLM(responses=["g"])
         adapter_a = PGAdapter(
             solver=solver,
             graph=graph_a,
@@ -275,7 +278,7 @@ class TestPGAdapterStep:
         adapter = PGAdapter(
             solver=solver,
             graph=make_sample_graph(),
-            llm=FakeLLM(),
+            llm=ScriptedLLM(),
         )
         trajectory = [("a", "1"), ("b", "2"), ("c", "3")]
         await adapter.step(query="q", trajectory=trajectory)
@@ -291,7 +294,7 @@ class TestPGAdapterStep:
         adapter = PGAdapter(
             solver=BoomSolver(),
             graph=make_sample_graph(),
-            llm=FakeLLM(),
+            llm=ScriptedLLM(),
         )
         with pytest.raises(ValueError, match="kaboom"):
             await adapter.step(query="q", trajectory=[])

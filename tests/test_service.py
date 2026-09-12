@@ -25,7 +25,7 @@ from methodos.service import (
     HealthResponse,
     create_app,
 )
-from tests.conftest import FakeLLM
+from tests.conftest import ScriptedLLM
 
 
 @pytest.fixture
@@ -53,9 +53,9 @@ def seeded_repo(graph: ProceduralGraph, tmp_path: Path) -> Iterator[SQLiteReposi
 
 @pytest.fixture
 def client(seeded_repo: SQLiteRepository) -> Iterator[TestClient]:
-    """FastAPI TestClient with a seeded SQLite repo and a FakeLLM."""
-    fake_llm = FakeLLM(responses=["guidance-text"])
-    app = create_app(repo=seeded_repo, llm=fake_llm)
+    """FastAPI TestClient with a seeded SQLite repo and a ScriptedLLM."""
+    scripted_llm = ScriptedLLM(responses=["guidance-text"])
+    app = create_app(repo=seeded_repo, llm=scripted_llm)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -268,8 +268,8 @@ class TestFilesystemRepositoryWiring:
         )
         asyncio.run(fs_repo.save_graph(graph))
 
-        fake_llm = FakeLLM()
-        app = create_app(repo=fs_repo, llm=fake_llm)
+        scripted_llm = ScriptedLLM()
+        app = create_app(repo=fs_repo, llm=scripted_llm)
         with TestClient(app) as client:
             response = client.get("/v1/graphs/fs-g")
             assert response.status_code == 200
@@ -282,8 +282,8 @@ class TestFilesystemRepositoryWiring:
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.delenv("PGRAPH_BACKEND", raising=False)
-        fake_llm = FakeLLM()
-        app = create_app(llm=fake_llm)
+        scripted_llm = ScriptedLLM()
+        app = create_app(llm=scripted_llm)
         # Lifespan has run; we can hit health at minimum.
         with TestClient(app) as client:
             assert client.get("/health").status_code == 200
