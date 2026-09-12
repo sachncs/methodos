@@ -30,7 +30,7 @@ The harness:
 
 ## Plug in a real search backend
 
-The default `noop_search` returns `(no results)` — replace it with a real
+The default `echo_search` returns `(no results)` — replace it with a real
 retrieval client before evaluating on production:
 
 ```python
@@ -41,7 +41,7 @@ async def real_search(query: str) -> str:
     return "..."
 
 # Run with the custom search by calling _run_one directly or by
-# monkey-patching noop_search in your own entrypoint.
+# monkey-patching echo_search in your own entrypoint.
 ```
 
 ## Method
@@ -59,5 +59,5 @@ For each task:
 ## Files
 
 - `tasks.py` — `HotpotQATask`, `load_tasks`, `download_if_missing`
-- `solver.py` — `HotpotQASolver` (ReAct-style), `noop_search`
+- `solver.py` — `HotpotQASolver` (ReAct-style), `echo_search`
 - `run.py` — `run_eval`, CLI entry, paired-aggregation helpers
