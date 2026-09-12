@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from eval.hotpotqa.run import _exact_match, _normalize, _token_f1
+from eval.hotpotqa.run import exact_match, normalize, token_f1
 from eval.hotpotqa.tasks import (
     DEFAULT_DATA_DIR,
     HotpotQATask,
@@ -20,46 +20,46 @@ from eval.hotpotqa.tasks import (
 
 class TestNormalize:
     def test_lowercase_and_strip_whitespace(self) -> None:
-        assert _normalize("  Hello   World  ") == "hello world"
+        assert normalize("  Hello   World  ") == "hello world"
 
     def test_handles_empty_string(self) -> None:
-        assert _normalize("") == ""
+        assert normalize("") == ""
 
     def test_collapses_multiple_spaces(self) -> None:
-        assert _normalize("a\n\t b") == "a b"
+        assert normalize("a\n\t b") == "a b"
 
 
 class TestExactMatch:
     def test_identical_strings_match(self) -> None:
-        assert _exact_match("Paris", "Paris") == 1.0
+        assert exact_match("Paris", "Paris") == 1.0
 
     def test_case_insensitive(self) -> None:
-        assert _exact_match("PARIS", "paris") == 1.0
+        assert exact_match("PARIS", "paris") == 1.0
 
     def test_whitespace_tolerant(self) -> None:
-        assert _exact_match("  Paris  ", "Paris") == 1.0
+        assert exact_match("  Paris  ", "Paris") == 1.0
 
     def test_different_strings_no_match(self) -> None:
-        assert _exact_match("Paris", "London") == 0.0
+        assert exact_match("Paris", "London") == 0.0
 
 
 class TestTokenF1:
     def test_identical_strings(self) -> None:
-        assert _token_f1("Paris", "Paris") == 1.0
+        assert token_f1("Paris", "Paris") == 1.0
 
     def test_no_overlap(self) -> None:
-        assert _token_f1("apple", "banana") == 0.0
+        assert token_f1("apple", "banana") == 0.0
 
     def test_partial_overlap(self) -> None:
         # "Paris France" vs "Paris Germany" → tokens "paris" overlaps
-        f1 = _token_f1("Paris France", "Paris Germany")
+        f1 = token_f1("Paris France", "Paris Germany")
         assert 0.0 < f1 < 1.0
 
     def test_empty_predicted(self) -> None:
-        assert _token_f1("", "Paris") == 0.0
+        assert token_f1("", "Paris") == 0.0
 
     def test_empty_gold(self) -> None:
-        assert _token_f1("Paris", "") == 0.0
+        assert token_f1("Paris", "") == 0.0
 
 
 class TestLoadTasks:

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from eval.hotpotqa.solver import HotpotQASolver, noop_search
+from eval.hotpotqa.solver import HotpotQASolver, echo_search
 from eval.hotpotqa.tasks import DEFAULT_DATA_DIR, download_if_missing, load_tasks
 from methodos.adapter import AgentState, PGAdapter
 from methodos.llm import LiteLLMClient
@@ -32,17 +32,17 @@ class EvalResult:
     f1: float  # token F1
 
 
-def _normalize(text: str) -> str:
+def normalize(text: str) -> str:
     return " ".join(text.lower().strip().split())
 
 
-def _exact_match(predicted: str, gold: str) -> float:
-    return 1.0 if _normalize(predicted) == _normalize(gold) else 0.0
+def exact_match(predicted: str, gold: str) -> float:
+    return 1.0 if normalize(predicted) == normalize(gold) else 0.0
 
 
-def _token_f1(predicted: str, gold: str) -> float:
-    predicted_tokens = _normalize(predicted).split()
-    gold_tokens = _normalize(gold).split()
+def token_f1(predicted: str, gold: str) -> float:
+    predicted_tokens = normalize(predicted).split()
+    gold_tokens = normalize(gold).split()
     if not predicted_tokens or not gold_tokens:
         return 0.0
     common: dict[str, int] = {}
@@ -61,23 +61,23 @@ def _token_f1(predicted: str, gold: str) -> float:
 
 
 @dataclass(frozen=True)
-class _Aggregates:
+class EvalAggregates:
     em: float
     f1: float
     n: int
 
 
-def _aggregate(results: list[EvalResult]) -> _Aggregates:
+def aggregate(results: list[EvalResult]) -> EvalAggregates:
     if not results:
-        return _Aggregates(em=0.0, f1=0.0, n=0)
-    return _Aggregates(
+        return EvalAggregates(em=0.0, f1=0.0, n=0)
+    return EvalAggregates(
         em=sum(r.em for r in results) / len(results),
         f1=sum(r.f1 for r in results) / len(results),
         n=len(results),
     )
 
 
-async def _run_one(
+async def run_one(
     *,
     question: str,
     task_id: str,
@@ -100,7 +100,6 @@ async def _run_one(
                 trajectory=tuple(trajectory),
                 context="",
             ))
-        # Parse the action: it may contain "ANSWER: foo" or "search(...)"
         if "ANSWER:" in action.upper():
             predicted = action.split(":", 1)[1].strip() if ":" in action else action
             break
@@ -111,8 +110,8 @@ async def _run_one(
         expected_answer=expected,
         predicted_answer=predicted,
         with_pg=adapter is not None,
-        em=_exact_match(predicted, expected),
-        f1=_token_f1(predicted, expected),
+        em=exact_match(predicted, expected),
+        f1=token_f1(predicted, expected),
     )
 
 
@@ -151,12 +150,12 @@ async def run_eval(
     logger.info("running paired eval over %d HotpotQA examples", len(tasks))
 
     llm = LiteLLMClient(model=model)
-    search = noop_search  # host wires a real backend for production
+    search = echo_search  # host wires a real backend for production
 
-    def _solver_factory() -> HotpotQASolver:
+    def solver_factory() -> HotpotQASolver:
         return HotpotQASolver(llm=llm, search=search, max_steps=4)
 
-    def _adapter_factory(
+    def adapter_factory(
         solver: HotpotQASolver, g: ProceduralGraph | None
     ) -> PGAdapter | None:
         if g is None:
@@ -167,25 +166,25 @@ async def run_eval(
     without_results: list[EvalResult] = []
 
     for task in tasks:
-        with_results.append(await _run_one(
+        with_results.append(await run_one(
             question=task.question,
             task_id=task.id,
             expected=task.answer,
-            solver_factory=_solver_factory,
-            adapter_factory=_adapter_factory,
+            solver_factory=solver_factory,
+            adapter_factory=adapter_factory,
             graph=graph,
         ))
-        without_results.append(await _run_one(
+        without_results.append(await run_one(
             question=task.question,
             task_id=task.id,
             expected=task.answer,
-            solver_factory=_solver_factory,
-            adapter_factory=_adapter_factory,
+            solver_factory=solver_factory,
+            adapter_factory=adapter_factory,
             graph=None,
         ))
 
-    with_agg = _aggregate(with_results)
-    without_agg = _aggregate(without_results)
+    with_agg = aggregate(with_results)
+    without_agg = aggregate(without_results)
     print(
         f"HotpotQA eval (n={len(tasks)})\n"
         f"  with PG:    EM={with_agg.em:.4f}  F1={with_agg.f1:.4f}\n"
