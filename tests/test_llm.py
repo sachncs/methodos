@@ -63,8 +63,8 @@ def test_litellm_client_model_property() -> None:
 class LitellmModuleDouble:
     """Module-shaped double for monkeypatching `litellm` in tests."""
 
-    def __init__(self, fake_acompletion: Any) -> None:
-        self.acompletion = staticmethod(fake_acompletion)
+    def __init__(self, recorded_acompletion: Any) -> None:
+        self.acompletion = staticmethod(recorded_acompletion)
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def patched_litellm(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]
         "exceptions": [],
     }
 
-    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
         state["calls"].append(kwargs)
         if state["exceptions"]:
             exc = state["exceptions"].pop(0)
@@ -86,7 +86,7 @@ def patched_litellm(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]
             return response
         return {"choices": [{"message": {"content": "default"}}]}
 
-    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
     yield state
 
 
@@ -140,13 +140,13 @@ async def test_litellm_complete_retries_on_transient_failure(
     """Two failures then success → returns the success without raising."""
     call_count = {"n": 0}
 
-    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         if call_count["n"] <= 2:
             raise RuntimeError(f"transient {call_count['n']}")
         return {"choices": [{"message": {"content": "recovered"}}]}
 
-    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=3)
     out = await client.complete(system="s", user="u")
@@ -159,10 +159,10 @@ async def test_litellm_complete_raises_llm_error_after_exhausting_retries(
 ) -> None:
     """All retries fail → raises LLMError wrapping the last underlying error."""
 
-    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("always fails")
 
-    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=2)
     with pytest.raises(LLMError) as excinfo:
@@ -178,12 +178,12 @@ async def test_litellm_complete_does_not_retry_on_programmatic_error(
     """LLMError raised inside the call path (non-retryable) propagates immediately."""
     call_count = {"n": 0}
 
-    async def fake_acompletion(**kwargs: Any) -> dict[str, Any]:
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
         call_count["n"] += 1
         # Return a content payload that is NOT a string → triggers LLMError.
         return {"choices": [{"message": {"content": 42}}]}
 
-    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(fake_acompletion))
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=5)
     with pytest.raises(LLMError, match="expected str content"):
