@@ -550,10 +550,10 @@ def build_repository() -> Repository:
 
 __all__ = [
     "FilesystemRepository",
-    "SilentVectorIndex",
     "Repository",
     "SQLiteRepository",
     "ScoredMatch",
+    "SilentVectorIndex",
     "SqliteVecIndex",
     "Task",
     "Trajectory",
