@@ -106,9 +106,7 @@ class Repository(Protocol):
         """Persist a tagged snapshot of the current state of `graph_id`."""
         ...
 
-    async def append_trajectory(
-        self, graph_id: str, split: str, trajectory: Trajectory
-    ) -> None:
+    async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append `trajectory` to the named `split` for `graph_id`."""
         ...
 
