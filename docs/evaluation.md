@@ -48,11 +48,11 @@ LLM noise.
 
 ### Plug in a real search backend
 
-The default `noop_search` returns `(no results)`. Before evaluating in
+The default `echo_search` returns `(no results)`. Before evaluating in
 production, replace it with a real retriever:
 
 ```python
-from eval.hotpotqa.solver import noop_search
+from eval.hotpotqa.solver import echo_search
 from eval.hotpotqa import solver as solver_mod
 
 
@@ -60,7 +60,7 @@ async def real_search(query: str) -> str:
     return await my_retriever.search(query)
 
 
-solver_mod.noop_search = real_search
+solver_mod.echo_search = real_search
 ```
 
 ## Wiring other paper benchmarks
