@@ -15,7 +15,7 @@ from methodos.evolution import (
     EvolutionEngine,
     RejectionMemory,
     RolloutResult,
-    execute_action_stub,
+    execute_action,
     mean_score,
     propose_edits,
     run_rollout,
@@ -101,13 +101,13 @@ class TestTailConcat:
 
 
 # ----------------------------------------------------------------------------
-# execute_action_stub
+# execute_action
 # ----------------------------------------------------------------------------
 
 
-class TestExecuteActionStub:
+class TestExecuteAction:
     async def test_returns_empty_string(self) -> None:
-        assert await execute_action_stub("search") == ""
+        assert await execute_action("search") == ""
 
 
 # ----------------------------------------------------------------------------
@@ -146,22 +146,22 @@ class TestRunRollout:
         assert result.success is False
 
     async def test_terminate_success_marker(self) -> None:
-        # execute_action_stub returns "" by default; we need a custom
+        # execute_action returns "" by default; we need a custom
         # setup to inject TERMINATE_SUCCESS. Use a custom solver that
         # returns "FINISH" which we'll patch.
         class SuccessSolver:
             async def step(self, state: object) -> str:
                 return "search"
 
-        # Monkeypatch execute_action_stub via patching the module
+        # Monkeypatch execute_action via patching the module
         # alias already at top
 
-        original_stub = ev_mod.execute_action_stub
+        original_executor = ev_mod.execute_action
 
-        async def fake_stub(action: str) -> str:
+        async def recording_executor(action: str) -> str:
             return TERMINATE_SUCCESS
 
-        ev_mod.execute_action_stub = fake_stub
+        ev_mod.execute_action = recording_executor
         try:
             result = await run_rollout(
                 graph=make_sample_graph(),
@@ -173,7 +173,7 @@ class TestRunRollout:
             assert result.success is True
             assert result.trajectory.score == 1.0
         finally:
-            ev_mod.execute_action_stub = original_stub
+            ev_mod.execute_action = original_executor
 
     async def test_terminate_failure_marker(self) -> None:
         class FailureSolver:
@@ -182,11 +182,11 @@ class TestRunRollout:
 
         # alias already at top
 
-        async def fake_stub(action: str) -> str:
+        async def recording_executor(action: str) -> str:
             return TERMINATE_FAILURE
 
-        original_stub = ev_mod.execute_action_stub
-        ev_mod.execute_action_stub = fake_stub
+        original_executor = ev_mod.execute_action
+        ev_mod.execute_action = recording_executor
         try:
             result = await run_rollout(
                 graph=make_sample_graph(),
@@ -198,7 +198,7 @@ class TestRunRollout:
             assert result.success is False
             assert result.trajectory.score == 0.0
         finally:
-            ev_mod.execute_action_stub = original_stub
+            ev_mod.execute_action = original_executor
 
 
 # ----------------------------------------------------------------------------
@@ -523,7 +523,7 @@ class TestEvolutionEngineConstruction:
             )
 
 
-class _ScriptedLLM(LLMClient):
+class ScriptedLLM(LLMClient):
     """LLM whose response is computed by a function over the call index.
 
     The callable receives `(call_index, user_prompt)`. Use the prompt
@@ -556,7 +556,7 @@ class TestEvolutionEngineRun:
     async def test_accepts_initial_when_no_edits(self) -> None:
         # Refiner returns no edits → initial graph survives; engine
         # still runs K rounds and returns the same graph.
-        llm = _ScriptedLLM(lambda i, _: "[]")
+        llm = ScriptedLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -595,7 +595,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = _ScriptedLLM(script)
+        llm = ScriptedLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -618,7 +618,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = _ScriptedLLM(script)
+        llm = ScriptedLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -643,7 +643,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = _ScriptedLLM(script)
+        llm = ScriptedLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -660,7 +660,7 @@ class TestEvolutionEngineRun:
 
     async def test_persists_final_graph(self) -> None:
         repo = InMemoryRepository()
-        llm = _ScriptedLLM(lambda i, _: "[]")
+        llm = ScriptedLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
             llm=llm,
             repo=repo,
