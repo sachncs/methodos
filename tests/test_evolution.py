@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 import pytest
+from pydantic import BaseModel
 
 import methodos.evolution as ev_mod
 from methodos.adapter import Solver
@@ -36,8 +38,8 @@ from methodos.schema import (
     Relation,
 )
 from tests.conftest import (
-    FakeLLM,
     InMemoryRepository,
+    ScriptedLLM,
     SequenceSolver,
     StaticSolver,
     make_sample_graph,
@@ -118,7 +120,7 @@ class TestExecuteAction:
 class TestRunRollout:
     async def test_max_steps_zero_does_nothing(self) -> None:
         solver = StaticSolver(action="FINISH")
-        llm = FakeLLM()
+        llm = ScriptedLLM()
         task = Task(query="q")
         result = await run_rollout(
             graph=make_sample_graph(),
@@ -135,7 +137,7 @@ class TestRunRollout:
         """Same action twice in a row → rollout aborts."""
         # Solver returns "search" twice — second triggers doom-loop.
         solver = SequenceSolver(actions=["search", "search", "FINISH"])
-        llm = FakeLLM()
+        llm = ScriptedLLM()
         result = await run_rollout(
             graph=make_sample_graph(),
             solver=solver,
@@ -166,7 +168,7 @@ class TestRunRollout:
             result = await run_rollout(
                 graph=make_sample_graph(),
                 solver=SuccessSolver(),
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 task=Task(query="q"),
                 max_steps=10,
             )
@@ -191,7 +193,7 @@ class TestRunRollout:
             result = await run_rollout(
                 graph=make_sample_graph(),
                 solver=FailureSolver(),
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 task=Task(query="q"),
                 max_steps=10,
             )
@@ -226,7 +228,7 @@ class TestProposeEdits:
                 },
             ]
         )
-        llm = FakeLLM(responses=[edits_json])
+        llm = ScriptedLLM(responses=[edits_json])
         graph = make_sample_graph()
         result = await propose_edits(
             llm=llm,
@@ -241,7 +243,7 @@ class TestProposeEdits:
     async def test_strips_markdown_fences(self) -> None:
         fenced = '```json\n[{"kind": "add_node", "node": {"id": "v"}}]\n```'
         result = await propose_edits(
-            llm=FakeLLM(responses=[fenced]),
+            llm=ScriptedLLM(responses=[fenced]),
             graph=make_sample_graph(),
             traces=[],
             rejected=[],
@@ -249,7 +251,7 @@ class TestProposeEdits:
         assert len(result) == 1
 
     async def test_invalid_json_returns_empty(self) -> None:
-        llm = FakeLLM(responses=["not json at all"])
+        llm = ScriptedLLM(responses=["not json at all"])
         result = await propose_edits(
             llm=llm,
             graph=make_sample_graph(),
@@ -259,7 +261,7 @@ class TestProposeEdits:
         assert result == []
 
     async def test_non_list_returns_empty(self) -> None:
-        llm = FakeLLM(responses=['{"not": "a list"}'])
+        llm = ScriptedLLM(responses=['{"not": "a list"}'])
         result = await propose_edits(
             llm=llm,
             graph=make_sample_graph(),
@@ -270,7 +272,7 @@ class TestProposeEdits:
 
     async def test_malformed_edit_dropped_with_warning(self) -> None:
         """A non-conforming item is dropped; the rest parse."""
-        llm = FakeLLM(
+        llm = ScriptedLLM(
             responses=[
                 json.dumps(
                     [
@@ -287,11 +289,12 @@ class TestProposeEdits:
             rejected=[],
         )
         assert len(result) == 1
-        assert result[0] is not None
-        assert result[0].node.id == "ok"
+        first_edit = result[0]
+        assert isinstance(first_edit, EditAddNode)
+        assert first_edit.node.id == "ok"
 
     async def test_unknown_kind_dropped(self) -> None:
-        llm = FakeLLM(
+        llm = ScriptedLLM(
             responses=[
                 json.dumps(
                     [
@@ -310,7 +313,7 @@ class TestProposeEdits:
         assert len(result) == 1
 
     async def test_prompt_includes_graph_and_traces(self) -> None:
-        llm = FakeLLM(responses=["[]"])
+        llm = ScriptedLLM(responses=["[]"])
         t = Trajectory(task=Task(query="Q"), steps=(("a", "b"),), score=1.0)
         await propose_edits(
             llm=llm,
@@ -325,7 +328,7 @@ class TestProposeEdits:
         assert "test" in user_prompt  # graph id
 
     async def test_prompt_includes_rejection_history(self) -> None:
-        llm = FakeLLM(responses=["[]"])
+        llm = ScriptedLLM(responses=["[]"])
         rejection_edit = EditAddNode(node=Node(id="rej"))
         await propose_edits(
             llm=llm,
@@ -338,7 +341,7 @@ class TestProposeEdits:
         assert "rej" in user_prompt
 
     async def test_system_prompt_is_set(self) -> None:
-        llm = FakeLLM(responses=["[]"])
+        llm = ScriptedLLM(responses=["[]"])
         await propose_edits(
             llm=llm,
             graph=make_sample_graph(),
@@ -457,8 +460,9 @@ class TestRejectionMemory:
         mem.add([edit], 0.3)
         snap = mem.snapshot()
         assert len(snap) == 1
-        assert snap[0][0] is not None
-        assert snap[0][0].node.id == "x"
+        first_edit = snap[0][0]
+        assert isinstance(first_edit, EditAddNode)
+        assert first_edit.node.id == "x"
         assert snap[0][1] == 0.3
 
     def test_evicts_oldest_at_capacity(self) -> None:
@@ -471,10 +475,12 @@ class TestRejectionMemory:
         mem.add([e3], 0.3)
         snap = mem.snapshot()
         assert len(snap) == 2
-        assert snap[0][0] is not None
-        assert snap[0][0].node.id == "b"
-        assert snap[1][0] is not None
-        assert snap[1][0].node.id == "c"
+        first_edit = snap[0][0]
+        second_edit = snap[1][0]
+        assert isinstance(first_edit, EditAddNode)
+        assert isinstance(second_edit, EditAddNode)
+        assert first_edit.node.id == "b"
+        assert second_edit.node.id == "c"
 
     def test_len(self) -> None:
         mem = RejectionMemory(max_size=10)
@@ -492,7 +498,7 @@ class TestEvolutionEngineConstruction:
     def test_rejects_non_positive_k_rounds(self) -> None:
         with pytest.raises(ValueError, match="k_rounds must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 repo=InMemoryRepository(),
                 train_tasks=[],
                 val_tasks=[],
@@ -503,7 +509,7 @@ class TestEvolutionEngineConstruction:
     def test_rejects_non_positive_l_max(self) -> None:
         with pytest.raises(ValueError, match="l_max_tokens must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 repo=InMemoryRepository(),
                 train_tasks=[],
                 val_tasks=[],
@@ -514,7 +520,7 @@ class TestEvolutionEngineConstruction:
     def test_rejects_non_positive_max_steps(self) -> None:
         with pytest.raises(ValueError, match="max_steps must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(),
+                llm=ScriptedLLM(),
                 repo=InMemoryRepository(),
                 train_tasks=[],
                 val_tasks=[],
@@ -523,7 +529,7 @@ class TestEvolutionEngineConstruction:
             )
 
 
-class ScriptedLLM(LLMClient):
+class ScriptedRoundLLM(LLMClient):
     """LLM whose response is computed by a function over the call index.
 
     The callable receives `(call_index, user_prompt)`. Use the prompt
@@ -531,7 +537,7 @@ class ScriptedLLM(LLMClient):
     (refiner prompts contain "Propose a JSON array of edits.").
     """
 
-    def __init__(self, fn: object) -> None:
+    def __init__(self, fn: Callable[[int, str], str]) -> None:
         self.fn = fn
         self.calls: list[str] = []
 
@@ -540,7 +546,7 @@ class ScriptedLLM(LLMClient):
         *,
         system: str,
         user: str,
-        json_schema: object | None = None,
+        json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
     ) -> str:
         self.calls.append(user)
@@ -556,7 +562,7 @@ class TestEvolutionEngineRun:
     async def test_accepts_initial_when_no_edits(self) -> None:
         # Refiner returns no edits → initial graph survives; engine
         # still runs K rounds and returns the same graph.
-        llm = ScriptedLLM(lambda i, _: "[]")
+        llm = ScriptedRoundLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -595,7 +601,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = ScriptedLLM(script)
+        llm = ScriptedRoundLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -618,7 +624,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = ScriptedLLM(script)
+        llm = ScriptedRoundLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -643,7 +649,7 @@ class TestEvolutionEngineRun:
                 )
             return ""
 
-        llm = ScriptedLLM(script)
+        llm = ScriptedRoundLLM(script)
         engine = EvolutionEngine(
             llm=llm,
             repo=InMemoryRepository(),
@@ -660,7 +666,7 @@ class TestEvolutionEngineRun:
 
     async def test_persists_final_graph(self) -> None:
         repo = InMemoryRepository()
-        llm = ScriptedLLM(lambda i, _: "[]")
+        llm = ScriptedRoundLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
             llm=llm,
             repo=repo,
