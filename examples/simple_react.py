@@ -6,6 +6,7 @@ in production.
 
 Requires: `pip install methodos`
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,7 @@ from methodos import (
     Attribute,
     Edge,
     LiteLLMClient,
+    LLMClient,
     Node,
     PGAdapter,
     ProceduralGraph,
@@ -25,6 +27,9 @@ from methodos import (
 
 class StubSolver:
     """A placeholder solver that returns a fixed action.
+
+    Annotated as a `Solver` Protocol implementation so type checkers
+    accept it in `PGAdapter(solver=...)`.
 
     Real usage: implement `async def step(state) -> str` that consults
     `state.context` (which contains the procedural guidance) when
@@ -45,7 +50,9 @@ async def main() -> None:
         },
         edges=[
             Edge(
-                src="start", dst="search", relation=Relation.LEADS_TO,
+                src="start",
+                dst="search",
+                relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="need information",
                     guidance="call search with focused query",
@@ -53,7 +60,9 @@ async def main() -> None:
                 ),
             ),
             Edge(
-                src="search", dst="answer", relation=Relation.LEADS_TO,
+                src="search",
+                dst="answer",
+                relation=Relation.LEADS_TO,
                 attribute=Attribute(
                     condition="have enough info",
                     guidance="synthesize a concise answer",
@@ -66,16 +75,22 @@ async def main() -> None:
 
     # Use a stub LLM; replace with LiteLLMClient(model="gpt-4o-mini") in prod.
     class StubLLM:
+        """A placeholder LLM satisfying the `LLMClient` Protocol."""
+
         async def complete(
-            self, *, system: str, user: str,
-            json_schema=None, temperature: float = 0.0,
+            self,
+            *,
+            system: str,
+            user: str,
+            json_schema=None,
+            temperature: float = 0.0,
         ) -> str:
             return "Consider the most recent search result and answer."
 
     adapter = PGAdapter(
-        solver=StubSolver(),  # type: ignore[arg-type]
+        solver=StubSolver(),
         graph=graph,
-        llm=StubLLM(),  # type: ignore[arg-type]
+        llm=StubLLM(),
     )
     trajectory: list[tuple[str, str]] = []
     for _ in range(3):

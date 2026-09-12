@@ -7,6 +7,7 @@ Usage:
 
 Requires: `pip install methodos`
 """
+
 from __future__ import annotations
 
 import os
