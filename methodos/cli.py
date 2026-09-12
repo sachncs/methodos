@@ -60,7 +60,7 @@ def main(
     configure_logging(verbose)
 
 
-def _build_repo_from_env() -> Repository:
+def build_repo_from_env() -> Repository:
     """Default repository from environment."""
     return build_repository()
 
@@ -76,7 +76,7 @@ def init(
     """Create a new empty graph (or import one from JSON)."""
 
     async def _run() -> ProceduralGraph:
-        repo = _build_repo_from_env()
+        repo = build_repo_from_env()
         if from_path is not None:
             data = json.loads(from_path.read_text())
             graph = ProceduralGraph.model_validate(data)
@@ -97,7 +97,7 @@ def inspect(
     """Print a graph summary."""
 
     async def _run() -> None:
-        repo = _build_repo_from_env()
+        repo = build_repo_from_env()
         graph = await repo.load_graph(graph_id)
         typer.echo(f"Graph {graph.id!r}:")
         typer.echo(f"  schema_version: {graph.schema_version}")
@@ -130,7 +130,7 @@ def replay(
     """Print recent trajectories from the trajectory log."""
 
     async def _run() -> None:
-        repo = _build_repo_from_env()
+        repo = build_repo_from_env()
         count = 0
         async for traj in repo.read_trajectories(graph_id, split):
             if count >= limit:
@@ -184,7 +184,7 @@ def evolve(
         return tasks
 
     async def _run() -> None:
-        repo = _build_repo_from_env()
+        repo = build_repo_from_env()
         graph = await repo.load_graph(graph_id)
         typer.echo(
             f"graph loaded: {len(graph.nodes)} nodes, "
