@@ -14,9 +14,9 @@ This module provides:
 - `build_repository()`: env-driven factory selecting backend.
 
 Engineering notes:
-- No `_foo()` markers. Every helper has a descriptive public name.
-- No lazy imports; `sqlite3`, `aiosqlite`, `aiofiles`, `sqlite_vec`
-  (when available) are all top-level.
+- All attributes are public (no `self._foo` markers).
+- No lazy imports; `sqlite3`, `aiosqlite`, `aiofiles`, `sqlite_vec` are
+  all top-level.
 - SQLite schema is idempotent and uses FK + WAL for safety.
 - `Task` and `Trajectory` live here (not in `evolution`) because they
   are persistence shapes; `evolution` imports them.
@@ -133,12 +133,7 @@ class ScoredMatch:
 
 
 class NoOpVectorIndex:
-    """Default VectorIndex impl. Satisfies the Protocol with zero side effects.
-
-    Used when `PGRAPH_VEC != "1"`. Every `query` returns an empty list;
-    every `upsert` is a no-op. Consumers must already handle empty
-    results (which they do, because fuzzy match is opt-in).
-    """
+    """Default VectorIndex impl. Satisfies the Protocol with zero side effects."""
 
     def upsert(self, key: str, vector: list[float]) -> None:
         """No-op."""
@@ -159,11 +154,6 @@ def tail_tokens(text: str, max_tokens: int) -> str:
     Approximation: 1 token ≈ 4 characters. Used by both repository
     truncation (e.g., long trajectory logs) and by evolution's refiner
     prompt context (paper's `Tail_{L_max}`).
-
-    Args:
-        text: input string.
-        max_tokens: maximum number of tokens to keep; must be ≥ 0.
-            `0` returns empty string; values beyond `len(text)` are no-ops.
     """
     if max_tokens < 0:
         raise ValueError(f"max_tokens must be non-negative, got {max_tokens}")
@@ -191,14 +181,14 @@ class FilesystemRepository:
     """
 
     def __init__(self, *, root: Path) -> None:
-        self._root = Path(root)
-        self._root.mkdir(parents=True, exist_ok=True)
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
 
-    def _graph_dir(self, graph_id: str) -> Path:
-        return self._root / "graphs" / graph_id
+    def graph_dir(self, graph_id: str) -> Path:
+        return self.root / "graphs" / graph_id
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
-        path = self._graph_dir(graph_id) / "graph.json"
+        path = self.graph_dir(graph_id) / "graph.json"
         if not path.exists():
             raise FileNotFoundError(f"graph {graph_id!r} not found at {path}")
         async with aiofiles.open(path, encoding="utf-8") as f:
@@ -206,7 +196,7 @@ class FilesystemRepository:
         return ProceduralGraph.model_validate(data)
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
-        graph_dir = self._graph_dir(graph.id)
+        graph_dir = self.graph_dir(graph.id)
         graph_dir.mkdir(parents=True, exist_ok=True)
         target = graph_dir / "graph.json"
         # Atomic write: write to a sibling temp file, then replace.
@@ -228,7 +218,7 @@ class FilesystemRepository:
         logger.debug("saved graph %s to %s", graph.id, target)
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
-        graph_dir = self._graph_dir(graph_id)
+        graph_dir = self.graph_dir(graph_id)
         src = graph_dir / "graph.json"
         if not src.exists():
             raise FileNotFoundError(f"graph {graph_id!r} not found")
@@ -241,7 +231,7 @@ class FilesystemRepository:
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
-        graph_dir = self._graph_dir(graph_id)
+        graph_dir = self.graph_dir(graph_id)
         traj_dir = graph_dir / "trajectories"
         traj_dir.mkdir(parents=True, exist_ok=True)
         path = traj_dir / f"{split}.jsonl"
@@ -256,15 +246,11 @@ class FilesystemRepository:
             await f.write(record + "\n")
 
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
-        """Return an async iterator over trajectories.
+        """Return an async iterator over trajectories."""
+        return self.read_trajectories_impl(graph_id, split)
 
-        Synchronous method that returns an `AsyncIterator` (the standard
-        Python pattern for async iteration; see PEP 492 / 525).
-        """
-        return self._read_trajectories_impl(graph_id, split)
-
-    async def _read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
-        path = self._graph_dir(graph_id) / "trajectories" / f"{split}.jsonl"
+    async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        path = self.graph_dir(graph_id) / "trajectories" / f"{split}.jsonl"
         if not path.exists():
             return
         async with aiofiles.open(path, encoding="utf-8") as f:
@@ -341,27 +327,26 @@ class SQLiteRepository:
         db_path: Path,
         vector_index: VectorIndex | None = None,
     ) -> None:
-        self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._vector_index: VectorIndex = vector_index or NoOpVectorIndex()
-        self._ensure_schema()
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.vector_index: VectorIndex = vector_index or NoOpVectorIndex()
+        self.ensure_schema()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, isolation_level=None)
+    def connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _ensure_schema(self) -> None:
+    def ensure_schema(self) -> None:
         """Create tables and indices if they don't exist. Idempotent."""
-        with self._connect() as conn:
+        with self.connect() as conn:
             for stmt in SQLITE_SCHEMA.strip().split(";"):
                 cleaned = stmt.strip()
                 if cleaned:
                     conn.execute(cleaned)
-            # Record schema version if missing.
             existing = conn.execute("SELECT version FROM schema_meta").fetchone()
             if existing is None:
                 conn.execute(
@@ -370,7 +355,7 @@ class SQLiteRepository:
                 )
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
@@ -383,13 +368,10 @@ class SQLiteRepository:
                 return ProceduralGraph.model_validate_json(row["body"])
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
-        """Upsert the graph row. Uses UPDATE-then-INSERT (NOT `INSERT OR
-        REPLACE`) so that snapshot rows referencing this graph_id are
-        not cascade-deleted by SQLite's DELETE+INSERT implementation.
-        """
+        """Upsert the graph row. Uses UPDATE-then-INSERT so snapshots survive."""
         body = graph.model_dump_json()
         ts = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with aiosqlite.connect(self.db_path) as db:
             await db.execute("PRAGMA foreign_keys = ON")
             await db.execute("BEGIN IMMEDIATE")
             try:
@@ -417,7 +399,7 @@ class SQLiteRepository:
         logger.debug("saved graph %s", graph.id)
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
@@ -445,7 +427,7 @@ class SQLiteRepository:
             }
         )
         ts = time.time()
-        async with aiosqlite.connect(self._db_path) as db:
+        async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "INSERT INTO trajectories (graph_id, split, score, body, ts) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -454,15 +436,11 @@ class SQLiteRepository:
             await db.commit()
 
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
-        """Return an async iterator over trajectories for (graph_id, split).
+        """Return an async iterator over trajectories."""
+        return self.read_trajectories_impl(graph_id, split)
 
-        Synchronous method that returns an `AsyncIterator` (the standard
-        Python pattern for async iteration).
-        """
-        return self._read_trajectories_impl(graph_id, split)
-
-    async def _read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
-        async with aiosqlite.connect(self._db_path) as db:
+    async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             async with db.execute(
@@ -492,52 +470,49 @@ class SqliteVecIndex:
     def __init__(self, *, db_path: Path, dim: int) -> None:
         if dim <= 0:
             raise ValueError(f"dim must be positive, got {dim}")
-        self._db_path = Path(db_path)
-        self._dim = dim
-        self._sqlite_vec = sqlite_vec
-        self._ensure_table()
+        self.db_path = Path(db_path)
+        self.dim = dim
+        self.vec = sqlite_vec
+        self.ensure_table()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, isolation_level=None)
+    def connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.row_factory = sqlite3.Row
-        # Enable extension loading (required on macOS Python builds) and
-        # load the sqlite-vec extension so `vec0` is available.
         conn.enable_load_extension(True)
-        self._sqlite_vec.load(conn)
+        self.vec.load(conn)
         conn.enable_load_extension(False)
         return conn
 
-    def _ensure_table(self) -> None:
-        with self._connect() as conn:
+    def ensure_table(self) -> None:
+        with self.connect() as conn:
             conn.execute(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_nodes "
-                f"USING vec0(key TEXT PRIMARY KEY, embedding float[{self._dim}])"
+                f"USING vec0(key TEXT PRIMARY KEY, embedding float[{self.dim}])"
             )
 
     def upsert(self, key: str, vector: list[float]) -> None:
-        if len(vector) != self._dim:
-            raise ValueError(f"vector length {len(vector)} != dim {self._dim}")
-        packed = self._sqlite_vec.serialize_float32(vector)
-        with self._connect() as conn:
+        if len(vector) != self.dim:
+            raise ValueError(f"vector length {len(vector)} != dim {self.dim}")
+        packed = self.vec.serialize_float32(vector)
+        with self.connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO vec_nodes (key, embedding) VALUES (?, ?)",
                 (key, packed),
             )
 
     def query(self, vector: list[float], k: int) -> list[ScoredMatch]:
-        if len(vector) != self._dim:
-            raise ValueError(f"vector length {len(vector)} != dim {self._dim}")
+        if len(vector) != self.dim:
+            raise ValueError(f"vector length {len(vector)} != dim {self.dim}")
         if k <= 0:
             return []
-        packed = self._sqlite_vec.serialize_float32(vector)
-        with self._connect() as conn:
+        packed = self.vec.serialize_float32(vector)
+        with self.connect() as conn:
             rows = conn.execute(
                 "SELECT key, distance FROM vec_nodes "
                 "WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
                 (packed, k),
             ).fetchall()
-        # Convert distance → similarity: smaller distance = more similar.
         return [ScoredMatch(key=row["key"], score=1.0 - row["distance"]) for row in rows]
 
 
