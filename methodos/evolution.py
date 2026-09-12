@@ -124,7 +124,7 @@ async def run_rollout(
         if action == last_action and steps:
             logger.warning("doom loop on task; aborting rollout")
             break
-        observation = await execute_action_stub(action)
+        observation = await execute_action(action)
         steps.append((action, observation))
         last_action = action
         if observation == TERMINATE_SUCCESS:
@@ -142,11 +142,11 @@ TERMINATE_SUCCESS: str = "__methodos_success__"
 TERMINATE_FAILURE: str = "__methodos_failure__"
 
 
-async def execute_action_stub(action: str) -> str:
+async def execute_action(action: str) -> str:
     """Stand-in action executor for evolution rollouts.
 
     Real deployments wire this to their environment (search tools, code
-    execution, etc.). The stub returns an empty observation, which the
+    execution, etc.). The default returns an empty observation, which the
     rollout interprets as "no terminal signal" — the agent loop continues
     until `max_steps` is reached or a doom loop is detected.
     """
@@ -410,7 +410,7 @@ __all__ = [
     "EvolutionEngine",
     "RejectionMemory",
     "RolloutResult",
-    "execute_action_stub",
+    "execute_action",
     "item_to_edit",
     "mean_score",
     "parse_refiner_response",
