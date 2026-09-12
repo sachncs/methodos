@@ -57,7 +57,7 @@ def make_graph() -> ProceduralGraph:
     )
 
 
-class FakeLLM(LLMClient):
+class ScriptedLLM(LLMClient):
     """Records calls and returns canned responses in order."""
 
     def __init__(self, responses: list[str]) -> None:
@@ -167,10 +167,10 @@ class TestFormatTrajectoryWindow:
 
 
 class TestGenerateGuidance:
-    """`generate_guidance` end-to-end with a FakeLLM."""
+    """`generate_guidance` end-to-end with a ScriptedLLM."""
 
     async def test_returns_llm_response(self) -> None:
-        fake = FakeLLM(["guidance-text"])
+        fake = ScriptedLLM(["guidance-text"])
         graph = make_graph()
         out = await generate_guidance(
             llm=fake,
@@ -182,7 +182,7 @@ class TestGenerateGuidance:
         assert out == "guidance-text"
 
     async def test_calls_llm_with_system_prompt(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         await generate_guidance(
             llm=fake,
             graph=make_graph(),
@@ -192,7 +192,7 @@ class TestGenerateGuidance:
         assert fake.calls[0]["system"] == GUIDANCE_SYSTEM_PROMPT
 
     async def test_user_prompt_includes_query(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         await generate_guidance(
             llm=fake,
             graph=make_graph(),
@@ -202,7 +202,7 @@ class TestGenerateGuidance:
         assert "Tell me about Paris." in fake.calls[0]["user"]
 
     async def test_user_prompt_includes_trajectory(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         await generate_guidance(
             llm=fake,
             graph=make_graph(),
@@ -213,7 +213,7 @@ class TestGenerateGuidance:
         assert "OBS:    found Paris is the capital" in fake.calls[0]["user"]
 
     async def test_user_prompt_includes_graph(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         graph = make_graph()
         await generate_guidance(
             llm=fake,
@@ -229,7 +229,7 @@ class TestGenerateGuidance:
         assert "leads_to" in user_prompt
 
     async def test_temperature_is_zero(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         await generate_guidance(
             llm=fake,
             graph=make_graph(),
@@ -239,7 +239,7 @@ class TestGenerateGuidance:
         assert fake.calls[0]["temperature"] == 0.0
 
     async def test_default_window_is_three(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         graph = make_graph()
         # 5-step trajectory
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
@@ -257,7 +257,7 @@ class TestGenerateGuidance:
         assert "ACTION: a1" not in user_prompt
 
     async def test_explicit_window_overrides_default(self) -> None:
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         graph = make_graph()
         trajectory = [(f"a{i}", f"obs{i}") for i in range(5)]
         await generate_guidance(
@@ -273,7 +273,7 @@ class TestGenerateGuidance:
         assert "ACTION: a2" not in user_prompt
 
     async def test_returns_string_even_on_empty_response(self) -> None:
-        fake = FakeLLM([""])
+        fake = ScriptedLLM([""])
         out = await generate_guidance(
             llm=fake,
             graph=make_graph(),
@@ -284,7 +284,7 @@ class TestGenerateGuidance:
 
     async def test_no_json_schema_passed(self) -> None:
         """generate_guidance doesn't pass a structured-output schema."""
-        fake = FakeLLM(["x"])
+        fake = ScriptedLLM(["x"])
         await generate_guidance(
             llm=fake,
             graph=make_graph(),
