@@ -532,7 +532,7 @@ class _ScriptedLLM(LLMClient):
     """
 
     def __init__(self, fn: object) -> None:
-        self._fn = fn
+        self.fn = fn
         self.calls: list[str] = []
 
     async def complete(
@@ -544,7 +544,7 @@ class _ScriptedLLM(LLMClient):
         temperature: float = 0.0,
     ) -> str:
         self.calls.append(user)
-        return self._fn(len(self.calls) - 1, user)
+        return self.fn(len(self.calls) - 1, user)
 
     def is_refiner_call(self, index: int) -> bool:
         return "Propose a JSON array of edits." in self.calls[index]
@@ -629,7 +629,7 @@ class TestEvolutionEngineRun:
         )
         result = await engine.run(make_sample_graph())
         assert "search" in result.nodes  # original still there, no change
-        assert len(engine._rejection) == 1  # rejected candidate recorded
+        assert len(engine.rejection) == 1  # rejected candidate recorded
 
     async def test_rejection_memory_included_in_next_prompt(self) -> None:
         # Round 1 refiner rejects a duplicate node; round 2 refiner
