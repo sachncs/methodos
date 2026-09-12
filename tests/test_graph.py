@@ -13,7 +13,7 @@ from methodos.graph import (
     StructuralIssue,
     adjacency,
     apply_edits,
-    apply_single_edit,
+    apply_single,
     has_cycle,
     has_path_to,
     has_reachable_terminal,
@@ -343,7 +343,7 @@ class TestHasReachableTerminal:
 class TestApplyEdits:
     """`apply_edits` dispatch across all five Edit variants."""
 
-    def _base(self) -> ProceduralGraph:
+    def base(self) -> ProceduralGraph:
         return ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
@@ -352,25 +352,25 @@ class TestApplyEdits:
         )
 
     def test_empty_returns_deep_copy(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(g, [])
         assert new_g == g
         assert new_g is not g
         assert new_g.nodes is not g.nodes
 
     def test_add_node(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(g, [EditAddNode(node=Node(id="c", description="new"))])
         assert "c" in new_g.nodes
-        assert g == self._base()  # original untouched
+        assert g == self.base()  # original untouched
 
     def test_add_node_duplicate_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="already exists"):
             apply_edits(g, [EditAddNode(node=Node(id="a"))])
 
     def test_delete_node_removes_incident_edges(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(g, [EditDeleteNode(node_id="a")])
         assert "a" not in new_g.nodes
         assert new_g.edges == []
@@ -379,32 +379,32 @@ class TestApplyEdits:
         assert new_g.terminal_ids == {"b"}
 
     def test_delete_node_unknown_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="cannot delete unknown"):
             apply_edits(g, [EditDeleteNode(node_id="missing")])
 
     def test_add_edge(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(g, [EditAddEdge(edge=_edge("b", "a"))])
         assert any(e.src == "b" and e.dst == "a" for e in new_g.edges)
 
     def test_add_edge_dangling_src_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="edge endpoints"):
             apply_edits(g, [EditAddEdge(edge=_edge("missing", "a"))])
 
     def test_add_edge_dangling_dst_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="edge endpoints"):
             apply_edits(g, [EditAddEdge(edge=_edge("a", "missing"))])
 
     def test_add_edge_duplicate_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="already exists"):
             apply_edits(g, [EditAddEdge(edge=_edge("a", "b"))])
 
     def test_delete_edge(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(
             g,
             [
@@ -418,7 +418,7 @@ class TestApplyEdits:
         assert new_g.edges == []
 
     def test_delete_edge_no_match_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="no matching edge to delete"):
             apply_edits(
                 g,
@@ -432,7 +432,7 @@ class TestApplyEdits:
             )
 
     def test_update_attr(self) -> None:
-        g = self._base()
+        g = self.base()
         new_attr = Attribute(condition="c2", guidance="g2", pitfalls="p2")
         new_g = apply_edits(
             g,
@@ -448,7 +448,7 @@ class TestApplyEdits:
         assert new_g.edges[0].attribute == new_attr
 
     def test_update_attr_no_match_raises(self) -> None:
-        g = self._base()
+        g = self.base()
         with pytest.raises(ValueError, match="no matching edge to update"):
             apply_edits(
                 g,
@@ -464,7 +464,7 @@ class TestApplyEdits:
 
     def test_unknown_edit_type_raises(self) -> None:
         """A non-Edit object passed in raises ValueError from the dispatch fallback."""
-        g = self._base()
+        g = self.base()
 
         class NotAnEdit:
             kind = "add_node_with_cheese"
@@ -473,7 +473,7 @@ class TestApplyEdits:
             apply_edits(g, [_as_edit(NotAnEdit())])
 
     def test_sequential_edits_applied_in_order(self) -> None:
-        g = self._base()
+        g = self.base()
         new_g = apply_edits(
             g,
             [
@@ -488,7 +488,7 @@ class TestApplyEdits:
 class TestApplySingleEdit:
     """`apply_single_edit` per-variant dispatch."""
 
-    def _base(self) -> ProceduralGraph:
+    def base(self) -> ProceduralGraph:
         return ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
@@ -497,20 +497,20 @@ class TestApplySingleEdit:
         )
 
     def test_add_node(self) -> None:
-        new_g = apply_single_edit(self._base(), EditAddNode(node=Node(id="c")))
+        new_g = apply_single(self.base(), EditAddNode(node=Node(id="c")))
         assert "c" in new_g.nodes
 
     def test_delete_node(self) -> None:
-        new_g = apply_single_edit(self._base(), EditDeleteNode(node_id="a"))
+        new_g = apply_single(self.base(), EditDeleteNode(node_id="a"))
         assert "a" not in new_g.nodes
 
     def test_add_edge(self) -> None:
-        new_g = apply_single_edit(self._base(), EditAddEdge(edge=_edge("b", "a")))
+        new_g = apply_single(self.base(), EditAddEdge(edge=_edge("b", "a")))
         assert any(e.src == "b" for e in new_g.edges)
 
     def test_delete_edge(self) -> None:
-        new_g = apply_single_edit(
-            self._base(),
+        new_g = apply_single(
+            self.base(),
             EditDeleteEdge(
                 src="a",
                 dst="b",
@@ -521,8 +521,8 @@ class TestApplySingleEdit:
 
     def test_update_attr(self) -> None:
         new_attr = Attribute(condition="x", guidance="y", pitfalls="z")
-        new_g = apply_single_edit(
-            self._base(),
+        new_g = apply_single(
+            self.base(),
             EditUpdateAttr(
                 src="a",
                 dst="b",
