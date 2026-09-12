@@ -21,6 +21,7 @@ class HotpotQATask:
     id: str
 
     def to_query(self) -> str:
+        """Return the question text for the agent."""
         return self.question
 
 

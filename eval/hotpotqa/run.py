@@ -33,14 +33,17 @@ class EvalResult:
 
 
 def normalize(text: str) -> str:
+    """Lowercase, strip, collapse whitespace, return single-spaced string."""
     return " ".join(text.lower().strip().split())
 
 
 def exact_match(predicted: str, gold: str) -> float:
+    """Return 1.0 if normalized strings match, else 0.0."""
     return 1.0 if normalize(predicted) == normalize(gold) else 0.0
 
 
 def token_f1(predicted: str, gold: str) -> float:
+    """Compute token-level F1 between predicted and gold strings."""
     predicted_tokens = normalize(predicted).split()
     gold_tokens = normalize(gold).split()
     if not predicted_tokens or not gold_tokens:
@@ -62,12 +65,19 @@ def token_f1(predicted: str, gold: str) -> float:
 
 @dataclass(frozen=True)
 class EvalAggregates:
+    """Aggregate EM and F1 across an evaluation set."""
+
     em: float
     f1: float
     n: int
 
 
 def aggregate(results: list[EvalResult]) -> EvalAggregates:
+    """Aggregate EM and F1 across `results`.
+
+    Returns:
+        Zero-valued aggregates if `results` is empty.
+    """
     if not results:
         return EvalAggregates(em=0.0, f1=0.0, n=0)
     return EvalAggregates(

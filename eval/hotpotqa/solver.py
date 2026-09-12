@@ -42,6 +42,13 @@ class HotpotQASolver:
         search: Callable[[str], Awaitable[str]],
         max_steps: int = 8,
     ) -> None:
+        """Initialize the ReAct solver.
+
+        Args:
+            llm: LLM backend for thought/action text generation.
+            search: Async search callable taking a query string.
+            max_steps: Maximum ReAct iterations per question.
+        """
         self.llm = llm
         self.search = search
         self.max_steps = max_steps
