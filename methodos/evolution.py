@@ -14,7 +14,7 @@ This module implements the offline self-evolution loop:
 
 Engineering:
 - Pure functions for each step; `EvolutionEngine` orchestrates them.
-- No `_foo()` markers. Helpers are public where useful.
+- All attributes are public (no `self._foo` markers).
 - No lazy imports: `PGAdapter` is imported at module level (no cycle).
 """
 
@@ -107,12 +107,7 @@ async def run_rollout(
     guidance_hops: int = 2,
     trajectory_window: int = 3,
 ) -> RolloutResult:
-    """Run the agent on a task via `PGAdapter` until success, failure, or max_steps.
-
-    Returns a `RolloutResult` with the full trajectory and a boolean success
-    flag. The trajectory is also wrapped in a `Trajectory` for the
-    repository contract.
-    """
+    """Run the agent on a task via `PGAdapter` until success, failure, or max_steps."""
     adapter = PGAdapter(
         solver=solver,
         graph=graph,
@@ -126,12 +121,9 @@ async def run_rollout(
 
     for _ in range(max_steps):
         action = await adapter.step(query=task.query, trajectory=steps)
-        # Doom-loop detection: same action twice → bail.
         if action == last_action and steps:
             logger.warning("doom loop on task; aborting rollout")
             break
-        # Sentinel observations signal terminal conditions. Real
-        # environments (search tools, etc.) are wired by the host.
         observation = await execute_action_stub(action)
         steps.append((action, observation))
         last_action = action
@@ -162,14 +154,7 @@ async def execute_action_stub(action: str) -> str:
 
 
 def tail_concat(traces: Iterable[Trajectory], max_tokens: int) -> str:
-    """Concatenate trajectories preserving the END (paper's `Tail_{L_max}`).
-
-    Greedy truncation from the BEGINNING; if the total exceeds the token
-    budget, only the last `max_tokens * 4` characters are returned.
-
-    Token approximation: 1 token ≈ 4 characters. The refiner prompt uses
-    this to keep context window bounded.
-    """
+    """Concatenate trajectories preserving the END (paper's `Tail_{L_max}`)."""
     if max_tokens <= 0:
         return ""
     chunks: list[str] = []
@@ -192,13 +177,7 @@ async def propose_edits(
     rejected: Sequence[tuple[Edit, float]],
     context_tokens: int = 6000,
 ) -> list[Edit]:
-    """Ask the LLM refiner to propose edits to the graph.
-
-    Builds a user prompt containing the current graph, the tail of the
-    recent trajectories, and the rejection history. Returns a parsed
-    list of `Edit` objects. Malformed items are dropped with a
-    `logger.warning`; an empty list is returned on any failure.
-    """
+    """Ask the LLM refiner to propose edits to the graph."""
     tail_text = tail_concat(traces, max_tokens=context_tokens)
     rejected_text = (
         "\n".join(
@@ -223,14 +202,14 @@ async def propose_edits(
         temperature=0.0,
     )
 
-    payload = _parse_refiner_response(raw, logger)
+    payload = parse_refiner_response(raw, logger)
     edits: list[Edit] = []
     for item in payload:
-        edits.extend(_item_to_edit(item))
+        edits.extend(item_to_edit(item))
     return edits
 
 
-def _parse_refiner_response(raw: str, log: logging.Logger) -> list[dict[str, Any]]:
+def parse_refiner_response(raw: str, log: logging.Logger) -> list[dict[str, Any]]:
     """Parse the refiner's JSON response, stripping markdown fences if present."""
     text = raw.strip()
     if text.startswith("```"):
@@ -251,7 +230,7 @@ def _parse_refiner_response(raw: str, log: logging.Logger) -> list[dict[str, Any
     return [item for item in payload if isinstance(item, dict)]
 
 
-def _item_to_edit(item: dict[str, Any]) -> list[Edit]:
+def item_to_edit(item: dict[str, Any]) -> list[Edit]:
     """Convert one refiner output dict to 0+ Edit instances."""
     kind = item.get("kind")
     try:
@@ -275,10 +254,7 @@ def _item_to_edit(item: dict[str, Any]) -> list[Edit]:
 def validate_candidate(
     graph: ProceduralGraph, edits: Sequence[Edit], *, allow_cycles: bool = False
 ) -> ProceduralGraph | None:
-    """Apply edits to a copy; return the candidate if structurally valid.
-
-    Returns `None` on any failure (apply error or structural check).
-    """
+    """Apply edits to a copy; return the candidate if structurally valid."""
     try:
         candidate = apply_edits(graph, list(edits))
     except ValueError as exc:
@@ -299,32 +275,25 @@ def validate_candidate(
 
 
 class RejectionMemory:
-    """Bounded FIFO of rejected candidates (paper §3.3 step 4).
-
-    Each entry records the rejected edits and the candidate's validation
-    score at the time of rejection. The refiner prompt receives a
-    snapshot of these to discourage repeated unsuccessful proposals.
-    """
+    """Bounded FIFO of rejected candidates (paper §3.3 step 4)."""
 
     def __init__(self, max_size: int = 32) -> None:
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
-        self._max = max_size
-        self._store: deque[tuple[Edit, float]] = deque(maxlen=max_size)
+        self.max_size = max_size
+        self.store: deque[tuple[Edit, float]] = deque(maxlen=max_size)
 
     def __len__(self) -> int:
-        return len(self._store)
+        return len(self.store)
 
     def add(self, edits: Sequence[Edit], val_score: float) -> None:
         """Record the first rejected edit as a marker for this rejection."""
         if not edits:
             return
-        # Mark this rejection with a representative single edit; the refiner
-        # only needs a hint, not the full batch.
-        self._store.append((edits[0], val_score))
+        self.store.append((edits[0], val_score))
 
     def snapshot(self) -> list[tuple[Edit, float]]:
-        return list(self._store)
+        return list(self.store)
 
 
 class EvolutionEngine:
@@ -350,43 +319,43 @@ class EvolutionEngine:
             raise ValueError(f"l_max_tokens must be positive, got {l_max_tokens}")
         if max_steps <= 0:
             raise ValueError(f"max_steps must be positive, got {max_steps}")
-        self._llm = llm
-        self._repo = repo
-        self._train = list(train_tasks)
-        self._val = list(val_tasks)
-        self._solver = solver
-        self._k = k_rounds
-        self._l_max = l_max_tokens
-        self._allow_cycles = allow_cycles
-        self._max_steps = max_steps
-        self._rejection = RejectionMemory(max_size=rejection_memory_size)
+        self.llm = llm
+        self.repo = repo
+        self.train: list[Task] = list(train_tasks)
+        self.val: list[Task] = list(val_tasks)
+        self.solver = solver
+        self.rounds = k_rounds
+        self.context_tokens = l_max_tokens
+        self.allow_cycles = allow_cycles
+        self.max_steps = max_steps
+        self.rejection = RejectionMemory(max_size=rejection_memory_size)
 
     async def run(self, graph: ProceduralGraph) -> ProceduralGraph:
         """Run K rounds of evolution; return the retained graph."""
         current = graph
-        current_score = await self._score_validation(current)
+        current_score = await self.score_validation(current)
         logger.info("initial validation score: %.3f", current_score)
 
-        for round_idx in range(1, self._k + 1):
-            traces = await self._collect_diagnostic_traces(current)
+        for round_idx in range(1, self.rounds + 1):
+            traces = await self.collect_diagnostic_traces(current)
             edits = await propose_edits(
-                llm=self._llm,
+                llm=self.llm,
                 graph=current,
                 traces=traces,
-                rejected=self._rejection.snapshot(),
-                context_tokens=self._l_max,
+                rejected=self.rejection.snapshot(),
+                context_tokens=self.context_tokens,
             )
             candidate = validate_candidate(
                 current,
                 edits,
-                allow_cycles=self._allow_cycles,
+                allow_cycles=self.allow_cycles,
             )
             if candidate is None:
-                self._rejection.add(edits, current_score)
+                self.rejection.add(edits, current_score)
                 logger.info("round %d: rejected (structural)", round_idx)
                 continue
 
-            candidate_score = await self._score_validation(candidate)
+            candidate_score = await self.score_validation(candidate)
             if candidate_score >= current_score:
                 current = candidate
                 current_score = candidate_score
@@ -396,7 +365,7 @@ class EvolutionEngine:
                     candidate_score,
                 )
             else:
-                self._rejection.add(edits, candidate_score)
+                self.rejection.add(edits, candidate_score)
                 logger.info(
                     "round %d: rejected (val_score=%.3f < %.3f)",
                     round_idx,
@@ -404,31 +373,31 @@ class EvolutionEngine:
                     current_score,
                 )
 
-        await self._repo.save_graph(current)
+        await self.repo.save_graph(current)
         return current
 
-    async def _collect_diagnostic_traces(self, graph: ProceduralGraph) -> list[Trajectory]:
+    async def collect_diagnostic_traces(self, graph: ProceduralGraph) -> list[Trajectory]:
         traces: list[Trajectory] = []
-        for task in self._train:
+        for task in self.train:
             result = await run_rollout(
                 graph=graph,
-                solver=self._solver,
-                llm=self._llm,
+                solver=self.solver,
+                llm=self.llm,
                 task=task,
-                max_steps=self._max_steps,
+                max_steps=self.max_steps,
             )
             traces.append(result.trajectory)
         return traces
 
-    async def _score_validation(self, graph: ProceduralGraph) -> float:
+    async def score_validation(self, graph: ProceduralGraph) -> float:
         scores: list[float] = []
-        for task in self._val:
+        for task in self.val:
             result = await run_rollout(
                 graph=graph,
-                solver=self._solver,
-                llm=self._llm,
+                solver=self.solver,
+                llm=self.llm,
                 task=task,
-                max_steps=self._max_steps,
+                max_steps=self.max_steps,
             )
             scores.append(score(result))
         return sum(scores) / max(1, len(scores))
@@ -442,7 +411,9 @@ __all__ = [
     "RejectionMemory",
     "RolloutResult",
     "execute_action_stub",
+    "item_to_edit",
     "mean_score",
+    "parse_refiner_response",
     "propose_edits",
     "run_rollout",
     "score",

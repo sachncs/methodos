@@ -243,11 +243,11 @@ def apply_edits(graph: ProceduralGraph, edits: Sequence[Edit]) -> ProceduralGrap
 
     result = graph.model_copy(deep=True)
     for edit in edits:
-        result = apply_single_edit(result, edit)
+        result = apply_single(result, edit)
     return result
 
 
-def apply_single_edit(graph: ProceduralGraph, edit: Edit) -> ProceduralGraph:
+def apply_single(graph: ProceduralGraph, edit: Edit) -> ProceduralGraph:
     """Apply one edit to a copy of `graph`; raise `ValueError` on malformed input.
 
     Public helper used by `apply_edits`; exposed for advanced callers that
@@ -367,7 +367,7 @@ __all__ = [
     "StructuralIssue",
     "adjacency",
     "apply_edits",
-    "apply_single_edit",
+    "apply_single",
     "has_cycle",
     "has_path_to",
     "has_reachable_terminal",
