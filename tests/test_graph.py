@@ -37,19 +37,19 @@ from methodos.schema import (
 )
 
 
-def _as_edit(obj: object) -> Edit:
+def as_edit(obj: object) -> Edit:
     """Cast an arbitrary object to an Edit (for testing dispatch fallback)."""
     return cast(Edit, obj)
 
 
-def _attr() -> Attribute:
+def attr() -> Attribute:
     """Standard edge attribute for tests."""
     return Attribute(condition="c", guidance="g", pitfalls="p")
 
 
-def _edge(src: str, dst: str, *, relation: Relation = Relation.LEADS_TO) -> Edge:
+def edge(src: str, dst: str, *, relation: Relation = Relation.LEADS_TO) -> Edge:
     """Edge helper."""
-    return Edge(src=src, dst=dst, relation=relation, attribute=_attr())
+    return Edge(src=src, dst=dst, relation=relation, attribute=attr())
 
 
 class TestMatchNode:
@@ -80,7 +80,7 @@ class TestNeighborhood:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
         sub = neighborhood(g, "a", h=0)
@@ -95,7 +95,7 @@ class TestNeighborhood:
                 "b": Node(id="b"),
                 "c": Node(id="c"),
             },
-            edges=[_edge("a", "b"), _edge("b", "c")],
+            edges=[edge("a", "b"), edge("b", "c")],
             terminal_ids={"c"},
         )
         sub = neighborhood(g, "a", h=1)
@@ -112,9 +112,9 @@ class TestNeighborhood:
                 "d": Node(id="d"),
             },
             edges=[
-                _edge("a", "b"),
-                _edge("b", "c"),
-                _edge("c", "d"),
+                edge("a", "b"),
+                edge("b", "c"),
+                edge("c", "d"),
             ],
             terminal_ids={"d"},
         )
@@ -125,7 +125,7 @@ class TestNeighborhood:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("a", "c"), _edge("b", "c")],
+            edges=[edge("a", "b"), edge("a", "c"), edge("b", "c")],
             terminal_ids={"c"},
         )
         sub = neighborhood(g, "a", h=2)
@@ -135,7 +135,7 @@ class TestNeighborhood:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
         sub = neighborhood(g, "missing", h=2)
@@ -165,7 +165,7 @@ class TestNeighborhood:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"a", "b"},
         )
         sub = neighborhood(g, "b", h=0)
@@ -180,7 +180,7 @@ class TestValidate:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
         assert validate(g) == []
@@ -193,7 +193,7 @@ class TestValidate:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "orphan": Node(id="orphan")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
         issues = validate(g)
@@ -206,7 +206,7 @@ class TestValidate:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b"), _edge("b", "a")],
+            edges=[edge("a", "b"), edge("b", "a")],
             terminal_ids={"a"},
         )
         issues = validate(g, allow_cycles=False)
@@ -216,7 +216,7 @@ class TestValidate:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b"), _edge("b", "a")],
+            edges=[edge("a", "b"), edge("b", "a")],
             terminal_ids={"a"},
         )
         issues = validate(g, allow_cycles=True)
@@ -227,7 +227,7 @@ class TestValidate:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids=set(),
         )
         # b is the leaf → inferred terminal; a reaches b → no issues.
@@ -255,7 +255,7 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
         )
         assert has_path_to(g, "a", {"b"})
 
@@ -263,7 +263,7 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("b", "c")],
+            edges=[edge("a", "b"), edge("b", "c")],
         )
         assert has_path_to(g, "a", {"c"})
 
@@ -271,7 +271,7 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
         )
         assert not has_path_to(g, "c", {"a"})
 
@@ -283,7 +283,7 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("b", "c")],
+            edges=[edge("a", "b"), edge("b", "c")],
         )
         assert has_path_to(g, "a", {"c", "b"})
 
@@ -291,7 +291,7 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("b", "a"), _edge("a", "c")],
+            edges=[edge("a", "b"), edge("b", "a"), edge("a", "c")],
         )
         assert has_path_to(g, "a", {"c"})
 
@@ -306,10 +306,10 @@ class TestHasPathTo:
                 "d": Node(id="d"),
             },
             edges=[
-                _edge("a", "b"),
-                _edge("a", "c"),
-                _edge("b", "d"),
-                _edge("c", "d"),
+                edge("a", "b"),
+                edge("a", "c"),
+                edge("b", "d"),
+                edge("c", "d"),
             ],
         )
         assert has_path_to(g, "a", {"d"})
@@ -322,7 +322,7 @@ class TestHasReachableTerminal:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
         assert has_reachable_terminal(g, "a") is True
@@ -347,7 +347,7 @@ class TestApplyEdits:
         return ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
 
@@ -383,27 +383,27 @@ class TestApplyEdits:
         with pytest.raises(ValueError, match="cannot delete unknown"):
             apply_edits(g, [EditDeleteNode(node_id="missing")])
 
-    def test_add_edge(self) -> None:
+    def test_addedge(self) -> None:
         g = self.base()
-        new_g = apply_edits(g, [EditAddEdge(edge=_edge("b", "a"))])
+        new_g = apply_edits(g, [EditAddEdge(edge=edge("b", "a"))])
         assert any(e.src == "b" and e.dst == "a" for e in new_g.edges)
 
     def test_add_edge_dangling_src_raises(self) -> None:
         g = self.base()
         with pytest.raises(ValueError, match="edge endpoints"):
-            apply_edits(g, [EditAddEdge(edge=_edge("missing", "a"))])
+            apply_edits(g, [EditAddEdge(edge=edge("missing", "a"))])
 
     def test_add_edge_dangling_dst_raises(self) -> None:
         g = self.base()
         with pytest.raises(ValueError, match="edge endpoints"):
-            apply_edits(g, [EditAddEdge(edge=_edge("a", "missing"))])
+            apply_edits(g, [EditAddEdge(edge=edge("a", "missing"))])
 
     def test_add_edge_duplicate_raises(self) -> None:
         g = self.base()
         with pytest.raises(ValueError, match="already exists"):
-            apply_edits(g, [EditAddEdge(edge=_edge("a", "b"))])
+            apply_edits(g, [EditAddEdge(edge=edge("a", "b"))])
 
-    def test_delete_edge(self) -> None:
+    def test_deleteedge(self) -> None:
         g = self.base()
         new_g = apply_edits(
             g,
@@ -457,7 +457,7 @@ class TestApplyEdits:
                         src="a",
                         dst="b",
                         relation=Relation.REPLACES,
-                        attribute=_attr(),
+                        attribute=attr(),
                     )
                 ],
             )
@@ -470,7 +470,7 @@ class TestApplyEdits:
             kind = "add_node_with_cheese"
 
         with pytest.raises(ValueError, match="unknown edit type"):
-            apply_edits(g, [_as_edit(NotAnEdit())])
+            apply_edits(g, [as_edit(NotAnEdit())])
 
     def test_sequential_edits_applied_in_order(self) -> None:
         g = self.base()
@@ -478,7 +478,7 @@ class TestApplyEdits:
             g,
             [
                 EditAddNode(node=Node(id="c")),
-                EditAddEdge(edge=_edge("c", "a")),
+                EditAddEdge(edge=edge("c", "a")),
             ],
         )
         assert "c" in new_g.nodes
@@ -492,7 +492,7 @@ class TestApplySingleEdit:
         return ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
             terminal_ids={"b"},
         )
 
@@ -504,11 +504,11 @@ class TestApplySingleEdit:
         new_g = apply_single(self.base(), EditDeleteNode(node_id="a"))
         assert "a" not in new_g.nodes
 
-    def test_add_edge(self) -> None:
-        new_g = apply_single(self.base(), EditAddEdge(edge=_edge("b", "a")))
+    def test_addedge(self) -> None:
+        new_g = apply_single(self.base(), EditAddEdge(edge=edge("b", "a")))
         assert any(e.src == "b" for e in new_g.edges)
 
-    def test_delete_edge(self) -> None:
+    def test_deleteedge(self) -> None:
         new_g = apply_single(
             self.base(),
             EditDeleteEdge(
@@ -540,11 +540,11 @@ class TestAdjacency:
         g = ProceduralGraph(id="g")
         assert adjacency(g) == {}
 
-    def test_single_edge(self) -> None:
+    def test_singleedge(self) -> None:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
         )
         adj = adjacency(g)
         assert adj == {"a": ["b"], "b": []}
@@ -553,7 +553,7 @@ class TestAdjacency:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("a", "c")],
+            edges=[edge("a", "b"), edge("a", "c")],
         )
         adj = adjacency(g)
         assert sorted(adj["a"]) == ["b", "c"]
@@ -566,7 +566,7 @@ class TestInferTerminals:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b")],
+            edges=[edge("a", "b")],
         )
         assert infer_terminals(g) == {"b"}
 
@@ -574,7 +574,7 @@ class TestInferTerminals:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("a", "c")],
+            edges=[edge("a", "b"), edge("a", "c")],
         )
         assert infer_terminals(g) == {"b", "c"}
 
@@ -593,7 +593,7 @@ class TestHasCycle:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("b", "c")],
+            edges=[edge("a", "b"), edge("b", "c")],
         )
         assert has_cycle(g) is False
 
@@ -601,7 +601,7 @@ class TestHasCycle:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b")},
-            edges=[_edge("a", "b"), _edge("b", "a")],
+            edges=[edge("a", "b"), edge("b", "a")],
         )
         assert has_cycle(g) is True
 
@@ -609,7 +609,7 @@ class TestHasCycle:
         g = ProceduralGraph(
             id="g",
             nodes={"a": Node(id="a"), "b": Node(id="b"), "c": Node(id="c")},
-            edges=[_edge("a", "b"), _edge("b", "c"), _edge("c", "a")],
+            edges=[edge("a", "b"), edge("b", "c"), edge("c", "a")],
         )
         assert has_cycle(g) is True
 
