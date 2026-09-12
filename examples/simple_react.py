@@ -2,7 +2,7 @@
 
 Demonstrates the public API end-to-end using the real `LiteLLMClient`
 backed by `litellm`. The local solver is a small Protocol-typed class
-(not a stub) that uses the injected guidance context to choose actions.
+that uses the injected guidance context to choose actions.
 
 Requires: `OPENAI_API_KEY` (or equivalent) in the environment.
 
@@ -92,8 +92,7 @@ class LiveDemoLLM:
     Annotated as an `LLMClient` Protocol implementation. The `complete`
     method delegates to the live LiteLLMClient (which requires a
     configured provider like OPENAI_API_KEY). This demonstrates wiring
-    a Protocol-typed dependency around a real implementation rather
-    than a placeholder.
+    a Protocol-typed dependency around a real implementation.
     """
 
     def __init__(self, model: str = "gpt-4o-mini") -> None:

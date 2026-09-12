@@ -62,7 +62,7 @@ async def echo_search(query: str) -> str:
     """Default test-only search that echoes the query back.
 
     Production deployments replace this with a real backend (e.g.,
-    Wikipedia API, BM25 index). The default returns the query as a
-    placeholder so the eval harness can run without external services.
+    Wikipedia API, BM25 index). The default echoes the query back so the
+    eval harness can run without external services.
     """
     return f"(no results for: {query})"
