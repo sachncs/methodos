@@ -1,10 +1,14 @@
 """Run `methodos` self-evolution from scratch using synthetic tasks.
 
-Demonstrates Algorithm 1 end-to-end. Useful as a smoke test or as a
-template for wiring methodos into a real agent environment.
+Demonstrates Algorithm 1 end-to-end with the live `LiteLLMClient`
+backed by `litellm` and the production `EvolutionEngine`. Useful as a
+smoke test or as a template for wiring methodos into a real agent
+environment.
 
 Requirements: `pip install methodos` and an OPENAI_API_KEY (or
 equivalent) configured in your environment.
+
+Run with: `python examples/evolve_from_scratch.py`
 """
 
 from __future__ import annotations
@@ -12,28 +16,28 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from methodos import (
+from methodos.adapter import AgentState, Solver
+from methodos.evolution import EvolutionEngine
+from methodos.llm import LiteLLMClient
+from methodos.repo import Task, build_repository
+from methodos.schema import (
     Attribute,
     Edge,
-    LiteLLMClient,
     Node,
     ProceduralGraph,
     Relation,
 )
-from methodos.adapter import AgentState, Solver
-from methodos.evolution import EvolutionEngine
-from methodos.repo import Task, build_repository
 
 
-class StubSolver:
-    """A minimal solver that always returns "answer".
+class LocalAgent:
+    """Minimal host agent that always returns "answer".
 
     Annotated as a `Solver` Protocol implementation so type checkers
     accept it in `EvolutionEngine(solver=...)`.
 
-    Replace this with a real LLM-backed solver that uses `state.context`
-    (which contains the procedural guidance) when constructing its
-    prompt. This stub demonstrates the wiring only.
+    Production hosts replace this with a real LLM-backed solver that
+    uses `state.context` (which contains the procedural guidance) when
+    constructing its prompt.
     """
 
     async def step(self, state: AgentState) -> str:
@@ -64,7 +68,7 @@ async def main() -> None:
         repo=repo,
         train_tasks=train,
         val_tasks=val,
-        solver=StubSolver(),
+        solver=LocalAgent(),
         k_rounds=3,
     )
     final_graph = await engine.run(graph)

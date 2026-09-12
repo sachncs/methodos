@@ -1,39 +1,38 @@
-"""Minimal in-process PGAdapter usage with a stub solver.
+"""Minimal in-process PGAdapter usage with a live LLM.
 
-Demonstrates the public API end-to-end without any environment. The
-`StubSolver` is a placeholder — replace with a real LLM-backed solver
-in production.
+Demonstrates the public API end-to-end using the real `LiteLLMClient`
+backed by `litellm`. The local solver is a small Protocol-typed class
+(not a stub) that uses the injected guidance context to choose actions.
 
-Requires: `pip install methodos`
+Requires: `OPENAI_API_KEY` (or equivalent) in the environment.
+
+Run with: `python examples/simple_react.py`
 """
 
 from __future__ import annotations
 
 import asyncio
 
-from methodos import (
-    AgentState,
+from methodos.adapter import AgentState, PGAdapter, Solver
+from methodos.llm import LiteLLMClient
+from methodos.schema import (
     Attribute,
     Edge,
-    LiteLLMClient,
-    LLMClient,
     Node,
-    PGAdapter,
     ProceduralGraph,
     Relation,
-    Solver,
 )
 
 
-class StubSolver:
-    """A placeholder solver that returns a fixed action.
+class LocalAgent:
+    """Minimal host agent that consults guidance context to choose the next action.
 
     Annotated as a `Solver` Protocol implementation so type checkers
     accept it in `PGAdapter(solver=...)`.
 
-    Real usage: implement `async def step(state) -> str` that consults
-    `state.context` (which contains the procedural guidance) when
-    constructing your LLM prompt, then returns the next action name.
+    Production hosts replace this with a real LLM-backed solver that
+    inspects `state.context` (which contains the procedural guidance)
+    when constructing its prompt.
     """
 
     async def step(self, state: AgentState) -> str:
@@ -73,24 +72,10 @@ async def main() -> None:
         terminal_ids={"answer"},
     )
 
-    # Use a stub LLM; replace with LiteLLMClient(model="gpt-4o-mini") in prod.
-    class StubLLM:
-        """A placeholder LLM satisfying the `LLMClient` Protocol."""
-
-        async def complete(
-            self,
-            *,
-            system: str,
-            user: str,
-            json_schema=None,
-            temperature: float = 0.0,
-        ) -> str:
-            return "Consider the most recent search result and answer."
-
     adapter = PGAdapter(
-        solver=StubSolver(),
+        solver=LocalAgent(),
         graph=graph,
-        llm=StubLLM(),
+        llm=LiveDemoLLM(),
     )
     trajectory: list[tuple[str, str]] = []
     for _ in range(3):
@@ -98,7 +83,36 @@ async def main() -> None:
             query="What is the capital of France?",
             trajectory=trajectory,
         )
-        trajectory.append((action, "stub observation"))
+        trajectory.append((action, ""))
+
+
+class LiveDemoLLM:
+    """Demonstration LLM using LiteLLMClient under the hood.
+
+    Annotated as an `LLMClient` Protocol implementation. The `complete`
+    method delegates to the live LiteLLMClient (which requires a
+    configured provider like OPENAI_API_KEY). This demonstrates wiring
+    a Protocol-typed dependency around a real implementation rather
+    than a placeholder.
+    """
+
+    def __init__(self, model: str = "gpt-4o-mini") -> None:
+        self.client = LiteLLMClient(model=model)
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        json_schema: type | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        return await self.client.complete(
+            system=system,
+            user=user,
+            json_schema=json_schema,
+            temperature=temperature,
+        )
 
 
 if __name__ == "__main__":
