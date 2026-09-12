@@ -36,7 +36,9 @@ class LLMClient(Protocol):
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
-    ) -> str: ...
+    ) -> str:
+        """Return the assistant text for `system` + `user`."""
+        ...
 
 
 class LLMError(RuntimeError):
@@ -66,6 +68,15 @@ class LiteLLMClient:
         timeout_seconds: float = 60.0,
         max_retries: int = 3,
     ) -> None:
+        """Initialize the LiteLLM-backed client.
+
+        Args:
+            model: litellm model identifier.
+            api_key: optional API key override.
+            api_base: optional custom API base URL.
+            timeout_seconds: per-request timeout.
+            max_retries: retries on transient failures; total attempts = max_retries + 1.
+        """
         if not model:
             raise ValueError("model must be a non-empty string")
         if timeout_seconds <= 0:
@@ -88,7 +99,22 @@ class LiteLLMClient:
     ) -> str:
         """Send a chat-completion request and return the assistant text.
 
-        Retries up to `max_retries` times on transient failures.
+        Retries up to `max_retries` times on transient failures (network
+        errors, rate limits). After exhaustion, raises the last underlying
+        exception as `LLMError`.
+
+        When `json_schema` is provided, the response is requested with
+        litellm's `response_format` set to a JSON Schema describing the
+        target Pydantic model.
+
+        Args:
+            system: System prompt text.
+            user: User prompt text.
+            json_schema: Optional Pydantic model for structured output.
+            temperature: Sampling temperature.
+
+        Returns:
+            Assistant text (or JSON string if `json_schema` is set).
         """
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},

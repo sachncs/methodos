@@ -50,7 +50,9 @@ class AgentState:
 class Solver(Protocol):
     """Contract for the host agent's decision function."""
 
-    async def step(self, state: AgentState) -> str: ...
+    async def step(self, state: AgentState) -> str:
+        """Return the next action name given the current state."""
+        ...
 
 
 class GuidanceCache:
@@ -61,6 +63,11 @@ class GuidanceCache:
     """
 
     def __init__(self, max_size: int = 256) -> None:
+        """Initialize the cache.
+
+        Args:
+            max_size: Maximum number of entries; must be positive.
+        """
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
         self.max_size = max_size
@@ -89,6 +96,7 @@ class GuidanceCache:
         self.store.clear()
 
     def __len__(self) -> int:
+        """Return the number of cached entries."""
         return len(self.store)
 
 
@@ -115,6 +123,17 @@ class PGAdapter:
         trajectory_window: int = 3,
         cache: GuidanceCache | None = None,
     ) -> None:
+        """Initialize the adapter.
+
+        Args:
+            solver: Host agent's decision function.
+            graph: Procedural graph to navigate.
+            llm: Backend used to translate subgraphs into guidance.
+            guidance_hops: Neighborhood radius (paper §3.2 default 2).
+            trajectory_window: Number of recent trajectory steps to include
+                in the guidance prompt (default 3).
+            cache: Optional guidance cache; defaults to a 256-entry LRU.
+        """
         if guidance_hops < 0:
             raise ValueError(f"guidance_hops must be non-negative, got {guidance_hops}")
         if trajectory_window < 0:

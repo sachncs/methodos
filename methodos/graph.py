@@ -44,15 +44,24 @@ class StructuralIssue:
     """
 
     def __init__(self, *, code: str, message: str, node_id: str | None = None) -> None:
+        """Initialize the validation issue.
+
+        Args:
+            code: Machine-readable identifier.
+            message: Human-readable description.
+            node_id: Optional offending node id.
+        """
         self.code = code
         self.message = message
         self.node_id = node_id
 
     def __repr__(self) -> str:
+        """Return a readable representation including code and node id."""
         suffix = f" (node={self.node_id!r})" if self.node_id else ""
         return f"StructuralIssue[{self.code}]: {self.message}{suffix}"
 
     def __eq__(self, other: object) -> bool:
+        """Structural equality: same code, message, and node_id."""
         if not isinstance(other, StructuralIssue):
             return NotImplemented
         return (

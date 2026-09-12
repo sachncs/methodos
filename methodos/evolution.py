@@ -278,12 +278,18 @@ class RejectionMemory:
     """Bounded FIFO of rejected candidates (paper §3.3 step 4)."""
 
     def __init__(self, max_size: int = 32) -> None:
+        """Initialize the rejection FIFO.
+
+        Args:
+            max_size: Capacity; must be positive.
+        """
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
         self.max_size = max_size
         self.store: deque[tuple[Edit, float]] = deque(maxlen=max_size)
 
     def __len__(self) -> int:
+        """Return the number of stored rejections."""
         return len(self.store)
 
     def add(self, edits: Sequence[Edit], val_score: float) -> None:
@@ -293,6 +299,7 @@ class RejectionMemory:
         self.store.append((edits[0], val_score))
 
     def snapshot(self) -> list[tuple[Edit, float]]:
+        """Return a copy of stored rejections as a list of `(edit, score)`."""
         return list(self.store)
 
 
@@ -313,6 +320,20 @@ class EvolutionEngine:
         allow_cycles: bool = False,
         max_steps: int = 50,
     ) -> None:
+        """Initialize the evolution engine.
+
+        Args:
+            llm: LLM backend for refiner and solver prompts.
+            repo: Persistence port for graphs and trajectories.
+            train_tasks: Tasks used to collect diagnostic traces.
+            val_tasks: Tasks used to score candidate graphs.
+            solver: Host agent decision function.
+            k_rounds: Maximum evolution rounds.
+            l_max_tokens: Refiner context budget.
+            rejection_memory_size: Capacity of rejection FIFO.
+            allow_cycles: Permit cycles in candidate graphs.
+            max_steps: Per-rollout step cap.
+        """
         if k_rounds <= 0:
             raise ValueError(f"k_rounds must be positive, got {k_rounds}")
         if l_max_tokens <= 0:
@@ -331,7 +352,15 @@ class EvolutionEngine:
         self.rejection = RejectionMemory(max_size=rejection_memory_size)
 
     async def run(self, graph: ProceduralGraph) -> ProceduralGraph:
-        """Run K rounds of evolution; return the retained graph."""
+        """Run K rounds of evolution; return the retained graph.
+
+        Args:
+            graph: Starting graph.
+
+        Returns:
+            The graph retained at the end of evolution (last accepted or
+            the starting graph if nothing improved).
+        """
         current = graph
         current_score = await self.score_validation(current)
         logger.info("initial validation score: %.3f", current_score)
@@ -377,6 +406,7 @@ class EvolutionEngine:
         return current
 
     async def collect_diagnostic_traces(self, graph: ProceduralGraph) -> list[Trajectory]:
+        """Run the agent on each training task; collect trajectories."""
         traces: list[Trajectory] = []
         for task in self.train:
             result = await run_rollout(
@@ -390,6 +420,7 @@ class EvolutionEngine:
         return traces
 
     async def score_validation(self, graph: ProceduralGraph) -> float:
+        """Mean score across validation tasks for `graph`."""
         scores: list[float] = []
         for task in self.val:
             result = await run_rollout(

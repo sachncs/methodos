@@ -56,7 +56,7 @@ def main(
         typer.Option("--verbose", "-v", help="Enable debug logging."),
     ] = False,
 ) -> None:
-    """methodos — queryable know-how for LLM agents."""
+    """Methodos — queryable know-how for LLM agents."""
     configure_logging(verbose)
 
 

@@ -51,9 +51,9 @@ class Attribute(BaseModel):
 
 
 class Node(BaseModel):
-    """A procedure node — an abstract action, reasoning step, skill, or task state.
+    r"""A procedure node — an abstract action, reasoning step, skill, or task state.
 
-    Node ids must match `^[a-zA-Z0-9_\\-\\.]+$` and must NOT start with `.`.
+    Node ids must match `^[a-zA-Z0-9_\-\.]+$` and must NOT start with `.`.
     The leading-dot restriction prevents accidental id collisions with
     metadata keys when nodes are flattened for persistence.
     """
