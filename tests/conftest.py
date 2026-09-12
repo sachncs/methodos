@@ -1,19 +1,21 @@
-"""Fakes and shared fixtures for `methodos` tests.
+"""Double fixtures and shared helpers for `methodos` tests.
 
-This module exposes the standard fakes used across the test suite:
-- `FakeLLM`: scripted `LLMClient` returning canned responses in order.
+This module exposes the standard scripted doubles used across the test
+suite:
+- `ScriptedLLM`: `LLMClient` returning canned responses in order.
 - `SequenceSolver`: `Solver` that returns a different action each call.
 - `StaticSolver`: `Solver` that returns a fixed action.
 - `RaisingSolver`: `Solver` that raises on every call.
-- `InMemoryRepository`: in-process `Repository` (Phase 4).
-- `NoOpVectorIndex`: `VectorIndex` that does nothing (Phase 4).
-- Standard fixtures: `fake_llm`, `sequence_solver`, `sample_graph`,
+- `InMemoryRepository`: in-process `Repository` Protocol implementation.
+- `SilentVectorIndex`: no-op `VectorIndex` Protocol implementation.
+- Standard fixtures: `scripted_llm`, `sequence_solver`, `sample_graph`,
   `in_memory_repository`.
 
 Engineering:
-- No `_foo()` markers; every helper here is part of the public test API.
-- Fakes satisfy their respective Protocols via duck typing; no inheritance.
-- Single shared source so future phases can reuse without duplication.
+- All helpers are part of the public test API (no leading underscores).
+- Doubles satisfy their respective Protocols via duck typing (no
+  inheritance).
+- Single shared source so future tests can reuse without duplication.
 """
 
 from __future__ import annotations
@@ -36,12 +38,12 @@ from methodos.schema import (
 )
 
 
-class FakeLLM(LLMClient):
-    """Canned `LLMClient` that returns scripted responses in order.
+class ScriptedLLM(LLMClient):
+    """Scripted `LLMClient` returning canned responses in order.
 
-    Use the `calls` attribute to assert what was sent. The default response
-    (when the queue is empty) is the empty string, which keeps the
-    adapter cache key deterministic without raising.
+    Records every call in `self.calls`. When the response queue is
+    empty, returns the empty string so the adapter cache key remains
+    deterministic without raising.
     """
 
     def __init__(self, responses: Sequence[str] = ()) -> None:
@@ -144,7 +146,7 @@ class InMemoryRepository:
                 yield traj
 
 
-class NoOpVectorIndex:
+class SilentVectorIndex:
     """No-op VectorIndex that satisfies the duck-typed protocol."""
 
     def upsert(self, key: str, vector: list[float]) -> None:
@@ -198,9 +200,9 @@ def make_sample_graph() -> ProceduralGraph:
 
 
 @pytest.fixture
-def fake_llm() -> FakeLLM:
-    """Default FakeLLM with one canned response."""
-    return FakeLLM(responses=["guidance-text"])
+def scripted_llm() -> ScriptedLLM:
+    """Default ScriptedLLM with one canned response."""
+    return ScriptedLLM(responses=["guidance-text"])
 
 
 @pytest.fixture
@@ -222,11 +224,11 @@ def in_memory_repository() -> InMemoryRepository:
 
 
 __all__ = [
-    "FakeLLM",
     "InMemoryRepository",
-    "NoOpVectorIndex",
     "RaisingSolver",
+    "ScriptedLLM",
     "SequenceSolver",
+    "SilentVectorIndex",
     "StaticSolver",
     "make_sample_graph",
 ]
