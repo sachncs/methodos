@@ -11,9 +11,9 @@ import pytest
 
 from methodos.repo import (
     FilesystemRepository,
-    SilentVectorIndex,
     Repository,
     ScoredMatch,
+    SilentVectorIndex,
     SQLiteRepository,
     SqliteVecIndex,
     Task,
@@ -63,7 +63,7 @@ class TestRepositoryProtocol:
 class TestVectorIndexProtocol:
     """`VectorIndex` is runtime-checkable."""
 
-    def test_noop_satisfies_protocol(self) -> None:
+    def test_silent_satisfies_protocol(self) -> None:
         assert isinstance(SilentVectorIndex(), VectorIndex)
 
 
