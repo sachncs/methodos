@@ -10,11 +10,8 @@ Engineering notes:
 - `Solver` is a `typing.Protocol` — any object with `async def step(state)`
   satisfying the signature is accepted. No ABCs.
 - `GuidanceCache` is an LRU keyed by `(graph.id, last_action, last_obs)`.
-  This key is unique for the typical usage pattern (graph.id identifies
-  content; users construct new graphs via `apply_edits` rather than
-  mutating in place).
-- No lazy imports; no `_foo()` markers. The cache is exposed publicly
-  so callers can introspect hit/miss behavior if desired.
+- All attributes are public (no `self._foo` markers). The cache is exposed
+  publicly so callers can introspect hit/miss behavior if desired.
 """
 
 from __future__ import annotations
@@ -51,12 +48,7 @@ class AgentState:
 
 @runtime_checkable
 class Solver(Protocol):
-    """Contract for the host agent's decision function.
-
-    Any object with an async `step(state) -> str` method that returns the
-    next action name satisfies this Protocol. methodos does not subclass
-    the solver; it composes with it.
-    """
+    """Contract for the host agent's decision function."""
 
     async def step(self, state: AgentState) -> str: ...
 
@@ -71,33 +63,33 @@ class GuidanceCache:
     def __init__(self, max_size: int = 256) -> None:
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
-        self._max_size = max_size
-        self._store: OrderedDict[tuple[str, str, str], str] = OrderedDict()
+        self.max_size = max_size
+        self.store: OrderedDict[tuple[str, str, str], str] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
     def get(self, key: tuple[str, str, str]) -> str | None:
         """Return cached guidance or `None`; bump LRU position on hit."""
-        if key not in self._store:
+        if key not in self.store:
             self.misses += 1
             return None
-        self._store.move_to_end(key)
+        self.store.move_to_end(key)
         self.hits += 1
-        return self._store[key]
+        return self.store[key]
 
     def put(self, key: tuple[str, str, str], value: str) -> None:
         """Insert; evict the least-recently-used entry if over capacity."""
-        self._store[key] = value
-        self._store.move_to_end(key)
-        while len(self._store) > self._max_size:
-            self._store.popitem(last=False)
+        self.store[key] = value
+        self.store.move_to_end(key)
+        while len(self.store) > self.max_size:
+            self.store.popitem(last=False)
 
     def clear(self) -> None:
         """Drop all entries (does not reset hit/miss counters)."""
-        self._store.clear()
+        self.store.clear()
 
     def __len__(self) -> int:
-        return len(self._store)
+        return len(self.store)
 
 
 class PGAdapter:
@@ -127,26 +119,16 @@ class PGAdapter:
             raise ValueError(f"guidance_hops must be non-negative, got {guidance_hops}")
         if trajectory_window < 0:
             raise ValueError(f"trajectory_window must be non-negative, got {trajectory_window}")
-        self._solver = solver
-        self._graph = graph
-        self._llm = llm
-        self._guidance_hops = guidance_hops
-        self._trajectory_window = trajectory_window
-        self._cache: GuidanceCache = cache if cache is not None else GuidanceCache()
-
-    @property
-    def graph(self) -> ProceduralGraph:
-        """The (frozen) graph this adapter navigates. Read-only reference."""
-        return self._graph
-
-    @property
-    def cache(self) -> GuidanceCache:
-        """Direct access to the guidance cache (for tests and observability)."""
-        return self._cache
+        self.solver = solver
+        self.graph = graph
+        self.llm = llm
+        self.guidance_hops = guidance_hops
+        self.trajectory_window = trajectory_window
+        self.cache: GuidanceCache = cache if cache is not None else GuidanceCache()
 
     def cache_key(self, last_action: str, last_obs: str) -> tuple[str, str, str]:
         """Compute the cache key for a (last_action, last_obs) pair."""
-        return (self._graph.id, last_action, last_obs)
+        return (self.graph.id, last_action, last_obs)
 
     async def step(self, *, query: str, trajectory: list[tuple[str, str]]) -> str:
         """Run one agent step: guidance → solver.
@@ -155,44 +137,40 @@ class PGAdapter:
         extract its h-hop neighborhood, generate the guidance paragraph
         (cached on `(graph_id, last_action, last_obs)`), then call the
         solver with an `AgentState` carrying the formatted context.
-
-        On a `match_node` miss, the full graph is used as fallback (paper
-        §3.2). When `trajectory` is empty, the synthetic action `"Start"`
-        is used as the lookup key.
         """
-        last_action, last_obs = self._tail_key(trajectory)
-        node_id = match_node(last_action, self._graph.nodes)
+        last_action, last_obs = self.tail_key(trajectory)
+        node_id = match_node(last_action, self.graph.nodes)
         sub = (
-            neighborhood(self._graph, node_id, h=self._guidance_hops)
+            neighborhood(self.graph, node_id, h=self.guidance_hops)
             if node_id is not None
-            else self._graph
+            else self.graph
         )
 
         key = self.cache_key(last_action, last_obs)
-        cached = self._cache.get(key)
+        cached = self.cache.get(key)
         if cached is not None:
             guidance = cached
         else:
             guidance = await generate_guidance(
-                llm=self._llm,
+                llm=self.llm,
                 graph=sub,
                 query=query,
                 trajectory=trajectory,
-                window=self._trajectory_window,
+                window=self.trajectory_window,
             )
-            self._cache.put(key, guidance)
+            self.cache.put(key, guidance)
 
         state = AgentState(
             query=query,
             trajectory=tuple(trajectory),
             context=f"### PROCEDURAL GUIDANCE\n{guidance}",
         )
-        action = await self._solver.step(state)
+        action = await self.solver.step(state)
         logger.debug("PGAdapter step: action=%r", action)
         return action
 
     @staticmethod
-    def _tail_key(trajectory: list[tuple[str, str]]) -> tuple[str, str]:
+    def tail_key(trajectory: list[tuple[str, str]]) -> tuple[str, str]:
         """Last (action, observation) pair; synthetic Start on empty."""
         if not trajectory:
             return ("Start", "")
