@@ -139,7 +139,7 @@ class TestDownloadIfMissing:
         original_import = builtins.__import__
         called: list[str] = []
 
-        def fake_import(
+        def recorded_import(
             name: str,
             globals: object | None = None,
             locals: object | None = None,
@@ -149,7 +149,7 @@ class TestDownloadIfMissing:
             called.append(name)
             return original_import(name, globals, locals, fromlist, level)
 
-        monkeypatch.setattr(builtins, "__import__", fake_import)
+        monkeypatch.setattr(builtins, "__import__", recorded_import)
 
         path = download_if_missing(target_dir=tmp_path)
         assert path == out
