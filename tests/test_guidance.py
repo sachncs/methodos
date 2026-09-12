@@ -61,7 +61,7 @@ class FakeLLM(LLMClient):
     """Records calls and returns canned responses in order."""
 
     def __init__(self, responses: list[str]) -> None:
-        self._responses = list(responses)
+        self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
     async def complete(
@@ -80,9 +80,9 @@ class FakeLLM(LLMClient):
                 "temperature": temperature,
             }
         )
-        if not self._responses:
+        if not self.responses:
             return ""
-        return self._responses.pop(0)
+        return self.responses.pop(0)
 
 
 class TestFormatGraphForPrompt:

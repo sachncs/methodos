@@ -45,7 +45,7 @@ class FakeLLM(LLMClient):
     """
 
     def __init__(self, responses: Sequence[str] = ()) -> None:
-        self._responses: list[str] = list(responses)
+        self.responses: list[str] = list(responses)
         self.calls: list[dict[str, Any]] = []
 
     async def complete(
@@ -64,9 +64,9 @@ class FakeLLM(LLMClient):
                 "temperature": temperature,
             }
         )
-        if not self._responses:
+        if not self.responses:
             return ""
-        return self._responses.pop(0)
+        return self.responses.pop(0)
 
 
 class SequenceSolver:
@@ -77,38 +77,38 @@ class SequenceSolver:
     """
 
     def __init__(self, actions: Sequence[str] = ()) -> None:
-        self._actions: list[str] = list(actions)
+        self.actions: list[str] = list(actions)
         self.states_seen: list[AgentState] = []
 
     async def step(self, state: AgentState) -> str:
         self.states_seen.append(state)
-        if not self._actions:
+        if not self.actions:
             return "FINISH"
-        return self._actions.pop(0)
+        return self.actions.pop(0)
 
 
 class StaticSolver:
     """Solver that returns the same fixed action regardless of state."""
 
     def __init__(self, action: str = "answer") -> None:
-        self._action = action
+        self.action = action
         self.states_seen: list[AgentState] = []
 
     async def step(self, state: AgentState) -> str:
         self.states_seen.append(state)
-        return self._action
+        return self.action
 
 
 class RaisingSolver:
     """Solver that raises a fixed exception on every call."""
 
     def __init__(self, exc: Exception | None = None) -> None:
-        self._exc = exc or RuntimeError("solver failed")
+        self.exc = exc or RuntimeError("solver failed")
         self.call_count = 0
 
     async def step(self, state: AgentState) -> str:
         self.call_count += 1
-        raise self._exc
+        raise self.exc
 
 
 class InMemoryRepository:
