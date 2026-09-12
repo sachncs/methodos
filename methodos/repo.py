@@ -5,7 +5,7 @@ This module provides:
 - `VectorIndex` Protocol: sync interface for semantic search.
 - `ScoredMatch`, `Task`, `Trajectory`: data classes used by both this
   module and `methodos.evolution`.
-- `NoOpVectorIndex`: default VectorIndex; satisfies the Protocol with no
+- `SilentVectorIndex`: default VectorIndex; satisfies the Protocol with no
   side effects. Production deployments opt into `SqliteVecIndex`.
 - `FilesystemRepository`: JSON-based persistence for development.
 - `SQLiteRepository`: production default with WAL + FK + indices.
@@ -111,7 +111,7 @@ class Repository(Protocol):
 class VectorIndex(Protocol):
     """Sync semantic-search interface.
 
-    Implementations: `NoOpVectorIndex` (default), `SqliteVecIndex`.
+    Implementations: `SilentVectorIndex` (default), `SqliteVecIndex`.
     """
 
     def upsert(self, key: str, vector: list[float]) -> None: ...
@@ -132,7 +132,7 @@ class ScoredMatch:
 # ----------------------------------------------------------------------------
 
 
-class NoOpVectorIndex:
+class SilentVectorIndex:
     """Default VectorIndex impl. Satisfies the Protocol with zero side effects."""
 
     def upsert(self, key: str, vector: list[float]) -> None:
@@ -329,7 +329,7 @@ class SQLiteRepository:
     ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.vector_index: VectorIndex = vector_index or NoOpVectorIndex()
+        self.vector_index: VectorIndex = vector_index or SilentVectorIndex()
         self.ensure_schema()
 
     def connect(self) -> sqlite3.Connection:
@@ -539,7 +539,7 @@ def build_repository() -> Repository:
 
     if backend == "sqlite":
         db_path = home / "methodos.db"
-        vector_index: VectorIndex = NoOpVectorIndex()
+        vector_index: VectorIndex = SilentVectorIndex()
         if os.environ.get("PGRAPH_VEC") == "1":
             dim = int(os.environ.get("PGRAPH_VEC_DIM", "1536"))
             vector_index = SqliteVecIndex(db_path=db_path, dim=dim)
@@ -550,7 +550,7 @@ def build_repository() -> Repository:
 
 __all__ = [
     "FilesystemRepository",
-    "NoOpVectorIndex",
+    "SilentVectorIndex",
     "Repository",
     "SQLiteRepository",
     "ScoredMatch",
