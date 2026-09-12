@@ -142,12 +142,14 @@ class TestEdge:
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            Edge(
-                src="a",
-                dst="b",
-                relation=Relation.LEADS_TO,
-                attribute=self.attr().model_dump(),
-                extra="nope",
+            Edge.model_validate(
+                {
+                    "src": "a",
+                    "dst": "b",
+                    "relation": Relation.LEADS_TO,
+                    "attribute": self.attr().model_dump(),
+                    "extra": "nope",
+                }
             )
 
 
