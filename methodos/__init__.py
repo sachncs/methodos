@@ -1,4 +1,5 @@
 """methodos — self-evolving procedural graph adapter for LLM agents."""
+
 from __future__ import annotations
 
 from methodos.schema import (

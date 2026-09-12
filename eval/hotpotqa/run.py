@@ -5,19 +5,16 @@ import argparse
 import asyncio
 import logging
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from methodos.adapter import AgentState, PGAdapter
-from methodos.graph import match_node, neighborhood
-from methodos.guidance import generate_guidance
-from methodos.llm import LLMClient, LiteLLMClient
-from methodos.repo import Repository, build_repository
-from methodos.schema import ProceduralGraph
-
 from eval.hotpotqa.solver import HotpotQASolver, noop_search
 from eval.hotpotqa.tasks import DEFAULT_DATA_DIR, download_if_missing, load_tasks
+from methodos.adapter import AgentState, PGAdapter
+from methodos.llm import LiteLLMClient
+from methodos.repo import Repository, build_repository
+from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +91,7 @@ async def _run_one(
     adapter = adapter_factory(solver, graph)
     trajectory: list[tuple[str, str]] = []
     predicted = ""
-    for _ in range(solver._max_steps):  # noqa: SLF001  (internal access)
+    for _ in range(solver.max_steps):
         if adapter is not None:
             action = await adapter.step(query=question, trajectory=trajectory)
         else:

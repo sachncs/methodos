@@ -13,6 +13,7 @@ Engineering notes:
   guidance pipelines.
 - No lazy imports; LLMClient is a top-level import.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,9 +79,7 @@ def format_graph_for_prompt(graph: ProceduralGraph) -> str:
     return "\n".join(lines)
 
 
-def format_trajectory_window(
-    trajectory: Iterable[tuple[str, str]], window: int
-) -> str:
+def format_trajectory_window(trajectory: Iterable[tuple[str, str]], window: int) -> str:
     """Format the last `window` action/observation pairs for the prompt."""
     if window < 0:
         raise ValueError(f"window must be non-negative, got {window}")
@@ -113,9 +112,7 @@ async def generate_guidance(
     graph_text = format_graph_for_prompt(graph)
     trajectory_text = format_trajectory_window(trajectory, window)
     user_prompt = (
-        f"# Original Query\n{query}\n\n"
-        f"# Recent Trajectory\n{trajectory_text}\n\n"
-        f"{graph_text}"
+        f"# Original Query\n{query}\n\n# Recent Trajectory\n{trajectory_text}\n\n{graph_text}"
     )
 
     response = await llm.complete(

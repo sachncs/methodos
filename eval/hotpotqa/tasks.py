@@ -6,6 +6,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from datasets import load_dataset
+
 DEFAULT_DATA_DIR: Path = Path.home() / ".methodos" / "eval_data"
 
 
@@ -28,14 +30,6 @@ def download_if_missing(*, target_dir: Path = DEFAULT_DATA_DIR, limit: int = 500
     out_path = target_dir / "hotpotqa_dev_distractor.jsonl"
     if out_path.exists():
         return out_path
-
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:
-        raise RuntimeError(
-            "datasets package required for HotpotQA download. "
-            "Install via `pip install methodos[eval]`."
-        ) from exc
 
     ds = load_dataset("hotpot_qa", "distractor", split="validation", trust_remote_code=True)
     with out_path.open("w", encoding="utf-8") as f:

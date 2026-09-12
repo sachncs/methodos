@@ -10,6 +10,7 @@ Engineering notes:
   entry point.
 - Lifespan wires the configured `repo` and `llm` into `app.state`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -103,8 +104,12 @@ def create_app(
             model `gpt-4o-mini` (override via `OPENAI_API_KEY` env var).
     """
     backend_repo: Repository = repo if repo is not None else build_repository()
-    backend_llm: LLMClient = llm if llm is not None else LiteLLMClient(
-        model="gpt-4o-mini",
+    backend_llm: LLMClient = (
+        llm
+        if llm is not None
+        else LiteLLMClient(
+            model="gpt-4o-mini",
+        )
     )
 
     @asynccontextmanager
@@ -172,14 +177,10 @@ def create_app(
 
         # Match the most recent action to a node; fall back to full graph
         # on miss (paper §3.2).
-        last_action = (
-            request.trajectory[-1][0] if request.trajectory else "Start"
-        )
+        last_action = request.trajectory[-1][0] if request.trajectory else "Start"
         node_id = match_node(last_action, graph.nodes)
         sub = (
-            neighborhood(graph, node_id, h=request.guidance_hops)
-            if node_id is not None
-            else graph
+            neighborhood(graph, node_id, h=request.guidance_hops) if node_id is not None else graph
         )
 
         # The trajectory in the HTTP body is `list[list[str]]`; convert to

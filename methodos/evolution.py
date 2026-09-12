@@ -17,6 +17,7 @@ Engineering:
 - No `_foo()` markers. Helpers are public where useful.
 - No lazy imports: `PGAdapter` is imported at module level (no cycle).
 """
+
 from __future__ import annotations
 
 import json
@@ -73,6 +74,7 @@ Return ONLY the JSON array. No prose, no markdown fences.
 @dataclass(frozen=True, slots=True)
 class RolloutResult:
     """Outcome of running the agent on a single task."""
+
     trajectory: Trajectory
     success: bool
 
@@ -198,10 +200,13 @@ async def propose_edits(
     `logger.warning`; an empty list is returned on any failure.
     """
     tail_text = tail_concat(traces, max_tokens=context_tokens)
-    rejected_text = "\n".join(
-        f"REJECTED: {edit.model_dump_json()} (val_score={val_score:.3f})"
-        for edit, val_score in rejected
-    ) or "(no rejected edits yet)"
+    rejected_text = (
+        "\n".join(
+            f"REJECTED: {edit.model_dump_json()} (val_score={val_score:.3f})"
+            for edit, val_score in rejected
+        )
+        or "(no rejected edits yet)"
+    )
 
     user_prompt = (
         f"# Current graph (id={graph.id}, "
@@ -231,7 +236,7 @@ def _parse_refiner_response(raw: str, log: logging.Logger) -> list[dict[str, Any
     if text.startswith("```"):
         first_nl = text.find("\n")
         if first_nl != -1:
-            text = text[first_nl + 1:]
+            text = text[first_nl + 1 :]
         if text.endswith("```"):
             text = text[:-3]
     text = text.strip()
@@ -372,7 +377,9 @@ class EvolutionEngine:
                 context_tokens=self._l_max,
             )
             candidate = validate_candidate(
-                current, edits, allow_cycles=self._allow_cycles,
+                current,
+                edits,
+                allow_cycles=self._allow_cycles,
             )
             if candidate is None:
                 self._rejection.add(edits, current_score)
@@ -384,21 +391,23 @@ class EvolutionEngine:
                 current = candidate
                 current_score = candidate_score
                 logger.info(
-                    "round %d: accepted (val_score=%.3f)", round_idx, candidate_score,
+                    "round %d: accepted (val_score=%.3f)",
+                    round_idx,
+                    candidate_score,
                 )
             else:
                 self._rejection.add(edits, candidate_score)
                 logger.info(
                     "round %d: rejected (val_score=%.3f < %.3f)",
-                    round_idx, candidate_score, current_score,
+                    round_idx,
+                    candidate_score,
+                    current_score,
                 )
 
         await self._repo.save_graph(current)
         return current
 
-    async def _collect_diagnostic_traces(
-        self, graph: ProceduralGraph
-    ) -> list[Trajectory]:
+    async def _collect_diagnostic_traces(self, graph: ProceduralGraph) -> list[Trajectory]:
         traces: list[Trajectory] = []
         for task in self._train:
             result = await run_rollout(

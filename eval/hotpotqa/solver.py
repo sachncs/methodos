@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 
-from methodos.adapter import AgentState, Solver
+from methodos.adapter import AgentState
 from methodos.llm import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,9 @@ class HotpotQASolver:
         search: Callable[[str], Awaitable[str]],
         max_steps: int = 8,
     ) -> None:
-        self._llm = llm
-        self._search = search
-        self._max_steps = max_steps
+        self.llm = llm
+        self.search = search
+        self.max_steps = max_steps
 
     async def step(self, state: AgentState) -> str:
         """Produce one ReAct step as a string action.
@@ -53,7 +53,7 @@ class HotpotQASolver:
         to provide an observation in the next iteration), or an ANSWER line.
         """
         prompt = REACT_PROMPT.format(context=state.context, query=state.query)
-        response = await self._llm.complete(system="", user=prompt, temperature=0.0)
+        response = await self.llm.complete(system="", user=prompt, temperature=0.0)
         logger.debug("hotpotqa solver response: %s", response[:200])
         return response.strip()
 
