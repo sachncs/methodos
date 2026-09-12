@@ -15,6 +15,7 @@ Engineering:
 - Fakes satisfy their respective Protocols via duck typing; no inheritance.
 - Single shared source so future phases can reuse without duplication.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
@@ -55,12 +56,14 @@ class FakeLLM(LLMClient):
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
     ) -> str:
-        self.calls.append({
-            "system": system,
-            "user": user,
-            "json_schema": json_schema,
-            "temperature": temperature,
-        })
+        self.calls.append(
+            {
+                "system": system,
+                "user": user,
+                "json_schema": json_schema,
+                "temperature": temperature,
+            }
+        )
         if not self._responses:
             return ""
         return self._responses.pop(0)
@@ -132,14 +135,10 @@ class InMemoryRepository:
         graph = await self.load_graph(graph_id)
         self.snapshots.append((graph_id, tag, graph))
 
-    async def append_trajectory(
-        self, graph_id: str, split: str, trajectory: Trajectory
-    ) -> None:
+    async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         self.trajectories.append((graph_id, split, trajectory))
 
-    async def read_trajectories(
-        self, graph_id: str, split: str
-    ) -> AsyncIterator[Trajectory]:
+    async def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         for gid, sp, traj in self.trajectories:
             if gid == graph_id and sp == split:
                 yield traj
@@ -181,11 +180,15 @@ def make_sample_graph() -> ProceduralGraph:
         },
         edges=[
             Edge(
-                src="start", dst="search", relation=Relation.LEADS_TO,
+                src="start",
+                dst="search",
+                relation=Relation.LEADS_TO,
                 attribute=attr_search,
             ),
             Edge(
-                src="search", dst="answer", relation=Relation.LEADS_TO,
+                src="search",
+                dst="answer",
+                relation=Relation.LEADS_TO,
                 attribute=attr_answer,
             ),
         ],

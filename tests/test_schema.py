@@ -1,4 +1,5 @@
 """Tests for `methodos.schema` Pydantic models."""
+
 from __future__ import annotations
 
 from typing import ClassVar
@@ -58,7 +59,9 @@ class TestAttribute:
 
     def test_extra_forbidden(self) -> None:
         with pytest.raises(ValidationError):
-            Attribute(condition="x", guidance="y", pitfalls="z", extra="nope")  # type: ignore[call-arg]
+            Attribute.model_validate(
+                {"condition": "x", "guidance": "y", "pitfalls": "z", "extra": "nope"}
+            )
 
     def test_empty_condition_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -78,7 +81,7 @@ class TestAttribute:
 
     def test_missing_required_field(self) -> None:
         with pytest.raises(ValidationError):
-            Attribute(condition="x")  # type: ignore[call-arg]
+            Attribute.model_validate({"condition": "x"})
 
 
 class TestNode:
@@ -118,30 +121,33 @@ class TestNode:
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            Node(id="a", unknown="x")  # type: ignore[call-arg]
+            Node.model_validate({"id": "a", "unknown": "x"})
 
 
 class TestEdge:
     """Edge self-loop and unknown-relation rejection."""
 
-    def _attr(self) -> Attribute:
+    def attr(self) -> Attribute:
         return Attribute(condition="c", guidance="g", pitfalls="p")
 
     def test_minimum_valid(self) -> None:
-        edge = Edge(src="a", dst="b", relation=Relation.LEADS_TO, attribute=self._attr())
+        edge = Edge(src="a", dst="b", relation=Relation.LEADS_TO, attribute=self.attr())
         assert edge.src == "a"
         assert edge.dst == "b"
         assert edge.relation is Relation.LEADS_TO
 
     def test_self_loop_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            Edge(src="a", dst="a", relation=Relation.LEADS_TO, attribute=self._attr())
+            Edge(src="a", dst="a", relation=Relation.LEADS_TO, attribute=self.attr())
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
             Edge(
-                src="a", dst="b", relation=Relation.LEADS_TO,
-                attribute=self._attr(), extra="nope",  # type: ignore[call-arg]
+                src="a",
+                dst="b",
+                relation=Relation.LEADS_TO,
+                attribute=self.attr().model_dump(),
+                extra="nope",
             )
 
 
@@ -196,11 +202,11 @@ class TestProceduralGraph:
 
     def test_schema_version_pinned(self) -> None:
         with pytest.raises(ValidationError):
-            ProceduralGraph(id="g", schema_version=2)  # type: ignore[arg-type]
+            ProceduralGraph.model_validate({"id": "g", "schema_version": 2})
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ProceduralGraph(id="g", unknown="x")  # type: ignore[call-arg]
+            ProceduralGraph.model_validate({"id": "g", "unknown": "x"})
 
 
 class TestEditUnion:
@@ -224,7 +230,9 @@ class TestEditUnion:
         raw = {
             "kind": "add_edge",
             "edge": {
-                "src": "a", "dst": "b", "relation": "leads_to",
+                "src": "a",
+                "dst": "b",
+                "relation": "leads_to",
                 "attribute": {"condition": "c", "guidance": "g", "pitfalls": "p"},
             },
         }
@@ -242,7 +250,9 @@ class TestEditUnion:
     def test_parse_update_attr(self) -> None:
         raw = {
             "kind": "update_attr",
-            "src": "a", "dst": "b", "relation": "leads_to",
+            "src": "a",
+            "dst": "b",
+            "relation": "leads_to",
             "attribute": {"condition": "c2", "guidance": "g2", "pitfalls": "p2"},
         }
         parsed = self.adapter.validate_python(raw)

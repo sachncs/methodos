@@ -1,4 +1,5 @@
 """Tests for `methodos.adapter` (PGAdapter, AgentState, Solver, GuidanceCache)."""
+
 from __future__ import annotations
 
 import pytest
@@ -34,7 +35,7 @@ class TestAgentState:
     def test_is_frozen(self) -> None:
         state = AgentState(query="q", trajectory=(), context="")
         with pytest.raises((AttributeError, Exception)):  # FrozenInstanceError
-            state.query = "new"  # type: ignore[misc]
+            state.query = "new"
 
     def test_default_trajectory_is_empty_tuple(self) -> None:
         state = AgentState(query="q", trajectory=(), context="")
@@ -166,7 +167,8 @@ class TestPGAdapterStep:
         solver = StaticSolver(action="answer")
         graph = make_sample_graph()
         adapter = PGAdapter(
-            solver=solver, graph=graph,
+            solver=solver,
+            graph=graph,
             llm=FakeLLM(responses=["do this"]),
         )
         action = await adapter.step(
@@ -184,7 +186,8 @@ class TestPGAdapterStep:
     async def test_context_contains_guidance(self) -> None:
         solver = StaticSolver()
         adapter = PGAdapter(
-            solver=solver, graph=make_sample_graph(),
+            solver=solver,
+            graph=make_sample_graph(),
             llm=FakeLLM(responses=["GUIDANCE-BODY"]),
         )
         await adapter.step(query="q", trajectory=[])
@@ -249,12 +252,18 @@ class TestPGAdapterStep:
         solver = StaticSolver()
         llm = FakeLLM(responses=["g"])
         adapter_a = PGAdapter(
-            solver=solver, graph=graph_a, llm=llm, cache=shared_cache,
+            solver=solver,
+            graph=graph_a,
+            llm=llm,
+            cache=shared_cache,
         )
         await adapter_a.step(query="q", trajectory=[("start", "")])
         # Second adapter shares the cache → cache hit, no LLM call.
         adapter_b = PGAdapter(
-            solver=solver, graph=graph_b, llm=llm, cache=shared_cache,
+            solver=solver,
+            graph=graph_b,
+            llm=llm,
+            cache=shared_cache,
         )
         await adapter_b.step(query="q", trajectory=[("start", "")])
         assert len(llm.calls) == 1
@@ -264,7 +273,8 @@ class TestPGAdapterStep:
         """The trajectory in AgentState is a tuple, not a list (immutable)."""
         solver = StaticSolver()
         adapter = PGAdapter(
-            solver=solver, graph=make_sample_graph(),
+            solver=solver,
+            graph=make_sample_graph(),
             llm=FakeLLM(),
         )
         trajectory = [("a", "1"), ("b", "2"), ("c", "3")]

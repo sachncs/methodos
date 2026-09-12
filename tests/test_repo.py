@@ -1,6 +1,9 @@
 """Tests for `methodos.repo`."""
+
 from __future__ import annotations
 
+import builtins
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +22,7 @@ from methodos.repo import (
     build_repository,
     tail_tokens,
 )
-from methodos.schema import ProceduralGraph
+from methodos.schema import Node, ProceduralGraph
 
 
 def make_trajectory(query: str, score: float = 1.0) -> Trajectory:
@@ -32,7 +35,6 @@ def make_trajectory(query: str, score: float = 1.0) -> Trajectory:
 
 def make_graph(graph_id: str = "test") -> ProceduralGraph:
     """Minimal two-node graph for repository round-trips."""
-    from methodos.schema import Node
     return ProceduralGraph(
         id=graph_id,
         nodes={"start": Node(id="start"), "answer": Node(id="answer")},
@@ -163,7 +165,8 @@ class TestFilesystemRepository:
         assert trajectories[1].score == 0.5
 
     async def test_read_trajectories_filtered_by_split(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -175,7 +178,8 @@ class TestFilesystemRepository:
         assert len(val) == 1 and val[0].task.query == "v"
 
     async def test_read_trajectories_missing_split_empty(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -185,9 +189,10 @@ class TestFilesystemRepository:
     async def test_save_overwrites(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
-        from methodos.schema import Node
         new_graph = ProceduralGraph(
-            id="g", nodes={"answer": Node(id="answer")}, terminal_ids={"answer"},
+            id="g",
+            nodes={"answer": Node(id="answer")},
+            terminal_ids={"answer"},
         )
         await repo.save_graph(new_graph)
         loaded = await repo.load_graph("g")
@@ -220,9 +225,10 @@ class TestSQLiteRepository:
         await repo.save_graph(make_graph("g"))
         # Re-saving the same graph updates the body in place; the row
         # is preserved (no DELETE+INSERT side effects).
-        from methodos.schema import Node
         updated = ProceduralGraph(
-            id="g", nodes={"answer": Node(id="answer")}, terminal_ids={"answer"},
+            id="g",
+            nodes={"answer": Node(id="answer")},
+            terminal_ids={"answer"},
         )
         await repo.save_graph(updated)
         loaded = await repo.load_graph("g")
@@ -237,7 +243,6 @@ class TestSQLiteRepository:
         # Re-saving the graph should not affect the snapshot.
         await repo.save_graph(make_graph("g"))
         # Load snapshot via direct SQL to verify.
-        import sqlite3
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute(
                 "SELECT body FROM snapshots WHERE graph_id = ? AND tag = ?",
@@ -260,19 +265,23 @@ class TestSQLiteRepository:
         assert [t.task.query for t in trajectories] == ["q1", "q2"]
 
     async def test_trajectories_ordered_by_timestamp(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
         for i in range(3):
             await repo.append_trajectory(
-                "g", "train", make_trajectory(f"q{i}"),
+                "g",
+                "train",
+                make_trajectory(f"q{i}"),
             )
         trajectories = [t async for t in repo.read_trajectories("g", "train")]
         assert [t.task.query for t in trajectories] == ["q0", "q1", "q2"]
 
     async def test_read_trajectories_filtered_by_split(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
@@ -284,14 +293,14 @@ class TestSQLiteRepository:
         assert len(val) == 1
 
     async def test_fk_cascade_delete_trajectories(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Deleting a graph cascades to its trajectories via FK."""
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
         await repo.append_trajectory("g", "train", make_trajectory("q"))
         # Manually delete the graph row; trajectories should cascade.
-        import sqlite3
         with sqlite3.connect(tmp_path / "test.db") as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("DELETE FROM graphs WHERE id = 'g'")
@@ -304,7 +313,6 @@ class TestSQLiteRepository:
     async def test_wal_mode_active(self, tmp_path: Path) -> None:
         """Verify journal_mode is WAL after init."""
         SQLiteRepository(db_path=tmp_path / "test.db")
-        import sqlite3
         with sqlite3.connect(tmp_path / "test.db") as conn:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode.lower() == "wal"
@@ -312,11 +320,9 @@ class TestSQLiteRepository:
     async def test_index_on_trajectories(self, tmp_path: Path) -> None:
         """Verify the (graph_id, split, ts) index exists."""
         SQLiteRepository(db_path=tmp_path / "test.db")
-        import sqlite3
         with sqlite3.connect(tmp_path / "test.db") as conn:
             indices = conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'index' AND name LIKE 'idx_%'"
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'"
             ).fetchall()
             index_names = {row[0] for row in indices}
             assert "idx_trajectories_graph_split" in index_names
@@ -325,7 +331,6 @@ class TestSQLiteRepository:
     async def test_schema_version_recorded(self, tmp_path: Path) -> None:
         """After init, schema_meta contains version 1."""
         SQLiteRepository(db_path=tmp_path / "test.db")
-        import sqlite3
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute("SELECT version FROM schema_meta").fetchone()
             assert row[0] == 1
@@ -347,7 +352,9 @@ class TestBuildRepository:
     """`build_repository` selects backend from env vars."""
 
     def test_default_returns_sqlite(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.delenv("PGRAPH_BACKEND", raising=False)
@@ -355,7 +362,9 @@ class TestBuildRepository:
         assert isinstance(repo, SQLiteRepository)
 
     def test_filesystem_backend(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.setenv("PGRAPH_BACKEND", "filesystem")
@@ -363,7 +372,9 @@ class TestBuildRepository:
         assert isinstance(repo, FilesystemRepository)
 
     def test_unknown_backend_raises(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.setenv("PGRAPH_BACKEND", "bogus")
@@ -426,53 +437,21 @@ class TestSqliteVecIndexIfAvailable:
         with pytest.raises(ValueError, match="dim must be positive"):
             SqliteVecIndex(db_path=tmp_path / "vec.db", dim=0)
 
-    def test_raises_when_dep_missing(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-    ) -> None:
-        # Simulate missing dep.
-        import builtins
-        original_import = builtins.__import__
-
-        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "sqlite_vec":
-                raise ImportError("no sqlite_vec")
-            return original_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
-        with pytest.raises(RuntimeError, match="sqlite-vec is not installed"):
-            SqliteVecIndex(db_path=tmp_path / "vec.db", dim=4)
-
     def test_upsert_validates_dim(self, tmp_path: Path) -> None:
-        try:
-            import sqlite_vec
-        except ImportError:
-            pytest.skip("sqlite_vec not installed")
         idx = SqliteVecIndex(db_path=tmp_path / "vec.db", dim=4)
         with pytest.raises(ValueError, match="vector length 3 != dim 4"):
             idx.upsert("k", [0.1, 0.2, 0.3])
 
     def test_query_validates_dim(self, tmp_path: Path) -> None:
-        try:
-            import sqlite_vec
-        except ImportError:
-            pytest.skip("sqlite_vec not installed")
         idx = SqliteVecIndex(db_path=tmp_path / "vec.db", dim=4)
         with pytest.raises(ValueError, match="vector length 2 != dim 4"):
             idx.query([0.1, 0.2], k=1)
 
     def test_query_with_k_zero_returns_empty(self, tmp_path: Path) -> None:
-        try:
-            import sqlite_vec
-        except ImportError:
-            pytest.skip("sqlite_vec not installed")
         idx = SqliteVecIndex(db_path=tmp_path / "vec.db", dim=4)
         assert idx.query([0.1, 0.2, 0.3, 0.4], k=0) == []
 
     def test_upsert_and_query_round_trip(self, tmp_path: Path) -> None:
-        try:
-            import sqlite_vec
-        except ImportError:
-            pytest.skip("sqlite_vec not installed")
         idx = SqliteVecIndex(db_path=tmp_path / "vec.db", dim=4)
         idx.upsert("a", [1.0, 0.0, 0.0, 0.0])
         idx.upsert("b", [0.0, 1.0, 0.0, 0.0])

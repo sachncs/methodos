@@ -1,9 +1,13 @@
 """Tests for `methodos.graph` pure functions."""
+
 from __future__ import annotations
+
+from typing import cast
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
 from methodos.graph import (
     StructuralIssue,
@@ -33,6 +37,11 @@ from methodos.schema import (
 )
 
 
+def _as_edit(obj: object) -> Edit:
+    """Cast an arbitrary object to an Edit (for testing dispatch fallback)."""
+    return cast(Edit, obj)
+
+
 def _attr() -> Attribute:
     """Standard edge attribute for tests."""
     return Attribute(condition="c", guidance="g", pitfalls="p")
@@ -59,9 +68,7 @@ class TestMatchNode:
 
     def test_hit_on_empty_string_id_rejected_at_construction(self) -> None:
         # Node ids must be non-empty per Pydantic validation, so this
-        # # state cannot be constructed directly. Verify the contract.
-        from pydantic import ValidationError
-
+        # state cannot be constructed directly. Verify the contract.
         with pytest.raises(ValidationError):
             Node(id="")
 
@@ -293,8 +300,10 @@ class TestHasPathTo:
         g = ProceduralGraph(
             id="g",
             nodes={
-                "a": Node(id="a"), "b": Node(id="b"),
-                "c": Node(id="c"), "d": Node(id="d"),
+                "a": Node(id="a"),
+                "b": Node(id="b"),
+                "c": Node(id="c"),
+                "d": Node(id="d"),
             },
             edges=[
                 _edge("a", "b"),
@@ -396,33 +405,62 @@ class TestApplyEdits:
 
     def test_delete_edge(self) -> None:
         g = self._base()
-        new_g = apply_edits(g, [EditDeleteEdge(
-            src="a", dst="b", relation=Relation.LEADS_TO,
-        )])
+        new_g = apply_edits(
+            g,
+            [
+                EditDeleteEdge(
+                    src="a",
+                    dst="b",
+                    relation=Relation.LEADS_TO,
+                )
+            ],
+        )
         assert new_g.edges == []
 
     def test_delete_edge_no_match_raises(self) -> None:
         g = self._base()
         with pytest.raises(ValueError, match="no matching edge to delete"):
-            apply_edits(g, [EditDeleteEdge(
-                src="a", dst="b", relation=Relation.REPLACES,
-            )])
+            apply_edits(
+                g,
+                [
+                    EditDeleteEdge(
+                        src="a",
+                        dst="b",
+                        relation=Relation.REPLACES,
+                    )
+                ],
+            )
 
     def test_update_attr(self) -> None:
         g = self._base()
         new_attr = Attribute(condition="c2", guidance="g2", pitfalls="p2")
-        new_g = apply_edits(g, [EditUpdateAttr(
-            src="a", dst="b", relation=Relation.LEADS_TO, attribute=new_attr,
-        )])
+        new_g = apply_edits(
+            g,
+            [
+                EditUpdateAttr(
+                    src="a",
+                    dst="b",
+                    relation=Relation.LEADS_TO,
+                    attribute=new_attr,
+                )
+            ],
+        )
         assert new_g.edges[0].attribute == new_attr
 
     def test_update_attr_no_match_raises(self) -> None:
         g = self._base()
         with pytest.raises(ValueError, match="no matching edge to update"):
-            apply_edits(g, [EditUpdateAttr(
-                src="a", dst="b", relation=Relation.REPLACES,
-                attribute=_attr(),
-            )])
+            apply_edits(
+                g,
+                [
+                    EditUpdateAttr(
+                        src="a",
+                        dst="b",
+                        relation=Relation.REPLACES,
+                        attribute=_attr(),
+                    )
+                ],
+            )
 
     def test_unknown_edit_type_raises(self) -> None:
         """A non-Edit object passed in raises ValueError from the dispatch fallback."""
@@ -432,14 +470,17 @@ class TestApplyEdits:
             kind = "add_node_with_cheese"
 
         with pytest.raises(ValueError, match="unknown edit type"):
-            apply_edits(g, [NotAnEdit()])  # type: ignore[list-item]
+            apply_edits(g, [_as_edit(NotAnEdit())])
 
     def test_sequential_edits_applied_in_order(self) -> None:
         g = self._base()
-        new_g = apply_edits(g, [
-            EditAddNode(node=Node(id="c")),
-            EditAddEdge(edge=_edge("c", "a")),
-        ])
+        new_g = apply_edits(
+            g,
+            [
+                EditAddNode(node=Node(id="c")),
+                EditAddEdge(edge=_edge("c", "a")),
+            ],
+        )
         assert "c" in new_g.nodes
         assert any(e.src == "c" for e in new_g.edges)
 
@@ -468,16 +509,27 @@ class TestApplySingleEdit:
         assert any(e.src == "b" for e in new_g.edges)
 
     def test_delete_edge(self) -> None:
-        new_g = apply_single_edit(self._base(), EditDeleteEdge(
-            src="a", dst="b", relation=Relation.LEADS_TO,
-        ))
+        new_g = apply_single_edit(
+            self._base(),
+            EditDeleteEdge(
+                src="a",
+                dst="b",
+                relation=Relation.LEADS_TO,
+            ),
+        )
         assert new_g.edges == []
 
     def test_update_attr(self) -> None:
         new_attr = Attribute(condition="x", guidance="y", pitfalls="z")
-        new_g = apply_single_edit(self._base(), EditUpdateAttr(
-            src="a", dst="b", relation=Relation.LEADS_TO, attribute=new_attr,
-        ))
+        new_g = apply_single_edit(
+            self._base(),
+            EditUpdateAttr(
+                src="a",
+                dst="b",
+                relation=Relation.LEADS_TO,
+                attribute=new_attr,
+            ),
+        )
         assert new_g.edges[0].attribute == new_attr
 
 
@@ -599,7 +651,7 @@ class TestStructuralIssue:
         issue = StructuralIssue(code="x", message="y")
         assert issue != "string"
         assert issue != 42
-        assert issue != None  # noqa: E711
+        assert issue is not None
 
 
 # ----------------------------------------------------------------------------
@@ -608,9 +660,7 @@ class TestStructuralIssue:
 
 # Strategy: build a small acyclic graph
 node_id_st = st.text(
-    alphabet=st.characters(
-        whitelist_categories=["L", "N"], max_codepoint=0x7E
-    ),
+    alphabet=st.characters(whitelist_categories=["L", "N"], max_codepoint=0x7E),
     min_size=1,
     max_size=8,
 ).filter(lambda s: not s.startswith("."))
@@ -632,12 +682,14 @@ def small_acyclic_graph(draw: st.DrawFn) -> ProceduralGraph:
     edges: list[Edge] = []
     # Linear chain: node[0] -> node[1] -> node[2] -> ...
     for i in range(len(node_ids) - 1):
-        edges.append(Edge(
-            src=node_ids[i],
-            dst=node_ids[i + 1],
-            relation=Relation.LEADS_TO,
-            attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
-        ))
+        edges.append(
+            Edge(
+                src=node_ids[i],
+                dst=node_ids[i + 1],
+                relation=Relation.LEADS_TO,
+                attribute=Attribute(condition="c", guidance="g", pitfalls="p"),
+            )
+        )
     # last node is the terminal
     return ProceduralGraph(
         id="gen",

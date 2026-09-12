@@ -1,10 +1,12 @@
 """Tests for `methodos.evolution` (Algorithm 1, EvolutionEngine, helpers)."""
+
 from __future__ import annotations
 
 import json
 
 import pytest
 
+import methodos.evolution as ev_mod
 from methodos.adapter import Solver
 from methodos.evolution import (
     REFINER_SYSTEM_PROMPT,
@@ -120,7 +122,10 @@ class TestRunRollout:
         task = Task(query="q")
         result = await run_rollout(
             graph=make_sample_graph(),
-            solver=solver, llm=llm, task=task, max_steps=0,
+            solver=solver,
+            llm=llm,
+            task=task,
+            max_steps=0,
         )
         assert result.success is False
         assert result.trajectory.score == 0.0
@@ -133,7 +138,10 @@ class TestRunRollout:
         llm = FakeLLM()
         result = await run_rollout(
             graph=make_sample_graph(),
-            solver=solver, llm=llm, task=Task(query="q"), max_steps=10,
+            solver=solver,
+            llm=llm,
+            task=Task(query="q"),
+            max_steps=10,
         )
         assert result.success is False
 
@@ -142,11 +150,11 @@ class TestRunRollout:
         # setup to inject TERMINATE_SUCCESS. Use a custom solver that
         # returns "FINISH" which we'll patch.
         class SuccessSolver:
-            async def step(self, state):  # type: ignore[no-untyped-def]
+            async def step(self, state: object) -> str:
                 return "search"
 
         # Monkeypatch execute_action_stub via patching the module
-        from methodos import evolution as ev_mod
+        # alias already at top
 
         original_stub = ev_mod.execute_action_stub
 
@@ -169,10 +177,10 @@ class TestRunRollout:
 
     async def test_terminate_failure_marker(self) -> None:
         class FailureSolver:
-            async def step(self, state):  # type: ignore[no-untyped-def]
+            async def step(self, state: object) -> str:
                 return "search"
 
-        from methodos import evolution as ev_mod
+        # alias already at top
 
         async def fake_stub(action: str) -> str:
             return TERMINATE_FAILURE
@@ -200,63 +208,104 @@ class TestRunRollout:
 
 class TestProposeEdits:
     async def test_parses_valid_json(self) -> None:
-        edits_json = json.dumps([
-            {"kind": "add_node", "node": {"id": "verify", "description": "verify answer"}},
-            {"kind": "add_edge", "edge": {
-                "src": "answer", "dst": "verify", "relation": "leads_to",
-                "attribute": {"condition": "produced", "guidance": "check", "pitfalls": "skip"},
-            }},
-        ])
+        edits_json = json.dumps(
+            [
+                {"kind": "add_node", "node": {"id": "verify", "description": "verify answer"}},
+                {
+                    "kind": "add_edge",
+                    "edge": {
+                        "src": "answer",
+                        "dst": "verify",
+                        "relation": "leads_to",
+                        "attribute": {
+                            "condition": "produced",
+                            "guidance": "check",
+                            "pitfalls": "skip",
+                        },
+                    },
+                },
+            ]
+        )
         llm = FakeLLM(responses=[edits_json])
         graph = make_sample_graph()
         result = await propose_edits(
-            llm=llm, graph=graph, traces=[], rejected=[],
+            llm=llm,
+            graph=graph,
+            traces=[],
+            rejected=[],
         )
         assert len(result) == 2
         assert isinstance(result[0], EditAddNode)
         assert result[0].node.id == "verify"
 
     async def test_strips_markdown_fences(self) -> None:
-        fenced = "```json\n[{\"kind\": \"add_node\", \"node\": {\"id\": \"v\"}}]\n```"
+        fenced = '```json\n[{"kind": "add_node", "node": {"id": "v"}}]\n```'
         result = await propose_edits(
             llm=FakeLLM(responses=[fenced]),
-            graph=make_sample_graph(), traces=[], rejected=[],
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert len(result) == 1
 
     async def test_invalid_json_returns_empty(self) -> None:
         llm = FakeLLM(responses=["not json at all"])
         result = await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert result == []
 
     async def test_non_list_returns_empty(self) -> None:
         llm = FakeLLM(responses=['{"not": "a list"}'])
         result = await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert result == []
 
     async def test_malformed_edit_dropped_with_warning(self) -> None:
         """A non-conforming item is dropped; the rest parse."""
-        llm = FakeLLM(responses=[json.dumps([
-            {"kind": "add_node", "node": {"id": "ok"}},
-            {"kind": "add_node", "node": {"id": ".starts_with_dot"}},
-        ])])
+        llm = FakeLLM(
+            responses=[
+                json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "ok"}},
+                        {"kind": "add_node", "node": {"id": ".starts_with_dot"}},
+                    ]
+                )
+            ]
+        )
         result = await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert len(result) == 1
-        assert result[0].node.id == "ok"  # type: ignore[union-attr]
+        assert result[0] is not None
+        assert result[0].node.id == "ok"
 
     async def test_unknown_kind_dropped(self) -> None:
-        llm = FakeLLM(responses=[json.dumps([
-            {"kind": "add_node", "node": {"id": "ok"}},
-            {"kind": "make_coffee", "intensity": "high"},
-        ])])
+        llm = FakeLLM(
+            responses=[
+                json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "ok"}},
+                        {"kind": "make_coffee", "intensity": "high"},
+                    ]
+                )
+            ]
+        )
         result = await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert len(result) == 1
 
@@ -264,7 +313,10 @@ class TestProposeEdits:
         llm = FakeLLM(responses=["[]"])
         t = Trajectory(task=Task(query="Q"), steps=(("a", "b"),), score=1.0)
         await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[t], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[t],
+            rejected=[],
         )
         user_prompt = llm.calls[0]["user"]
         assert "Q" in user_prompt
@@ -288,7 +340,10 @@ class TestProposeEdits:
     async def test_system_prompt_is_set(self) -> None:
         llm = FakeLLM(responses=["[]"])
         await propose_edits(
-            llm=llm, graph=make_sample_graph(), traces=[], rejected=[],
+            llm=llm,
+            graph=make_sample_graph(),
+            traces=[],
+            rejected=[],
         )
         assert llm.calls[0]["system"] == REFINER_SYSTEM_PROMPT
 
@@ -308,10 +363,14 @@ class TestValidateCandidate:
             graph,
             [
                 EditAddNode(node=Node(id="verify", description="verify answer")),
-                EditAddEdge(edge=Edge(
-                    src="verify", dst="answer",
-                    relation=Relation.LEADS_TO, attribute=attr,
-                )),
+                EditAddEdge(
+                    edge=Edge(
+                        src="verify",
+                        dst="answer",
+                        relation=Relation.LEADS_TO,
+                        attribute=attr,
+                    )
+                ),
             ],
         )
         assert candidate is not None
@@ -323,7 +382,8 @@ class TestValidateCandidate:
         graph = make_sample_graph()
         # Add a node that already exists → raises in apply_edits
         result = validate_candidate(
-            graph, [EditAddNode(node=Node(id="search"))],  # duplicate
+            graph,
+            [EditAddNode(node=Node(id="search"))],  # duplicate
         )
         assert result is None
 
@@ -332,7 +392,11 @@ class TestValidateCandidate:
         attr = Attribute(condition="c", guidance="g", pitfalls="p")
         graph = ProceduralGraph(
             id="g",
-            nodes={"start": Node(id="start"), "search": Node(id="search"), "answer": Node(id="answer")},
+            nodes={
+                "start": Node(id="start"),
+                "search": Node(id="search"),
+                "answer": Node(id="answer"),
+            },
             edges=[
                 Edge(src="start", dst="search", relation=Relation.LEADS_TO, attribute=attr),
                 Edge(src="search", dst="answer", relation=Relation.LEADS_TO, attribute=attr),
@@ -340,9 +404,14 @@ class TestValidateCandidate:
             terminal_ids={"answer"},
         )
         # Adding an answer→start edge creates a cycle AND breaks terminal reachability.
-        cycle_edit = EditAddEdge(edge=Edge(
-            src="answer", dst="start", relation=Relation.LEADS_TO, attribute=attr,
-        ))
+        cycle_edit = EditAddEdge(
+            edge=Edge(
+                src="answer",
+                dst="start",
+                relation=Relation.LEADS_TO,
+                attribute=attr,
+            )
+        )
         candidate = validate_candidate(graph, [cycle_edit], allow_cycles=False)
         assert candidate is None
 
@@ -388,7 +457,8 @@ class TestRejectionMemory:
         mem.add([edit], 0.3)
         snap = mem.snapshot()
         assert len(snap) == 1
-        assert snap[0][0].node.id == "x"  # type: ignore[union-attr]
+        assert snap[0][0] is not None
+        assert snap[0][0].node.id == "x"
         assert snap[0][1] == 0.3
 
     def test_evicts_oldest_at_capacity(self) -> None:
@@ -401,8 +471,10 @@ class TestRejectionMemory:
         mem.add([e3], 0.3)
         snap = mem.snapshot()
         assert len(snap) == 2
-        assert snap[0][0].node.id == "b"  # type: ignore[union-attr]
-        assert snap[1][0].node.id == "c"  # type: ignore[union-attr]
+        assert snap[0][0] is not None
+        assert snap[0][0].node.id == "b"
+        assert snap[1][0] is not None
+        assert snap[1][0].node.id == "c"
 
     def test_len(self) -> None:
         mem = RejectionMemory(max_size=10)
@@ -420,24 +492,33 @@ class TestEvolutionEngineConstruction:
     def test_rejects_non_positive_k_rounds(self) -> None:
         with pytest.raises(ValueError, match="k_rounds must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(), repo=InMemoryRepository(),
-                train_tasks=[], val_tasks=[], solver=StaticSolver(),
+                llm=FakeLLM(),
+                repo=InMemoryRepository(),
+                train_tasks=[],
+                val_tasks=[],
+                solver=StaticSolver(),
                 k_rounds=0,
             )
 
     def test_rejects_non_positive_l_max(self) -> None:
         with pytest.raises(ValueError, match="l_max_tokens must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(), repo=InMemoryRepository(),
-                train_tasks=[], val_tasks=[], solver=StaticSolver(),
+                llm=FakeLLM(),
+                repo=InMemoryRepository(),
+                train_tasks=[],
+                val_tasks=[],
+                solver=StaticSolver(),
                 l_max_tokens=0,
             )
 
     def test_rejects_non_positive_max_steps(self) -> None:
         with pytest.raises(ValueError, match="max_steps must be positive"):
             EvolutionEngine(
-                llm=FakeLLM(), repo=InMemoryRepository(),
-                train_tasks=[], val_tasks=[], solver=StaticSolver(),
+                llm=FakeLLM(),
+                repo=InMemoryRepository(),
+                train_tasks=[],
+                val_tasks=[],
+                solver=StaticSolver(),
                 max_steps=0,
             )
 
@@ -450,11 +531,18 @@ class _ScriptedLLM(LLMClient):
     (refiner prompts contain "Propose a JSON array of edits.").
     """
 
-    def __init__(self, fn) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, fn: object) -> None:
         self._fn = fn
         self.calls: list[str] = []
 
-    async def complete(self, *, system, user, json_schema=None, temperature=0.0):  # type: ignore[no-untyped-def]
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        json_schema: object | None = None,
+        temperature: float = 0.0,
+    ) -> str:
         self.calls.append(user)
         return self._fn(len(self.calls) - 1, user)
 
@@ -470,7 +558,8 @@ class TestEvolutionEngineRun:
         # still runs K rounds and returns the same graph.
         llm = _ScriptedLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
-            llm=llm, repo=InMemoryRepository(),
+            llm=llm,
+            repo=InMemoryRepository(),
             train_tasks=[Task(query="t1"), Task(query="t2")],
             val_tasks=[Task(query="v1")],
             solver=StaticSolver(action="FINISH"),
@@ -486,22 +575,32 @@ class TestEvolutionEngineRun:
         # rollout LLM is fed empty guidance text (no JSON).
         def script(i: int, user: str) -> str:
             if "Propose a JSON array of edits." in user:
-                return json.dumps([
-                    {"kind": "add_node", "node": {"id": "verify", "description": "verify"}},
-                    {"kind": "add_edge", "edge": {
-                        "src": "verify", "dst": "answer",
-                        "relation": "leads_to",
-                        "attribute": {
-                            "condition": "verified", "guidance": "loop back", "pitfalls": "skip",
+                return json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "verify", "description": "verify"}},
+                        {
+                            "kind": "add_edge",
+                            "edge": {
+                                "src": "verify",
+                                "dst": "answer",
+                                "relation": "leads_to",
+                                "attribute": {
+                                    "condition": "verified",
+                                    "guidance": "loop back",
+                                    "pitfalls": "skip",
+                                },
+                            },
                         },
-                    }},
-                ])
+                    ]
+                )
             return ""
 
         llm = _ScriptedLLM(script)
         engine = EvolutionEngine(
-            llm=llm, repo=InMemoryRepository(),
-            train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+            llm=llm,
+            repo=InMemoryRepository(),
+            train_tasks=[Task(query="t")],
+            val_tasks=[Task(query="v")],
             solver=StaticSolver(action="FINISH"),
             k_rounds=1,
         )
@@ -512,15 +611,19 @@ class TestEvolutionEngineRun:
         # Refiner proposes a duplicate node (structurally invalid).
         def script(i: int, user: str) -> str:
             if "Propose a JSON array of edits." in user:
-                return json.dumps([
-                    {"kind": "add_node", "node": {"id": "search"}},  # duplicate
-                ])
+                return json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "search"}},  # duplicate
+                    ]
+                )
             return ""
 
         llm = _ScriptedLLM(script)
         engine = EvolutionEngine(
-            llm=llm, repo=InMemoryRepository(),
-            train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+            llm=llm,
+            repo=InMemoryRepository(),
+            train_tasks=[Task(query="t")],
+            val_tasks=[Task(query="v")],
             solver=StaticSolver(action="FINISH"),
             k_rounds=1,
         )
@@ -533,24 +636,25 @@ class TestEvolutionEngineRun:
         # prompt must contain the REJECTED marker.
         def script(i: int, user: str) -> str:
             if "Propose a JSON array of edits." in user:
-                return json.dumps([
-                    {"kind": "add_node", "node": {"id": "search"}},  # duplicate
-                ])
+                return json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "search"}},  # duplicate
+                    ]
+                )
             return ""
 
         llm = _ScriptedLLM(script)
         engine = EvolutionEngine(
-            llm=llm, repo=InMemoryRepository(),
-            train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+            llm=llm,
+            repo=InMemoryRepository(),
+            train_tasks=[Task(query="t")],
+            val_tasks=[Task(query="v")],
             solver=StaticSolver(action="FINISH"),
             k_rounds=2,
         )
         await engine.run(make_sample_graph())
         # Round-2 refiner is the second refiner call.
-        refiner_indices = [
-            i for i, call in enumerate(llm.calls)
-            if llm.is_refiner_call(i)
-        ]
+        refiner_indices = [i for i, call in enumerate(llm.calls) if llm.is_refiner_call(i)]
         assert len(refiner_indices) == 2, "expected 2 refiner calls"
         assert "REJECTED" in llm.calls[refiner_indices[1]]
 
@@ -558,8 +662,10 @@ class TestEvolutionEngineRun:
         repo = InMemoryRepository()
         llm = _ScriptedLLM(lambda i, _: "[]")
         engine = EvolutionEngine(
-            llm=llm, repo=repo,
-            train_tasks=[Task(query="t")], val_tasks=[Task(query="v")],
+            llm=llm,
+            repo=repo,
+            train_tasks=[Task(query="t")],
+            val_tasks=[Task(query="v")],
             solver=StaticSolver(action="FINISH"),
             k_rounds=1,
         )

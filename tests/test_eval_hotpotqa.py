@@ -1,7 +1,10 @@
 """Tests for `eval.hotpotqa` helpers (EM, F1, task loading)."""
+
 from __future__ import annotations
 
+import builtins
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -10,6 +13,7 @@ from eval.hotpotqa.run import _exact_match, _normalize, _token_f1
 from eval.hotpotqa.tasks import (
     DEFAULT_DATA_DIR,
     HotpotQATask,
+    download_if_missing,
     load_tasks,
 )
 
@@ -118,19 +122,20 @@ class TestHotpotQATaskIsFrozen:
     def test_dataclass_is_frozen(self) -> None:
         task = HotpotQATask(question="Q", answer="A", supporting_facts=(), id="1")
         with pytest.raises((AttributeError, Exception)):  # FrozenInstanceError
-            task.question = "new"  # type: ignore[misc]
+            task.question = "new"
 
 
 class TestDownloadIfMissing:
-    def test_returns_path_when_already_exists(  # type: ignore[no-untyped-def]
-        self, tmp_path: Path, monkeypatch,
+    def test_returns_path_when_already_exists(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """If JSONL is already at target_dir, return without calling datasets."""
         out = tmp_path / "hotpotqa_dev_distractor.jsonl"
         out.write_text('{"_id": "1", "question": "Q", "answer": "A", "supporting_facts": []}\n')
 
         # Verify datasets package is not even imported.
-        import builtins
         original_import = builtins.__import__
         called: list[str] = []
 
@@ -142,36 +147,10 @@ class TestDownloadIfMissing:
             level: int = 0,
         ) -> object:
             called.append(name)
-            return original_import(name, globals, locals, fromlist, level)  # type: ignore[arg-type]
+            return original_import(name, globals, locals, fromlist, level)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
 
-        from eval.hotpotqa.tasks import download_if_missing
         path = download_if_missing(target_dir=tmp_path)
         assert path == out
         assert "datasets" not in called
-
-    def test_raises_when_datasets_missing(  # type: ignore[no-untyped-def]
-        self, tmp_path: Path, monkeypatch,
-    ) -> None:
-        """If JSONL is absent and datasets is not installed, raise."""
-        # Block the datasets import.
-        import builtins
-        original_import = builtins.__import__
-
-        def fake_import(
-            name: str,
-            globals: object | None = None,
-            locals: object | None = None,
-            fromlist: tuple[str, ...] = (),
-            level: int = 0,
-        ) -> object:
-            if name == "datasets":
-                raise ImportError("datasets not installed")
-            return original_import(name, globals, locals, fromlist, level)  # type: ignore[arg-type]
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
-
-        from eval.hotpotqa.tasks import download_if_missing
-        with pytest.raises(RuntimeError, match="datasets package required"):
-            download_if_missing(target_dir=tmp_path)

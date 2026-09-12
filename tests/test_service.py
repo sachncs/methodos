@@ -1,12 +1,14 @@
 """Tests for `methodos.service` (FastAPI app)."""
+
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from methodos.llm import LLMClient
 from methodos.repo import (
@@ -15,7 +17,7 @@ from methodos.repo import (
     Task,
     Trajectory,
 )
-from methodos.schema import ProceduralGraph
+from methodos.schema import Node, ProceduralGraph
 from methodos.service import (
     EvolveResponse,
     GraphCreateRequest,
@@ -29,7 +31,6 @@ from tests.conftest import FakeLLM
 @pytest.fixture
 def graph() -> ProceduralGraph:
     """Standard sample graph for service tests."""
-    from methodos.schema import Node
     return ProceduralGraph(
         id="g1",
         nodes={
@@ -46,7 +47,6 @@ def graph() -> ProceduralGraph:
 def seeded_repo(graph: ProceduralGraph, tmp_path: Path) -> Iterator[SQLiteRepository]:
     """SQLite repo with one pre-saved graph."""
     repo = SQLiteRepository(db_path=tmp_path / "test.db")
-    import asyncio
     asyncio.run(repo.save_graph(graph))
     yield repo
 
@@ -98,7 +98,8 @@ class TestGetGraph:
 class TestCreateGraph:
     def test_creates_empty_graph(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs", json={"id": "new"},
+            "/v1/graphs",
+            json={"id": "new"},
         )
         assert response.status_code == 201
         assert response.json()["id"] == "new"
@@ -125,7 +126,8 @@ class TestCreateGraph:
 
     def test_extra_fields_rejected(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs", json={"id": "x", "extra": "bad"},
+            "/v1/graphs",
+            json={"id": "x", "extra": "bad"},
         )
         assert response.status_code == 422  # pydantic validation error
 
@@ -206,7 +208,8 @@ class TestGetGuidance:
 class TestEvolveEndpoint:
     def test_returns_501(self, client: TestClient) -> None:
         response = client.post(
-            "/v1/graphs/g1/evolve", json={"k_rounds": 5},
+            "/v1/graphs/g1/evolve",
+            json={"k_rounds": 5},
         )
         assert response.status_code == 501
         body = response.json()
@@ -224,9 +227,8 @@ class TestGraphCreateRequestDTO:
         assert req.from_graph_id is None
 
     def test_extra_forbidden(self) -> None:
-        from pydantic import ValidationError
         with pytest.raises(ValidationError):
-            GraphCreateRequest(id="x", extra="bad")  # type: ignore[call-arg]
+            GraphCreateRequest.model_validate({"id": "x", "extra": "bad"})
 
 
 class TestGuidanceResponseDTO:
@@ -256,13 +258,13 @@ class TestFilesystemRepositoryWiring:
     """`create_app` accepts any Repository implementation."""
 
     def test_filesystem_repo(self, tmp_path: Path) -> None:
-        import asyncio
 
-        from methodos.schema import Node
         # Pre-seed a graph in the filesystem repo
         fs_repo = FilesystemRepository(root=tmp_path / "fs_home")
         graph = ProceduralGraph(
-            id="fs-g", nodes={"a": Node(id="a")}, terminal_ids={"a"},
+            id="fs-g",
+            nodes={"a": Node(id="a")},
+            terminal_ids={"a"},
         )
         asyncio.run(fs_repo.save_graph(graph))
 
@@ -274,7 +276,9 @@ class TestFilesystemRepositoryWiring:
             assert response.json()["id"] == "fs-g"
 
     def test_default_repo_is_built_from_env(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         monkeypatch.delenv("PGRAPH_BACKEND", raising=False)
