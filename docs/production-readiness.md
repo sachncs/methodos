@@ -85,14 +85,15 @@ system production-ready.
    prevent stale HTTP writers; distributed repositories still need the same
    contract.
 9. Postgres support is implemented as an optional pooled backend with local
-   and CI integration coverage; migration tooling, managed backups, and
-   restore verification remain open.
+   and CI integration coverage; managed Postgres backups and restore drills
+   remain operational responsibilities.
 10. Migration infrastructure is implemented for forward-only SQL upgrades;
     no schema version 2 migration is currently needed or defined.
 11. Filesystem trajectory appends are not a multi-process journal and should
     remain development-only.
-12. There is no backup scheduler, restore verification, retention policy, or
-    disaster-recovery runbook.
+12. SQLite backup creation and verification are available; scheduling,
+    retention policy, managed-Postgres restore drills, and a full disaster-
+    recovery runbook remain open.
 13. Corrupt JSON/SQLite records do not have a repair/quarantine workflow.
 
 ### LLM and evolution
@@ -113,8 +114,8 @@ system production-ready.
 20. Request metrics, OTEL spans, and structured completion events are now
     correlated with the request ID; exporter and retention policy remain
     deployment responsibilities.
-21. HTTP and LLM spans are instrumented; downstream repository spans and
-    collector configuration validation remain open.
+21. HTTP, repository-boundary, and LLM spans are instrumented; collector
+    configuration validation remains open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
     cover basic contention; load, soak, chaos, file-corruption, and broader

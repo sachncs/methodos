@@ -52,6 +52,7 @@ from methodos.schema import ProceduralGraph
 logger = logging.getLogger(__name__)
 structured_logger = structlog.get_logger("methodos.service")
 request_tracer = trace.get_tracer("methodos.service")
+repository_tracer = trace.get_tracer("methodos.repository")
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 HTTP_REQUESTS = Counter(
@@ -442,7 +443,9 @@ def create_app(
         repo: Repository, tenant_id: str, graph_id: str
     ) -> ProceduralGraph:
         """Load a graph from the authenticated tenant namespace."""
-        stored = await repo.load_graph(storage_graph_id(tenant_id, graph_id))
+        with repository_tracer.start_as_current_span("methodos.repository.load_graph") as span:
+            span.set_attribute("methodos.repository.backend", type(repo).__name__)
+            stored = await repo.load_graph(storage_graph_id(tenant_id, graph_id))
         return stored.model_copy(update={"id": graph_id})
 
     async def create_scoped_graph(
@@ -450,10 +453,12 @@ def create_app(
     ) -> None:
         """Persist a graph under the authenticated tenant namespace."""
         stored = graph.model_copy(update={"id": storage_graph_id(tenant_id, graph.id)})
-        if isinstance(repo, AtomicRepository):
-            await repo.create_graph(stored)
-        else:
-            await repo.save_graph(stored)
+        with repository_tracer.start_as_current_span("methodos.repository.create_graph") as span:
+            span.set_attribute("methodos.repository.backend", type(repo).__name__)
+            if isinstance(repo, AtomicRepository):
+                await repo.create_graph(stored)
+            else:
+                await repo.save_graph(stored)
 
     def tenant_auth(request: Request) -> tuple[str, str]:
         """Authenticate a request and return `(tenant_id, api_key)`."""
@@ -602,7 +607,11 @@ def create_app(
             stored_graph = graph.model_copy(
                 update={"id": storage_graph_id(request_tenant(http_request), graph_id)}
             )
-            updated = await repo.save_graph_if_revision(stored_graph, expected_revision)
+            with repository_tracer.start_as_current_span(
+                "methodos.repository.save_graph_if_revision"
+            ) as span:
+                span.set_attribute("methodos.repository.backend", type(repo).__name__)
+                updated = await repo.save_graph_if_revision(stored_graph, expected_revision)
             return updated.model_copy(update={"id": graph_id})
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="graph not found") from None
