@@ -70,8 +70,9 @@ system production-ready.
 
 ### LLM and evolution
 
-14. Retry classification is still broad for provider-specific transient error
-    types; provider-aware retry policy should be added.
+14. Provider retry classification now distinguishes transient transport,
+    throttling, and server errors from permanent client/auth failures; provider
+    SDK-specific mappings and fallback providers remain open.
 15. A process-local circuit breaker exists, but shared-state failover policy
     is not implemented.
 16. Token/cost budgets are not persisted or enforced per request, graph, or

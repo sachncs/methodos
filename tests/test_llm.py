@@ -10,7 +10,14 @@ import pytest
 from pydantic import BaseModel
 
 import methodos.llm as llm_module
-from methodos.llm import CircuitBreaker, CircuitOpenError, LiteLLMClient, LLMClient, LLMError
+from methodos.llm import (
+    CircuitBreaker,
+    CircuitOpenError,
+    LiteLLMClient,
+    LLMClient,
+    LLMError,
+    is_retryable_provider_error,
+)
 
 
 class SimpleSchema(BaseModel):
@@ -83,6 +90,20 @@ def test_litellm_client_rejects_invalid_budget_settings() -> None:
         LiteLLMClient(model="gpt-4o-mini", retry_backoff_seconds=-1)
     with pytest.raises(ValueError, match="max_output_tokens"):
         LiteLLMClient(model="gpt-4o-mini", max_output_tokens=0)
+    with pytest.raises(ValueError, match="max_retry_backoff_seconds"):
+        LiteLLMClient(model="gpt-4o-mini", max_retry_backoff_seconds=0.1)
+
+
+def test_provider_error_policy_distinguishes_transient_and_permanent_errors() -> None:
+    class UnauthorizedError(Exception):
+        status_code = 401
+
+    class RateLimitError(Exception):
+        status_code = 429
+
+    assert not is_retryable_provider_error(UnauthorizedError())
+    assert is_retryable_provider_error(RateLimitError())
+    assert is_retryable_provider_error(TimeoutError())
 
 
 def test_litellm_client_model_property() -> None:
@@ -228,6 +249,25 @@ async def test_litellm_complete_does_not_retry_on_programmatic_error(
 
     client = LiteLLMClient(model="gpt-4o-mini", max_retries=5)
     with pytest.raises(LLMError, match="expected str content"):
+        await client.complete(system="s", user="u")
+    assert call_count["n"] == 1
+
+
+async def test_litellm_complete_does_not_retry_permanent_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnauthorizedError(Exception):
+        status_code = 401
+
+    call_count = {"n": 0}
+
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
+        call_count["n"] += 1
+        raise UnauthorizedError("bad key")
+
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
+    client = LiteLLMClient(model="gpt-4o-mini", max_retries=5)
+    with pytest.raises(LLMError, match="non-retryable"):
         await client.complete(system="s", user="u")
     assert call_count["n"] == 1
 

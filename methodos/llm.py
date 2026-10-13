@@ -52,6 +52,21 @@ class CircuitOpenError(LLMError):
     """Raised while a provider circuit is open and calls are being shed."""
 
 
+def is_retryable_provider_error(exc: Exception) -> bool:
+    """Return whether a provider failure is safe to retry."""
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        if status_code == 429 or status_code >= 500:
+            return True
+        if 400 <= status_code < 500:
+            return False
+    error_name = type(exc).__name__.lower()
+    permanent_markers = ("authentication", "authorization", "badrequest", "invalidrequest")
+    if any(marker in error_name for marker in permanent_markers):
+        return False
+    return isinstance(exc, (ConnectionError, OSError, TimeoutError, RuntimeError))
+
+
 class CircuitBreaker:
     """Small process-local circuit breaker for one upstream provider.
 
@@ -118,6 +133,7 @@ class LiteLLMClient:
         max_retries: number of retries on transient failures (total
             attempts = `max_retries + 1`).
         retry_backoff_seconds: initial exponential delay between retries.
+        max_retry_backoff_seconds: upper bound for exponential backoff.
         max_output_tokens: upper bound for generated response tokens.
     """
 
@@ -130,6 +146,7 @@ class LiteLLMClient:
         timeout_seconds: float = 60.0,
         max_retries: int = 3,
         retry_backoff_seconds: float = 0.25,
+        max_retry_backoff_seconds: float = 8.0,
         max_output_tokens: int = 2048,
         circuit_breaker: CircuitBreaker | None = None,
     ) -> None:
@@ -142,6 +159,7 @@ class LiteLLMClient:
             timeout_seconds: per-request timeout.
             max_retries: retries on transient failures; total attempts = max_retries + 1.
             retry_backoff_seconds: initial exponential delay between retries.
+            max_retry_backoff_seconds: upper bound for exponential backoff.
             max_output_tokens: upper bound for generated response tokens.
             circuit_breaker: optional upstream failure breaker; a new local
                 breaker is created when omitted.
@@ -156,6 +174,10 @@ class LiteLLMClient:
             raise ValueError(
                 f"retry_backoff_seconds must be non-negative, got {retry_backoff_seconds}"
             )
+        if max_retry_backoff_seconds < retry_backoff_seconds:
+            raise ValueError(
+                "max_retry_backoff_seconds must be >= retry_backoff_seconds"
+            )
         if max_output_tokens <= 0:
             raise ValueError(f"max_output_tokens must be positive, got {max_output_tokens}")
         self.model = model
@@ -164,6 +186,7 @@ class LiteLLMClient:
         self.timeout = timeout_seconds
         self.max_retries = max_retries
         self.retry_backoff_seconds = retry_backoff_seconds
+        self.max_retry_backoff_seconds = max_retry_backoff_seconds
         self.max_output_tokens = max_output_tokens
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
 
@@ -238,7 +261,6 @@ class LiteLLMClient:
                 raise
             except Exception as exc:
                 last_exc = exc
-                self.circuit_breaker.record_failure()
                 logger.warning(
                     "litellm attempt %d/%d for model %s failed: %s",
                     attempt + 1,
@@ -246,8 +268,17 @@ class LiteLLMClient:
                     self.model,
                     exc,
                 )
+                if not is_retryable_provider_error(exc):
+                    raise LLMError(
+                        f"non-retryable LLM call failure for {self.model}"
+                    ) from exc
+                self.circuit_breaker.record_failure()
                 if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
-                    await asyncio.sleep(self.retry_backoff_seconds * (2**attempt))
+                    delay = min(
+                        self.max_retry_backoff_seconds,
+                        self.retry_backoff_seconds * (2**attempt),
+                    )
+                    await asyncio.sleep(delay)
         assert last_exc is not None
         logger.error(
             "litellm exhausted %d attempts for model %s",
@@ -265,4 +296,5 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "LiteLLMClient",
+    "is_retryable_provider_error",
 ]
