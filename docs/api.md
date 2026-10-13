@@ -300,6 +300,7 @@ Routers mounted by the factory:
 - `GET /v1/graphs/{graph_id}` → `ProceduralGraph` (404 on miss)
 - `POST /v1/graphs` (body: `GraphCreateRequest`) → `ProceduralGraph` (201)
 - `POST /v1/graphs/{graph_id}/guidance` (body: `GuidanceRequest`) → `GuidanceResponse`
+- `POST /v1/graphs/{graph_id}/rollback/{tag}` (header: `If-Match`) → `ProceduralGraph`
 - `POST /v1/graphs/{graph_id}/evolve` → 501 (reserved; use SDK)
 
 Run with: `uvicorn methodos.service:app --host 0.0.0.0 --port 8000`

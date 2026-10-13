@@ -44,6 +44,7 @@ from methodos.repo import (
     GraphRevisionConflictError,
     RateLimitRepository,
     Repository,
+    SnapshotRepository,
     VersionedRepository,
     build_repository,
 )
@@ -615,6 +616,40 @@ def create_app(
             return updated.model_copy(update={"id": graph_id})
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="graph not found") from None
+        except GraphRevisionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/graphs/{graph_id}/rollback/{tag}", response_model=ProceduralGraph)
+    async def rollback_graph(
+        graph_id: str,
+        tag: str,
+        http_request: Request,
+        if_match: str | None = Header(default=None, alias="If-Match"),
+        repo: Repository = Depends(get_repo),
+    ) -> ProceduralGraph:
+        """Restore a named graph snapshot with optimistic concurrency control."""
+        validate_graph_id(graph_id)
+        if if_match is None:
+            raise HTTPException(status_code=428, detail="If-Match revision is required")
+        try:
+            expected_revision = int(if_match.strip('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="If-Match must be an integer revision") from None
+        if expected_revision < 0:
+            raise HTTPException(status_code=400, detail="If-Match must be non-negative")
+        if not isinstance(repo, SnapshotRepository):
+            raise HTTPException(status_code=501, detail="repository does not support snapshots")
+        try:
+            restored = await repo.restore_snapshot(
+                storage_graph_id(request_tenant(http_request), graph_id),
+                tag,
+                expected_revision=expected_revision,
+            )
+            return restored.model_copy(update={"id": graph_id})
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="graph or snapshot not found") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except GraphRevisionConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

@@ -457,6 +457,65 @@ class TestEvolveEndpoint:
         assert "Python SDK" in body["detail"]
 
 
+class TestRollbackEndpoint:
+    async def test_rolls_back_with_revision_guard(
+        self,
+        client: TestClient,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        await seeded_repo.snapshot("g1", "release-1")
+        graph = client.get("/v1/graphs/g1").json()
+        graph["nodes"]["start"]["description"] = "changed"
+        updated = client.put("/v1/graphs/g1", headers={"If-Match": "0"}, json=graph)
+        assert updated.status_code == 200
+
+        response = client.post(
+            "/v1/graphs/g1/rollback/release-1",
+            headers={"If-Match": "1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["revision"] == 2
+        assert response.json()["nodes"]["start"]["description"] == ""
+
+    def test_requires_if_match(self, client: TestClient) -> None:
+        response = client.post("/v1/graphs/g1/rollback/release-1")
+        assert response.status_code == 428
+
+    def test_rejects_invalid_if_match(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/rollback/release-1",
+            headers={"If-Match": "old"},
+        )
+        assert response.status_code == 400
+
+    def test_rejects_negative_if_match(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/rollback/release-1",
+            headers={"If-Match": "-1"},
+        )
+        assert response.status_code == 400
+
+    def test_rejects_stale_if_match(
+        self,
+        client: TestClient,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        asyncio.run(seeded_repo.snapshot("g1", "release-1"))
+        response = client.post(
+            "/v1/graphs/g1/rollback/release-1",
+            headers={"If-Match": "1"},
+        )
+        assert response.status_code == 409
+
+    def test_missing_snapshot_returns_404(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/rollback/missing",
+            headers={"If-Match": "0"},
+        )
+        assert response.status_code == 404
+
+
 # ----------------------------------------------------------------------------
 # DTO validation
 # ----------------------------------------------------------------------------
