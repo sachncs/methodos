@@ -55,7 +55,8 @@ system production-ready.
 4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable
    repository and per-tenant ownership metadata are still required for
    horizontal deployments.
-5. CORS is configurable but there is no deployment-time policy validation.
+5. CORS origins are validated at startup; deployment-specific allowlists still
+   need operational review when domains change.
 6. Request cancellation and downstream LLM cancellation are not explicitly
    coordinated.
 7. Error responses use a documented envelope with stable codes and request IDs.

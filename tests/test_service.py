@@ -26,6 +26,7 @@ from methodos.service import (
     GuidanceResponse,
     HealthResponse,
     create_app,
+    validate_cors_origins,
 )
 from tests.conftest import ScriptedLLM
 
@@ -144,6 +145,10 @@ class TestHealth:
             )
             assert response.status_code == 200
             assert response.headers["access-control-allow-origin"] == "https://console.example"
+
+    def test_invalid_cors_origin_fails_fast(self) -> None:
+        with pytest.raises(ValueError, match="invalid CORS origin"):
+            validate_cors_origins(["https://console.example/path"], authenticated=False)
 
     def test_tenant_keys_isolate_graph_namespaces(
         self,

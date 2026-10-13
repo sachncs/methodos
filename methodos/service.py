@@ -23,6 +23,7 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
@@ -149,6 +150,31 @@ def validate_tenant_id(tenant_id: str) -> str:
     if re.fullmatch(TENANT_ID_PATTERN, tenant_id) is None:
         raise ValueError("tenant ids must match the tenant identifier pattern")
     return tenant_id
+
+
+def validate_cors_origins(origins: list[str], *, authenticated: bool) -> list[str]:
+    """Validate explicit browser origins before enabling CORS.
+
+    Wildcard origins are rejected for authenticated services because they make
+    browser-origin policy indistinguishable from public access.
+    """
+    validated: list[str] = []
+    for origin in origins:
+        parsed = urlsplit(origin)
+        if origin == "*":
+            if authenticated:
+                raise ValueError("wildcard CORS origins are not allowed with authentication")
+            raise ValueError("invalid CORS origin: '*' requires an explicit origin")
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(f"invalid CORS origin: {origin!r}")
+        validated.append(origin)
+    return validated
 
 
 # ----------------------------------------------------------------------------
@@ -284,6 +310,10 @@ def create_app(
         for origin in os.environ.get("METHODOS_CORS_ORIGINS", "").split(",")
         if origin.strip()
     ]
+    cors_origins = validate_cors_origins(
+        cors_origins,
+        authenticated=bool(configured_api_key or tenant_keys),
+    )
     if cors_origins:
         app.add_middleware(
             CORSMiddleware,
