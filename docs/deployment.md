@@ -148,9 +148,10 @@ For Postgres, use the managed provider's backup and restore verification.
 
 ## Migration (planned for v2)
 
-`schema_version: Literal[1]` is currently fixed and migrations are not yet
-implemented. Treat schema_version as the only supported version and rebuild
-graphs via the CLI on upgrade; do not manually edit production databases.
+`schema_version: Literal[1]` is currently fixed. Repository startup uses a
+forward-only migration runner, but no version 2 migration exists yet. Treat
+schema_version as the only supported version and rebuild graphs via the CLI on
+upgrade; do not manually edit production databases.
 
 ## Scaling
 

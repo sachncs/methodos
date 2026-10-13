@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from methodos.migrations import Migration, MigrationError, MigrationRunner
 from methodos.repo import (
     BackupRepository,
     FilesystemRepository,
@@ -47,6 +48,65 @@ def make_graph(graph_id: str = "test") -> ProceduralGraph:
         edges=[],
         terminal_ids={"answer"},
     )
+
+
+def test_migration_runner_applies_ordered_sqlite_upgrades() -> None:
+    runner = MigrationRunner(
+        (
+            Migration(1, ("CREATE TABLE data (value TEXT)",)),
+            Migration(2, ("ALTER TABLE data ADD COLUMN revision INTEGER NOT NULL DEFAULT 0",)),
+        )
+    )
+    with sqlite3.connect(":memory:") as connection:
+        connection.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+        runner.apply_sqlite(connection, 0)
+        assert connection.execute("SELECT version FROM schema_meta").fetchone()[0] == 2
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(data)")}
+        assert columns == {"value", "revision"}
+    with sqlite3.connect(":memory:") as connection:
+        connection.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+        connection.execute("INSERT INTO schema_meta (version) VALUES (1)")
+        connection.execute("CREATE TABLE data (value TEXT)")
+        runner.apply_sqlite(connection, 1)
+        assert "revision" in {
+            row[1] for row in connection.execute("PRAGMA table_info(data)")
+        }
+
+
+async def test_migration_runner_applies_asyncpg_statements() -> None:
+    runner = MigrationRunner((Migration(1, ("CREATE TABLE data (value TEXT)",)),))
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.statements: list[tuple[str, tuple[object, ...]]] = []
+
+        async def execute(self, statement: str, *args: object) -> None:
+            self.statements.append((statement, args))
+
+    connection = FakeConnection()
+    await runner.apply_asyncpg(connection, 0, metadata_table="methodos_schema_meta")
+    assert connection.statements == [
+        ("CREATE TABLE data (value TEXT)", ()),
+        ("INSERT INTO methodos_schema_meta (version) VALUES ($1)", (1,)),
+    ]
+    upgrade_runner = MigrationRunner((Migration(1, ()), Migration(2, ())))
+    await upgrade_runner.apply_asyncpg(connection, 1, metadata_table="methodos_schema_meta")
+    assert connection.statements[-1] == (
+        "UPDATE methodos_schema_meta SET version = $1",
+        (2,),
+    )
+
+
+def test_migration_runner_rejects_gaps_and_future_versions() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        MigrationRunner(())
+    with pytest.raises(ValueError, match="contiguous"):
+        MigrationRunner((Migration(2, ()),))
+    runner = MigrationRunner((Migration(1, ()),))
+    with pytest.raises(MigrationError, match="negative"):
+        runner.pending(-1)
+    with pytest.raises(MigrationError, match="unsupported"):
+        runner.pending(2)
 
 
 # ----------------------------------------------------------------------------

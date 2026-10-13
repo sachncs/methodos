@@ -55,6 +55,9 @@ system production-ready.
 - LLM attempts emit model/attempt OpenTelemetry spans and cancellation now has
   an explicit rollout regression test; collector/exporter policy remains a
   deployment concern.
+- SQLite and Postgres repository bootstrap now use a contiguous, forward-only
+  migration runner; future schema versions still require a reviewed migration
+  and corresponding data-model compatibility tests.
 
 ## Open issues
 
@@ -84,8 +87,8 @@ system production-ready.
 9. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; migration tooling, managed backups, and
    restore verification remain open.
-10. Schema migration infrastructure is only a fail-closed version check;
-    migrations themselves are not implemented.
+10. Migration infrastructure is implemented for forward-only SQL upgrades;
+    no schema version 2 migration is currently needed or defined.
 11. Filesystem trajectory appends are not a multi-process journal and should
     remain development-only.
 12. There is no backup scheduler, restore verification, retention policy, or
@@ -154,7 +157,8 @@ system production-ready.
 
 - Extend graph revision tokens and compare-and-swap writes to every durable
   backend.
-- Introduce migration runners and migration tests.
+- Add reviewed schema migrations and data-model compatibility tests whenever
+  schema version 2 is introduced.
 - Add migration runners and backup/restore verification around the
   transactional repository; Postgres integration tests are now in place.
 - Add backup/restore verification and corruption handling.

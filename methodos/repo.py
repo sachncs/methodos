@@ -47,6 +47,7 @@ try:
 except ImportError:  # pragma: no cover - exercised by the production image
     sqlite_vec = None
 
+from methodos.migrations import Migration, MigrationRunner
 from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
@@ -418,7 +419,8 @@ class FilesystemRepository:
 # ----------------------------------------------------------------------------
 
 
-SCHEMA_VERSION: int = 1
+SCHEMA_MIGRATIONS = MigrationRunner((Migration(version=1, statements=()),))
+SCHEMA_VERSION: int = SCHEMA_MIGRATIONS.latest_version
 
 
 SQLITE_SCHEMA: str = """
@@ -507,16 +509,8 @@ class SQLiteRepository:
                 if cleaned:
                     conn.execute(cleaned)
             existing = conn.execute("SELECT version FROM schema_meta").fetchone()
-            if existing is None:
-                conn.execute(
-                    "INSERT INTO schema_meta (version) VALUES (?)",
-                    (SCHEMA_VERSION,),
-                )
-            elif existing["version"] != SCHEMA_VERSION:
-                raise RuntimeError(
-                    "unsupported database schema version "
-                    f"{existing['version']}; expected {SCHEMA_VERSION}"
-                )
+            current_version = 0 if existing is None else int(existing["version"])
+            SCHEMA_MIGRATIONS.apply_sqlite(conn, current_version)
 
     async def backup_to(self, destination: Path) -> None:
         """Create an atomic online backup and verify SQLite integrity."""
@@ -821,15 +815,11 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
             async with self._pool.acquire() as conn:
                 await conn.execute(POSTGRES_SCHEMA)
                 version = await conn.fetchval("SELECT version FROM methodos_schema_meta LIMIT 1")
-                if version is None:
-                    await conn.execute(
-                        "INSERT INTO methodos_schema_meta (version) VALUES ($1)",
-                        SCHEMA_VERSION,
-                    )
-                elif version != SCHEMA_VERSION:
-                    raise RuntimeError(
-                        f"unsupported database schema version {version}; expected {SCHEMA_VERSION}"
-                    )
+                await SCHEMA_MIGRATIONS.apply_asyncpg(
+                    conn,
+                    0 if version is None else int(version),
+                    metadata_table="methodos_schema_meta",
+                )
         except Exception:
             await self.close()
             raise
