@@ -10,8 +10,8 @@ Engineering notes:
 - `Solver` is a `typing.Protocol` — any object with `async def step(state)`
   satisfying the signature is accepted. No ABCs.
 - `GuidanceCache` is an LRU keyed by `(graph.id, last_action, last_obs)`.
-- All attributes are public (no `self._foo` markers). The cache is exposed
-  publicly so callers can introspect hit/miss behavior if desired.
+- Public cache state is intentional so callers can inspect hit/miss behavior;
+  implementation-only attributes follow the one-leading-underscore convention.
 """
 
 from __future__ import annotations

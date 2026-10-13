@@ -10,7 +10,8 @@ This module defines:
 
 Engineering notes:
 - All I/O is `async def`. litellm exposes `acompletion`.
-- All attributes are public (no `self._foo` markers).
+- Public configuration attributes are documented; implementation-only state
+  follows the one-leading-underscore convention.
 - No lazy imports: `litellm` is a hard dependency at the top of the file.
 """
 

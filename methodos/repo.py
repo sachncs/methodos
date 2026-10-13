@@ -14,7 +14,8 @@ This module provides:
 - `build_repository()`: env-driven factory selecting backend.
 
 Engineering notes:
-- All attributes are public (no `self._foo` markers).
+- Public repository configuration is documented; implementation-only state
+  follows the one-leading-underscore convention.
 - No lazy imports; `sqlite3`, `aiosqlite`, `aiofiles`, `sqlite_vec` are
   all top-level.
 - SQLite schema is idempotent and uses FK + WAL for safety.

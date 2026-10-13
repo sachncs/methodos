@@ -14,7 +14,8 @@ This module implements the offline self-evolution loop:
 
 Engineering:
 - Pure functions for each step; `EvolutionEngine` orchestrates them.
-- All attributes are public (no `self._foo` markers).
+- Public engine configuration is documented; implementation-only state follows
+  the one-leading-underscore convention.
 - No lazy imports: `PGAdapter` is imported at module level (no cycle).
 """
 

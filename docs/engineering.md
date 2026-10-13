@@ -33,6 +33,9 @@ coupling the domain to infrastructure.
 ## Naming and style
 
 Public APIs use Google-style `snake_case`, `PascalCase`, and `UPPER_SNAKE_CASE`.
-Names are intentionally public where callers need observability; implementation
-details are kept behind module boundaries rather than hidden through a maze of
-semi-private attributes. Ruff, mypy, and pytest are required checks.
+`__all__` and the API documentation define the supported surface. State that
+callers are expected to inspect may remain public (for example, cache hit
+counters); implementation-only state uses one leading underscore, such as
+`self._pool` or `self._opened_at`. Double-leading underscores are reserved for
+language protocols and name-mangling cases. New code must not expose internal
+mutable state accidentally. Ruff, mypy, and pytest are required checks.
