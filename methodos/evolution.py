@@ -26,7 +26,7 @@ import logging
 from collections import deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from methodos.adapter import PGAdapter, Solver
 from methodos.graph import apply_edits
@@ -80,6 +80,24 @@ class RolloutResult:
     success: bool
 
 
+@runtime_checkable
+class ActionExecutor(Protocol):
+    """Strategy for executing a solver action in the host environment."""
+
+    async def execute(self, action: str) -> str:
+        """Execute `action` and return the resulting observation."""
+        ...
+
+
+class NullActionExecutor:
+    """Default executor used when callers only need the loop wiring."""
+
+    async def execute(self, action: str) -> str:
+        """Return an empty observation without invoking external tools."""
+        del action
+        return ""
+
+
 # ----------------------------------------------------------------------------
 # Pure functions
 # ----------------------------------------------------------------------------
@@ -107,6 +125,7 @@ async def run_rollout(
     max_steps: int = 50,
     guidance_hops: int = 2,
     trajectory_window: int = 3,
+    action_executor: ActionExecutor | None = None,
 ) -> RolloutResult:
     """Run the agent on a task via `PGAdapter` until success, failure, or max_steps."""
     adapter = PGAdapter(
@@ -125,7 +144,11 @@ async def run_rollout(
         if action == last_action and steps:
             logger.warning("doom loop on task; aborting rollout")
             break
-        observation = await execute_action(action)
+        observation = await (
+            action_executor.execute(action)
+            if action_executor is not None
+            else execute_action(action)
+        )
         steps.append((action, observation))
         last_action = action
         if observation == TERMINATE_SUCCESS:
@@ -151,7 +174,7 @@ async def execute_action(action: str) -> str:
     rollout interprets as "no terminal signal" — the agent loop continues
     until `max_steps` is reached or a doom loop is detected.
     """
-    return ""
+    return await NullActionExecutor().execute(action)
 
 
 def tail_concat(traces: Iterable[Trajectory], max_tokens: int) -> str:
@@ -320,6 +343,7 @@ class EvolutionEngine:
         rejection_memory_size: int = 32,
         allow_cycles: bool = False,
         max_steps: int = 50,
+        action_executor: ActionExecutor | None = None,
     ) -> None:
         """Initialize the evolution engine.
 
@@ -334,6 +358,7 @@ class EvolutionEngine:
             rejection_memory_size: Capacity of rejection FIFO.
             allow_cycles: Permit cycles in candidate graphs.
             max_steps: Per-rollout step cap.
+            action_executor: Host environment strategy for executing actions.
         """
         if k_rounds <= 0:
             raise ValueError(f"k_rounds must be positive, got {k_rounds}")
@@ -350,6 +375,7 @@ class EvolutionEngine:
         self.context_tokens = l_max_tokens
         self.allow_cycles = allow_cycles
         self.max_steps = max_steps
+        self._action_executor = action_executor
         self.rejection = RejectionMemory(max_size=rejection_memory_size)
 
     async def run(self, graph: ProceduralGraph) -> ProceduralGraph:
@@ -416,6 +442,7 @@ class EvolutionEngine:
                 llm=self.llm,
                 task=task,
                 max_steps=self.max_steps,
+                action_executor=self._action_executor,
             )
             traces.append(result.trajectory)
         return traces
@@ -430,6 +457,7 @@ class EvolutionEngine:
                 llm=self.llm,
                 task=task,
                 max_steps=self.max_steps,
+                action_executor=self._action_executor,
             )
             scores.append(score(result))
         return sum(scores) / max(1, len(scores))
@@ -439,7 +467,9 @@ __all__ = [
     "REFINER_SYSTEM_PROMPT",
     "TERMINATE_FAILURE",
     "TERMINATE_SUCCESS",
+    "ActionExecutor",
     "EvolutionEngine",
+    "NullActionExecutor",
     "RejectionMemory",
     "RolloutResult",
     "execute_action",

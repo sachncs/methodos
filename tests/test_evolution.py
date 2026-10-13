@@ -14,6 +14,7 @@ from methodos.evolution import (
     REFINER_SYSTEM_PROMPT,
     TERMINATE_FAILURE,
     TERMINATE_SUCCESS,
+    ActionExecutor,
     EvolutionEngine,
     RejectionMemory,
     RolloutResult,
@@ -112,12 +113,41 @@ class TestExecuteAction:
         assert await execute_action("search") == ""
 
 
+class RecordingActionExecutor:
+    """Test strategy proving rollouts use the injected action boundary."""
+
+    def __init__(self, observations: dict[str, str]) -> None:
+        self.observations = observations
+        self.actions: list[str] = []
+
+    async def execute(self, action: str) -> str:
+        self.actions.append(action)
+        return self.observations.get(action, "")
+
+
+def test_action_executor_is_runtime_polymorphic() -> None:
+    assert isinstance(RecordingActionExecutor({}), ActionExecutor)
+
+
 # ----------------------------------------------------------------------------
 # run_rollout
 # ----------------------------------------------------------------------------
 
 
 class TestRunRollout:
+    async def test_uses_injected_action_executor(self) -> None:
+        executor = RecordingActionExecutor({"search": TERMINATE_SUCCESS})
+        result = await run_rollout(
+            graph=make_sample_graph(),
+            solver=StaticSolver(action="search"),
+            llm=ScriptedLLM(),
+            task=Task(query="q"),
+            max_steps=2,
+            action_executor=executor,
+        )
+        assert result.success
+        assert executor.actions == ["search"]
+
     async def test_max_steps_zero_does_nothing(self) -> None:
         solver = StaticSolver(action="FINISH")
         llm = ScriptedLLM()

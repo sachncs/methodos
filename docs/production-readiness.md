@@ -48,6 +48,8 @@ system production-ready.
   through `methodos backup`, plus `methodos verify-backup` for recovery
   validation; scheduling, retention, and restore drills remain operational
   responsibilities.
+- Evolution rollouts accept a polymorphic `ActionExecutor` strategy, so hosts
+  can wire tools without monkeypatching module globals.
 
 ## Open issues
 
