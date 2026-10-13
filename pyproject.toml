@@ -64,9 +64,9 @@ dev = [
 methodos = "methodos.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/sachin/methodos"
-Repository = "https://github.com/sachin/methodos"
-Issues = "https://github.com/sachin/methodos/issues"
+Homepage = "https://github.com/sachncs/methodos"
+Repository = "https://github.com/sachncs/methodos"
+Issues = "https://github.com/sachncs/methodos/issues"
 
 [build-system]
 requires = ["hatchling"]

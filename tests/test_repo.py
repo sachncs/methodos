@@ -11,6 +11,7 @@ import pytest
 
 from methodos.repo import (
     FilesystemRepository,
+    GraphAlreadyExistsError,
     Repository,
     ScoredMatch,
     SilentVectorIndex,
@@ -21,6 +22,7 @@ from methodos.repo import (
     VectorIndex,
     build_repository,
     tail_tokens,
+    validate_storage_component,
 )
 from methodos.schema import Node, ProceduralGraph
 
@@ -100,6 +102,19 @@ class TestTailTokens:
         assert tail_tokens("", 100) == ""
 
 
+class TestStorageComponent:
+    def test_accepts_safe_component(self) -> None:
+        assert validate_storage_component("train.v1", field="split") == "train.v1"
+
+    def test_rejects_path_traversal(self) -> None:
+        with pytest.raises(ValueError, match="invalid split"):
+            validate_storage_component("../escape", field="split")
+
+    def test_rejects_absolute_path(self) -> None:
+        with pytest.raises(ValueError, match="invalid tag"):
+            validate_storage_component("/tmp/escape", field="tag")
+
+
 # ----------------------------------------------------------------------------
 # SilentVectorIndex
 # ----------------------------------------------------------------------------
@@ -152,6 +167,18 @@ class TestFilesystemRepository:
         with pytest.raises(FileNotFoundError):
             await repo.snapshot("missing", "v1")
 
+    async def test_snapshot_rejects_unsafe_tag(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        with pytest.raises(ValueError, match="invalid tag"):
+            await repo.snapshot("g", "../escape")
+
+    async def test_trajectory_rejects_unsafe_split(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        with pytest.raises(ValueError, match="invalid split"):
+            await repo.append_trajectory("g", "../escape", make_trajectory("q"))
+
     async def test_append_and_read_trajectories(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -199,6 +226,12 @@ class TestFilesystemRepository:
         assert "answer" in loaded.nodes
         assert "start" not in loaded.nodes
 
+    async def test_create_rejects_duplicate(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.create_graph(make_graph("g"))
+        with pytest.raises(GraphAlreadyExistsError):
+            await repo.create_graph(make_graph("g"))
+
 
 # ----------------------------------------------------------------------------
 # SQLiteRepository
@@ -235,6 +268,12 @@ class TestSQLiteRepository:
         assert loaded.id == "g"
         assert "answer" in loaded.nodes
         assert "start" not in loaded.nodes
+
+    async def test_create_rejects_duplicate(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.create_graph(make_graph("g"))
+        with pytest.raises(GraphAlreadyExistsError):
+            await repo.create_graph(make_graph("g"))
 
     async def test_snapshot(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
@@ -334,6 +373,14 @@ class TestSQLiteRepository:
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute("SELECT version FROM schema_meta").fetchone()
             assert row[0] == 1
+
+    async def test_unsupported_schema_version_fails_closed(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "future.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+            conn.execute("INSERT INTO schema_meta (version) VALUES (99)")
+        with pytest.raises(RuntimeError, match="unsupported database schema version"):
+            SQLiteRepository(db_path=db_path)
 
     async def test_idempotent_schema_creation(self, tmp_path: Path) -> None:
         """Constructing twice does not raise."""

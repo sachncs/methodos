@@ -25,6 +25,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
+site/.astro/
 
 # Editor / OS
 .vscode/

@@ -3,9 +3,9 @@
 Premium product page for [methodos](https://github.com/sachncs/methodos),
 deployed to GitHub Pages.
 
-- **Framework:** React 18 + TypeScript + Vite
-- **Styling:** Tailwind CSS with a custom dark, cinematic design system
-- **Motion:** Framer Motion (subtle, restrained)
+- **Framework:** Astro (static output)
+- **Styling:** Component-scoped CSS with a restrained product design system
+- **Runtime:** Zero client-side JavaScript for the marketing page
 - **Output:** Static site under `dist/`, served from `/methodos/`
 
 ## Develop

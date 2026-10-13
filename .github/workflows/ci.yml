@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 jobs:
@@ -26,7 +26,25 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check
-        run: uv run mypy methodos
+        run: uv run mypy methodos tests
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build Astro site
+        working-directory: site
+        run: npm ci && npm run build
+
+      - name: Audit frontend dependencies
+        working-directory: site
+        run: npm audit --audit-level=high
+
+      - name: Build runtime container
+        run: docker build --tag methodos:ci --file docker/Dockerfile .
 
       - name: Test
         run: uv run pytest --cov=methodos --cov-fail-under=95

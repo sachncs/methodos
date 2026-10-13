@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from methodos.llm import LLMClient
 from methodos.repo import (
     FilesystemRepository,
+    Repository,
     SQLiteRepository,
     Task,
     Trajectory,
@@ -71,6 +73,69 @@ class TestHealth:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    def test_response_has_request_id_and_security_headers(self, client: TestClient) -> None:
+        response = client.get("/health", headers={"x-request-id": "request-1"})
+        assert response.headers["x-request-id"] == "request-1"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+
+    def test_metrics_endpoint_is_available(self, client: TestClient) -> None:
+        client.get("/health")
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        assert "python_info" in response.text
+        assert "methodos_http_requests_total" in response.text
+
+    def test_readiness_checks_repository(self, client: TestClient) -> None:
+        response = client.get("/ready")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}
+
+    def test_api_key_protects_non_public_routes(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_API_KEY", "test-secret")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as protected_client:
+            assert protected_client.get("/v1/graphs/g1").status_code == 401
+            assert protected_client.get(
+                "/v1/graphs/g1", headers={"x-api-key": "test-secret"}
+            ).status_code == 200
+            assert protected_client.get("/health").status_code == 200
+
+    def test_rate_limit_returns_retryable_429(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_RATE_LIMIT_PER_MINUTE", "1")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as limited_client:
+            assert limited_client.get("/v1/graphs/g1").status_code == 200
+            response = limited_client.get("/v1/graphs/g1")
+            assert response.status_code == 429
+            assert response.headers["retry-after"] == "60"
+
+    def test_configured_cors_allows_declared_origin(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_CORS_ORIGINS", "https://console.example")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as cors_client:
+            response = cors_client.options(
+                "/v1/graphs/g1",
+                headers={
+                    "origin": "https://console.example",
+                    "access-control-request-method": "GET",
+                },
+            )
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == "https://console.example"
+
 
 # ----------------------------------------------------------------------------
 # GET /v1/graphs/{graph_id}
@@ -88,6 +153,7 @@ class TestGetGraph:
     def test_missing_graph_returns_404(self, client: TestClient) -> None:
         response = client.get("/v1/graphs/nope")
         assert response.status_code == 404
+        assert response.json()["detail"] == "graph not found"
 
 
 # ----------------------------------------------------------------------------
@@ -134,6 +200,30 @@ class TestCreateGraph:
     def test_empty_id_rejected(self, client: TestClient) -> None:
         response = client.post("/v1/graphs", json={"id": ""})
         assert response.status_code == 422
+
+    def test_duplicate_id_returns_conflict(self, client: TestClient) -> None:
+        response = client.post("/v1/graphs", json={"id": "g1"})
+        assert response.status_code == 409
+
+    def test_path_unsafe_id_rejected(self, client: TestClient) -> None:
+        response = client.post("/v1/graphs", json={"id": "../escape"})
+        assert response.status_code == 422
+
+    def test_legacy_repository_uses_safe_fallback(self, seeded_repo: SQLiteRepository) -> None:
+        class LegacyRepository:
+            async def load_graph(self, graph_id: str) -> ProceduralGraph:
+                return await seeded_repo.load_graph(graph_id)
+
+            async def save_graph(self, graph: ProceduralGraph) -> None:
+                await seeded_repo.save_graph(graph)
+
+        app = create_app(
+            repo=cast(Repository, LegacyRepository()),
+            llm=ScriptedLLM(responses=["x"]),
+        )
+        with TestClient(app) as legacy_client:
+            assert legacy_client.post("/v1/graphs", json={"id": "legacy"}).status_code == 201
+            assert legacy_client.post("/v1/graphs", json={"id": "legacy"}).status_code == 409
 
 
 # ----------------------------------------------------------------------------
@@ -196,6 +286,13 @@ class TestGetGuidance:
         response = client.post(
             "/v1/graphs/g1/guidance",
             json={"query": "Q?", "extra": "bad"},
+        )
+        assert response.status_code == 422
+
+    def test_malformed_trajectory_pair_rejected(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/guidance",
+            json={"query": "Q?", "trajectory": [["only-action"]]},
         )
         assert response.status_code == 422
 

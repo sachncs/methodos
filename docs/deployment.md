@@ -31,6 +31,8 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `ANTHROPIC_API_KEY` | — | for Anthropic via litellm |
 | `GOOGLE_API_KEY` | — | for Google via litellm |
 | `GROK_API_KEY` | — | for Grok via litellm |
+| `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
+| `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | optional per-process request limit; `0` disables it |
 
 ## CLI
 
@@ -55,21 +57,24 @@ docker compose up methodos
 ### Production checklist
 
 - [ ] Set `OPENAI_API_KEY` (or equivalent) in the deployment environment.
+- [ ] Set `METHODOS_API_KEY` for any non-local deployment; `/health` and
+      `/metrics` remain public for probes and scraping.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
 - [ ] If using sqlite-vec, ensure the SQLite build in your image supports
       extensions (most pre-built Python wheels do).
 - [ ] Behind a reverse proxy with TLS termination; the service itself is
       plaintext HTTP.
-- [ ] Scrape `/health` for liveness probes.
-- [ ] Send `methodos.service:app` access logs to your log aggregator
-      (structured JSON via structlog; see observability profile).
+- [ ] Scrape `/health` for liveness and `/ready` for repository readiness.
+- [ ] Send `methodos.service:app` access logs to your log aggregator and
+      include the `x-request-id` response header in request traces.
 
 ### Endpoints
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/health` | — | `{"status": "ok"}` |
+| GET | `/ready` | — | `{"status": "ready"}` or 503 |
 | GET | `/v1/graphs/{id}` | — | `ProceduralGraph` or 404 |
 | POST | `/v1/graphs` | `{id, from_graph_id?}` | `ProceduralGraph` (201) |
 | POST | `/v1/graphs/{id}/guidance` | `{query, trajectory?, window?, guidance_hops?}` | `{guidance}` |
@@ -100,8 +105,7 @@ docker compose --profile observability up
 This brings up:
 - `methodos:8000` (the service)
 - `otel-collector:4317` (OTLP gRPC)
-- `prometheus:9090` (scrapes `/metrics` if exposed; not yet wired in
-  this milestone — see plan.md).
+- `prometheus:9090` (scrapes `/metrics`).
 
 ## Persistence
 
@@ -121,9 +125,11 @@ as the only supported version and rebuild graphs via the CLI on upgrade.
 
 ## Scaling
 
-Single-process by default. The FastAPI app is stateless and can be
-horizontally scaled; persistence is shared (SQLite via NFS, or move to
-Postgres via the `Repository` Protocol — Postgres impl is on the roadmap).
+Single-process by default. SQLite is suitable for one service instance with a
+local persistent volume; do not place the database on NFS or share it between
+independent writers. For horizontal scaling, implement a transactional
+Postgres (or equivalent) `Repository` backend and make tenant ownership and
+connection pooling explicit.
 
 The evolution loop is CPU/LLM-bound, not I/O-bound. For multi-tenant
 deployments, run one EvolutionEngine per tenant to avoid

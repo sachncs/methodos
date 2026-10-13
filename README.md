@@ -159,6 +159,8 @@ docs/
 - [Deployment](docs/deployment.md) — Docker, env vars, prod checklist
 - [Evaluation](docs/evaluation.md) — HotpotQA harness + extending to other benchmarks
 - [Paper mapping](docs/paper-mapping.md) — paper sections → code locations
+- [Engineering principles](docs/engineering.md) — boundaries, polymorphism, and reliability rules
+- [Production-readiness audit](docs/production-readiness.md) — issue inventory and remediation plan
 
 ## Development
 
@@ -168,7 +170,7 @@ uv sync
 
 # Lint, format, type-check
 uv run ruff check .
-uv run mypy methodos/ tests/ eval/
+uv run mypy methodos/ tests/
 
 # Tests
 uv run pytest                                          # full suite

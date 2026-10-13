@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import tempfile
 import time
@@ -37,7 +38,11 @@ from typing import Any, Protocol, runtime_checkable
 
 import aiofiles
 import aiosqlite
-import sqlite_vec
+
+try:
+    import sqlite_vec
+except ImportError:  # pragma: no cover - exercised by the production image
+    sqlite_vec = None
 
 from methodos.schema import ProceduralGraph
 
@@ -139,6 +144,19 @@ class ScoredMatch:
     score: float
 
 
+class GraphAlreadyExistsError(RuntimeError):
+    """Raised when an atomic graph creation finds an existing id."""
+
+
+@runtime_checkable
+class AtomicRepository(Protocol):
+    """Optional repository capability for race-free graph creation."""
+
+    async def create_graph(self, graph: ProceduralGraph) -> None:
+        """Persist `graph`, failing if its id already exists."""
+        ...
+
+
 # ----------------------------------------------------------------------------
 # No-op VectorIndex
 # ----------------------------------------------------------------------------
@@ -177,6 +195,13 @@ def tail_tokens(text: str, max_tokens: int) -> str:
     return text[-char_budget:]
 
 
+def validate_storage_component(value: str, *, field: str) -> str:
+    """Validate a user-controlled name before using it in a storage path."""
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", value) is None:
+        raise ValueError(f"invalid {field}: {value!r}")
+    return value
+
+
 # ----------------------------------------------------------------------------
 # FilesystemRepository
 # ----------------------------------------------------------------------------
@@ -203,7 +228,7 @@ class FilesystemRepository:
 
     def graph_dir(self, graph_id: str) -> Path:
         """Return the directory where artifacts for `graph_id` are stored."""
-        return self.root / "graphs" / graph_id
+        return self.root / "graphs" / validate_storage_component(graph_id, field="graph_id")
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load and return the graph identified by `graph_id`.
@@ -240,8 +265,34 @@ class FilesystemRepository:
             os.close(fd)
         logger.debug("saved graph %s to %s", graph.id, target)
 
+    async def create_graph(self, graph: ProceduralGraph) -> None:
+        """Create a graph atomically without replacing an existing graph."""
+        graph_dir = self.graph_dir(graph.id)
+        graph_dir.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            graph_dir.mkdir()
+        except FileExistsError as exc:
+            raise GraphAlreadyExistsError(f"graph {graph.id!r} already exists") from exc
+        target = graph_dir / "graph.json"
+        fd, tmp_path_str = tempfile.mkstemp(
+            prefix="graph_",
+            suffix=".json.tmp",
+            dir=str(graph_dir),
+        )
+        tmp_path = Path(tmp_path_str)
+        try:
+            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
+                await f.write(graph.model_dump_json(indent=2))
+                await f.flush()
+            os.replace(tmp_path, target)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            os.close(fd)
+
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
+        validate_storage_component(tag, field="tag")
         graph_dir = self.graph_dir(graph_id)
         src = graph_dir / "graph.json"
         if not src.exists():
@@ -256,6 +307,7 @@ class FilesystemRepository:
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append `trajectory` to `graph_id`'s `split` log."""
+        validate_storage_component(split, field="split")
         graph_dir = self.graph_dir(graph_id)
         traj_dir = graph_dir / "trajectories"
         traj_dir.mkdir(parents=True, exist_ok=True)
@@ -276,6 +328,7 @@ class FilesystemRepository:
 
     async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Yield trajectories for `graph_id` from `split`, oldest first."""
+        validate_storage_component(split, field="split")
         path = self.graph_dir(graph_id) / "trajectories" / f"{split}.jsonl"
         if not path.exists():
             return
@@ -371,6 +424,7 @@ class SQLiteRepository:
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.row_factory = sqlite3.Row
         return conn
@@ -388,6 +442,11 @@ class SQLiteRepository:
                     "INSERT INTO schema_meta (version) VALUES (?)",
                     (SCHEMA_VERSION,),
                 )
+            elif existing["version"] != SCHEMA_VERSION:
+                raise RuntimeError(
+                    "unsupported database schema version "
+                    f"{existing['version']}; expected {SCHEMA_VERSION}"
+                )
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load and return the graph identified by `graph_id`.
@@ -398,6 +457,7 @@ class SQLiteRepository:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
             async with db.execute(
                 "SELECT body FROM graphs WHERE id = ?",
                 (graph_id,),
@@ -413,6 +473,7 @@ class SQLiteRepository:
         ts = time.time()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
@@ -438,11 +499,34 @@ class SQLiteRepository:
                 raise
         logger.debug("saved graph %s", graph.id)
 
+    async def create_graph(self, graph: ProceduralGraph) -> None:
+        """Create a graph atomically without replacing an existing graph."""
+        body = graph.model_dump_json()
+        ts = time.time()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.execute(
+                    "INSERT INTO graphs (id, schema_version, body, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (graph.id, graph.schema_version, body, ts),
+                )
+                await db.commit()
+            except sqlite3.IntegrityError as exc:
+                await db.rollback()
+                raise GraphAlreadyExistsError(f"graph {graph.id!r} already exists") from exc
+            except Exception:
+                await db.rollback()
+                raise
+
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
             async with db.execute(
                 "SELECT body FROM graphs WHERE id = ?",
                 (graph_id,),
@@ -470,6 +554,8 @@ class SQLiteRepository:
         )
         ts = time.time()
         async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
             await db.execute(
                 "INSERT INTO trajectories (graph_id, split, score, body, ts) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -486,6 +572,7 @@ class SQLiteRepository:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
             async with db.execute(
                 "SELECT body FROM trajectories WHERE graph_id = ? AND split = ? ORDER BY ts ASC",
                 (graph_id, split),
@@ -519,6 +606,10 @@ class SqliteVecIndex:
         """
         if dim <= 0:
             raise ValueError(f"dim must be positive, got {dim}")
+        if sqlite_vec is None:
+            raise RuntimeError(
+                "sqlite-vec is not installed; install methodos[vec] to enable vector search"
+            )
         self.db_path = Path(db_path)
         self.dim = dim
         self.vec = sqlite_vec
@@ -528,6 +619,7 @@ class SqliteVecIndex:
         """Open a sqlite-vec-enabled connection for vector queries."""
         conn = sqlite3.connect(self.db_path, isolation_level=None)
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
         conn.row_factory = sqlite3.Row
         conn.enable_load_extension(True)
         self.vec.load(conn)
@@ -619,7 +711,9 @@ def build_repository() -> Repository:
 
 
 __all__ = [
+    "AtomicRepository",
     "FilesystemRepository",
+    "GraphAlreadyExistsError",
     "Repository",
     "SQLiteRepository",
     "ScoredMatch",
@@ -630,4 +724,5 @@ __all__ = [
     "VectorIndex",
     "build_repository",
     "tail_tokens",
+    "validate_storage_component",
 ]

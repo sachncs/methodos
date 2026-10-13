@@ -16,6 +16,7 @@ Engineering notes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Protocol, runtime_checkable
 
@@ -57,6 +58,8 @@ class LiteLLMClient:
         timeout_seconds: per-request timeout.
         max_retries: number of retries on transient failures (total
             attempts = `max_retries + 1`).
+        retry_backoff_seconds: initial exponential delay between retries.
+        max_output_tokens: upper bound for generated response tokens.
     """
 
     def __init__(
@@ -67,6 +70,8 @@ class LiteLLMClient:
         api_base: str | None = None,
         timeout_seconds: float = 60.0,
         max_retries: int = 3,
+        retry_backoff_seconds: float = 0.25,
+        max_output_tokens: int = 2048,
     ) -> None:
         """Initialize the LiteLLM-backed client.
 
@@ -76,6 +81,8 @@ class LiteLLMClient:
             api_base: optional custom API base URL.
             timeout_seconds: per-request timeout.
             max_retries: retries on transient failures; total attempts = max_retries + 1.
+            retry_backoff_seconds: initial exponential delay between retries.
+            max_output_tokens: upper bound for generated response tokens.
         """
         if not model:
             raise ValueError("model must be a non-empty string")
@@ -83,11 +90,19 @@ class LiteLLMClient:
             raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         if max_retries < 0:
             raise ValueError(f"max_retries must be non-negative, got {max_retries}")
+        if retry_backoff_seconds < 0:
+            raise ValueError(
+                f"retry_backoff_seconds must be non-negative, got {retry_backoff_seconds}"
+            )
+        if max_output_tokens <= 0:
+            raise ValueError(f"max_output_tokens must be positive, got {max_output_tokens}")
         self.model = model
         self.api_key = api_key
         self.api_base = api_base
         self.timeout = timeout_seconds
         self.max_retries = max_retries
+        self.retry_backoff_seconds = retry_backoff_seconds
+        self.max_output_tokens = max_output_tokens
 
     async def complete(
         self,
@@ -125,6 +140,7 @@ class LiteLLMClient:
             "messages": messages,
             "temperature": temperature,
             "timeout": self.timeout,
+            "max_tokens": self.max_output_tokens,
         }
         if self.api_key is not None:
             kwargs["api_key"] = self.api_key
@@ -161,6 +177,8 @@ class LiteLLMClient:
                     self.model,
                     exc,
                 )
+                if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
+                    await asyncio.sleep(self.retry_backoff_seconds * (2**attempt))
         assert last_exc is not None
         logger.error(
             "litellm exhausted %d attempts for model %s",
