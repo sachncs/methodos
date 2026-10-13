@@ -177,6 +177,21 @@ class VersionedRepository(Protocol):
 
 
 @runtime_checkable
+class SnapshotRepository(Protocol):
+    """Optional capability for reading and restoring named graph snapshots."""
+
+    async def restore_snapshot(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> ProceduralGraph:
+        """Restore a snapshot as a new graph revision."""
+        ...  # pragma: no cover
+
+
+@runtime_checkable
 class LifecycleRepository(Protocol):  # pragma: no cover - structural typing only
     """Optional capability for repositories with an async connection lifecycle."""
 
@@ -375,6 +390,30 @@ class FilesystemRepository:
         async with aiofiles.open(dest, "wb") as f:
             await f.write(data)
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
+
+    async def restore_snapshot(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> ProceduralGraph:
+        """Restore a tagged snapshot while advancing the graph revision."""
+        validate_storage_component(tag, field="tag")
+        current = await self.load_graph(graph_id)
+        if expected_revision is not None and current.revision != expected_revision:
+            raise GraphRevisionConflictError(
+                f"graph {graph_id!r} revision changed from {expected_revision} "
+                f"to {current.revision}"
+            )
+        path = self.graph_dir(graph_id) / "snapshots" / f"{tag}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"snapshot {tag!r} not found for graph {graph_id!r}")
+        async with aiofiles.open(path, encoding="utf-8") as f:
+            snapshot = ProceduralGraph.model_validate_json(await f.read())
+        restored = snapshot.model_copy(update={"id": graph_id})
+        await self.save_graph(restored)
+        return await self.load_graph(graph_id)
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append `trajectory` to `graph_id`'s `split` log."""
@@ -698,6 +737,63 @@ class SQLiteRepository:
             await db.commit()
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
+    async def restore_snapshot(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> ProceduralGraph:
+        """Restore a tagged snapshot in one SQLite write transaction."""
+        validate_storage_component(tag, field="tag")
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT body FROM graphs WHERE id = ?", (graph_id,)
+                ) as cur:
+                    current_row = await cur.fetchone()
+                if current_row is None:
+                    raise FileNotFoundError(f"graph {graph_id!r} not found")
+                current_revision = ProceduralGraph.model_validate_json(
+                    current_row[0]
+                ).revision
+                if expected_revision is not None and current_revision != expected_revision:
+                    raise GraphRevisionConflictError(
+                        f"graph {graph_id!r} revision changed from {expected_revision} "
+                        f"to {current_revision}"
+                    )
+                async with db.execute(
+                    "SELECT body FROM snapshots WHERE graph_id = ? AND tag = ?",
+                    (graph_id, tag),
+                ) as cur:
+                    snapshot_row = await cur.fetchone()
+                if snapshot_row is None:
+                    raise FileNotFoundError(
+                        f"snapshot {tag!r} not found for graph {graph_id!r}"
+                    )
+                snapshot = ProceduralGraph.model_validate_json(snapshot_row[0])
+                restored = snapshot.model_copy(
+                    update={"id": graph_id, "revision": current_revision + 1}
+                )
+                await db.execute(
+                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (
+                        restored.schema_version,
+                        restored.model_dump_json(),
+                        time.time(),
+                        graph_id,
+                    ),
+                )
+                await db.commit()
+                return restored
+            except Exception:
+                await db.rollback()
+                raise
+
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append `trajectory` to `graph_id`'s `split` log."""
         body = json.dumps(
@@ -935,6 +1031,49 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
                 graph_id, tag, body, time.time(),
             )
 
+    async def restore_snapshot(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> ProceduralGraph:
+        """Restore a tagged snapshot in one Postgres transaction."""
+        validate_storage_component(tag, field="tag")
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            current = await conn.fetchrow(
+                "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph_id
+            )
+            if current is None:
+                raise FileNotFoundError(f"graph {graph_id!r} not found")
+            current_revision = int(current["revision"])
+            if expected_revision is not None and current_revision != expected_revision:
+                raise GraphRevisionConflictError(
+                    f"graph {graph_id!r} revision changed from {expected_revision} "
+                    f"to {current_revision}"
+                )
+            body = await conn.fetchval(
+                "SELECT body FROM methodos_snapshots WHERE graph_id = $1 AND tag = $2",
+                graph_id,
+                tag,
+            )
+            if body is None:
+                raise FileNotFoundError(f"snapshot {tag!r} not found for graph {graph_id!r}")
+            restored = ProceduralGraph.model_validate_json(body).model_copy(
+                update={"id": graph_id, "revision": current_revision + 1}
+            )
+            await conn.execute(
+                "UPDATE methodos_graphs SET schema_version = $1, revision = $2, "
+                "body = $3, updated_at = $4 WHERE id = $5",
+                restored.schema_version,
+                restored.revision,
+                restored.model_dump_json(),
+                time.time(),
+                graph_id,
+            )
+            return restored
+
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append a trajectory, enforcing the graph foreign key."""
         validate_storage_component(split, field="split")
@@ -1113,6 +1252,7 @@ __all__ = [
     "SQLiteRepository",
     "ScoredMatch",
     "SilentVectorIndex",
+    "SnapshotRepository",
     "SqliteVecIndex",
     "Task",
     "Trajectory",

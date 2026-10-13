@@ -237,6 +237,27 @@ class TestFilesystemRepository:
         with pytest.raises(ValueError, match="invalid tag"):
             await repo.snapshot("g", "../escape")
 
+    async def test_restore_snapshot_advances_revision(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        await repo.snapshot("g", "v1")
+        changed = make_graph("g")
+        changed.nodes["start"].description = "changed"
+        await repo.save_graph(changed)
+
+        restored = await repo.restore_snapshot("g", "v1", expected_revision=1)
+
+        assert restored.revision == 2
+        assert restored.nodes["start"].description == ""
+
+    async def test_restore_snapshot_rejects_stale_revision(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        await repo.snapshot("g", "v1")
+        await repo.save_graph(make_graph("g"))
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.restore_snapshot("g", "v1", expected_revision=0)
+
     async def test_trajectory_rejects_unsafe_split(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -407,6 +428,26 @@ class TestSQLiteRepository:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         with pytest.raises(FileNotFoundError):
             await repo.snapshot("nope", "v1")
+
+    async def test_restore_snapshot_advances_revision(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+        await repo.snapshot("g", "v1")
+        changed = make_graph("g")
+        changed.nodes["start"].description = "changed"
+        await repo.save_graph(changed)
+
+        restored = await repo.restore_snapshot("g", "v1", expected_revision=1)
+
+        assert restored.revision == 2
+        assert restored.nodes["start"].description == ""
+
+    async def test_restore_snapshot_rejects_stale_revision(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+        await repo.snapshot("g", "v1")
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.restore_snapshot("g", "v1", expected_revision=1)
 
     async def test_append_and_read_trajectories(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")

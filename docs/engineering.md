@@ -29,6 +29,9 @@ coupling the domain to infrastructure.
 - Inject host-dependent behavior through Protocol strategies such as
   `Solver`, `LLMClient`, `Repository`, and `ActionExecutor`; keep defaults
   deterministic and side-effect free.
+- Treat named snapshots and revision-checked restore as persistence
+  capabilities; release promotion and authorization belong at the service
+  boundary, not inside graph mutation helpers.
 - Make liveness and readiness separate signals.
 - Return stable HTTP status codes for malformed input and conflicts.
 - Keep production-only configuration explicit through environment variables.

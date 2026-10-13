@@ -107,7 +107,9 @@ system production-ready.
 16. Token/cost budgets are not persisted or enforced per request, graph, or
     tenant.
 17. Evolution proposals lack a durable approval/audit workflow.
-18. Candidate graph rollback is not exposed as a first-class release action.
+18. Backend snapshot restore now provides revision-safe graph rollback; an
+    authenticated release action, approval record, and promotion workflow are
+    still open.
 19. Live provider tests are skipped without API credentials.
 
 ### Observability and operations
