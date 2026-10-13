@@ -242,6 +242,37 @@ class TestBackupCommand:
         assert result.exit_code == 2
         assert "does not support local backups" in (result.stdout or "") + (result.stderr or "")
 
+    def test_verifies_existing_backup(
+        self,
+        runner: CliRunner,
+        seeded_sqlite_repo: SQLiteRepository,
+        tmp_path: Path,
+    ) -> None:
+        destination = tmp_path / "backup.db"
+        asyncio.run(seeded_sqlite_repo.backup_to(destination))
+        result = runner.invoke(
+            cli,
+            ["verify-backup", str(destination)],
+            env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "sqlite"},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "verified backup" in result.stdout
+
+    def test_verify_rejects_non_sqlite_backend(
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
+        tmp_path: Path,
+    ) -> None:
+        result = runner.invoke(
+            cli,
+            ["verify-backup", str(tmp_path / "backup.db")],
+            env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
+        )
+        assert result.exit_code == 2
+        assert "does not support local backups" in (result.stdout or "") + (result.stderr or "")
+
 
 # ----------------------------------------------------------------------------
 # eval

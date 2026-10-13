@@ -407,6 +407,7 @@ class TestSQLiteRepository:
         await repository.save_graph(make_graph("backup-graph"))
         assert isinstance(repository, BackupRepository)
         await repository.backup_to(backup_path)
+        await repository.verify_backup(backup_path)
         restored = SQLiteRepository(db_path=backup_path)
         assert (await restored.load_graph("backup-graph")).id == "backup-graph"
 
@@ -414,6 +415,20 @@ class TestSQLiteRepository:
         repository = SQLiteRepository(db_path=tmp_path / "source.db")
         with pytest.raises(ValueError, match="differ from the source"):
             await repository.backup_to(repository.db_path)
+
+    async def test_verify_backup_rejects_missing_file(self, tmp_path: Path) -> None:
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+        with pytest.raises(FileNotFoundError, match="backup database not found"):
+            await repository.verify_backup(tmp_path / "missing.db")
+
+    async def test_verify_backup_rejects_unsupported_schema(self, tmp_path: Path) -> None:
+        path = tmp_path / "unsupported.db"
+        with sqlite3.connect(path) as database:
+            database.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+            database.execute("INSERT INTO schema_meta (version) VALUES (99)")
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+        with pytest.raises(RuntimeError, match="unsupported backup schema version"):
+            await repository.verify_backup(path)
 
     async def test_unsupported_schema_version_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "future.db"

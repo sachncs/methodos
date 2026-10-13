@@ -205,6 +205,10 @@ class BackupRepository(Protocol):  # pragma: no cover - capability contract
         """Create an atomic, integrity-checked backup at `destination`."""
         ...  # pragma: no cover
 
+    async def verify_backup(self, database_path: Path) -> None:
+        """Verify an existing backup's SQLite integrity and schema version."""
+        ...  # pragma: no cover
+
 
 # ----------------------------------------------------------------------------
 # No-op VectorIndex
@@ -542,6 +546,27 @@ class SQLiteRepository:
 
         await asyncio.to_thread(create_backup)
         logger.info("created verified SQLite backup at %s", target)
+
+    async def verify_backup(self, database_path: Path) -> None:
+        """Verify an existing backup before using it for recovery."""
+        path = Path(database_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"backup database not found: {path}")
+
+        def verify() -> None:
+            with sqlite3.connect(path) as database:
+                integrity = database.execute("PRAGMA integrity_check").fetchone()[0]
+                if integrity != "ok":
+                    raise RuntimeError(f"SQLite backup integrity check failed: {integrity}")
+                row = database.execute("SELECT version FROM schema_meta LIMIT 1").fetchone()
+                if row is None or row[0] != SCHEMA_VERSION:
+                    version = None if row is None else row[0]
+                    raise RuntimeError(
+                        f"unsupported backup schema version {version}; expected {SCHEMA_VERSION}"
+                    )
+
+        await asyncio.to_thread(verify)
+        logger.info("verified SQLite backup at %s", path)
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load and return the graph identified by `graph_id`.

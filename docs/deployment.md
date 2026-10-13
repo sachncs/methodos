@@ -138,6 +138,12 @@ methodos backup /secure/backups/methodos-$(date +%Y%m%d%H%M%S).db
 ```
 
 Schedule this command externally and retain copies according to your policy.
+Before a restore, verify an artifact with:
+
+```bash
+methodos verify-backup /secure/backups/methodos-20261014090000.db
+```
+
 For Postgres, use the managed provider's backup and restore verification.
 
 ## Migration (planned for v2)
