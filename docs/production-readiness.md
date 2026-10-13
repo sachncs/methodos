@@ -48,6 +48,8 @@ system production-ready.
   through `methodos backup`, plus `methodos verify-backup` for recovery
   validation; scheduling, retention, and restore drills remain operational
   responsibilities.
+- CI cancels stale runs for the same branch or pull request so deployment
+  evidence comes from the newest revision.
 - Evolution rollouts accept a polymorphic `ActionExecutor` strategy, so hosts
   can wire tools without monkeypatching module globals.
 
