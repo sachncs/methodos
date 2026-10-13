@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -278,6 +279,21 @@ async def test_litellm_complete_uses_configured_timeout(
     client = LiteLLMClient(model="gpt-4o-mini", timeout_seconds=12.5)
     await client.complete(system="s", user="u")
     assert patched_litellm["calls"][0]["timeout"] == 12.5
+
+
+async def test_litellm_complete_enforces_timeout_at_client_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider that ignores its timeout cannot hold the request forever."""
+
+    async def hanging_acompletion(**kwargs: Any) -> dict[str, Any]:
+        await asyncio.Event().wait()
+        return {"choices": [{"message": {"content": "never"}}]}
+
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(hanging_acompletion))
+    client = LiteLLMClient(model="gpt-4o-mini", timeout_seconds=0.01, max_retries=0)
+    with pytest.raises(LLMError, match="failed after 1 attempts"):
+        await client.complete(system="s", user="u")
 
 
 async def test_litellm_complete_propagates_temperature(

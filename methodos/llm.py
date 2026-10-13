@@ -249,7 +249,8 @@ class LiteLLMClient:
                     f"LLM provider circuit is open for model {self.model}"
                 )
             try:
-                response = await litellm.acompletion(**kwargs)
+                async with asyncio.timeout(self.timeout):
+                    response = await litellm.acompletion(**kwargs)
                 content = response["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise LLMError(

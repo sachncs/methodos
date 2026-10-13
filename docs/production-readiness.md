@@ -59,8 +59,9 @@ system production-ready.
    horizontal deployments.
 5. CORS origins are validated at startup; deployment-specific allowlists still
    need operational review when domains change.
-6. Request cancellation and downstream LLM cancellation are not explicitly
-   coordinated.
+6. The LLM client now enforces its timeout at the application boundary and
+   preserves task cancellation; end-to-end request cancellation tests remain
+   open.
 7. Error responses use a documented envelope with stable codes and request IDs.
 
 ### Persistence and data integrity
