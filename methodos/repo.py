@@ -864,7 +864,7 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         """Yield trajectories oldest first using a server-side cursor."""
         validate_storage_component(split, field="split")
         pool = await self._get_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
             async for row in conn.cursor(
                 "SELECT body FROM methodos_trajectories WHERE graph_id = $1 AND split = $2 ORDER BY ts ASC",
                 graph_id, split,

@@ -91,6 +91,7 @@ exclude = [
 asyncio_mode = "auto"
 markers = [
     "live_llm: live LLM integration tests (require OPENAI_API_KEY etc.)",
+    "postgres: Postgres integration tests (require METHODOS_POSTGRES_TEST_DSN)",
 ]
 testpaths = ["tests"]
 addopts = [

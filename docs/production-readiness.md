@@ -36,6 +36,8 @@ system production-ready.
 - Tagged releases are validated and published by `.github/workflows/release.yml`.
 - An optional pooled Postgres repository supports horizontal service replicas;
   its startup schema is idempotent and lifecycle-managed by FastAPI.
+- Postgres CRUD, compare-and-swap, snapshots, trajectories, and cursor
+  iteration run against a disposable database in CI and can be run locally.
 
 ## Open issues
 
@@ -91,8 +93,8 @@ system production-ready.
 21. HTTP request spans are instrumented; downstream repository/LLM spans and
     collector configuration validation remain open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
-23. No load, soak, chaos, file-corruption, database-lock, or cancellation
-    tests exist.
+23. No load, soak, chaos, file-corruption, or cancellation tests exist; the
+    Postgres integration test now covers database locking/transactional paths.
 24. The Docker image is built, scanned, and has an SBOM in CI; signing and
     provenance attestation are not yet enforced.
 
