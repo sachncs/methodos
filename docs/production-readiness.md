@@ -43,9 +43,11 @@ system production-ready.
    contract has not been designed.
 2. The built-in limiter is per-process only; there is no distributed rate
    limiter or quota enforcement.
-3. API-key authentication is a shared static key, not identity, role, or
-   tenant-based authorization.
-4. There is no tenant isolation model or per-tenant graph ownership.
+3. Tenant-key authentication and server-derived tenant identity now exist;
+   roles, rotation, and an external identity provider are still open.
+4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable
+   repository and per-tenant ownership metadata are still required for
+   horizontal deployments.
 5. CORS is configurable but there is no deployment-time policy validation.
 6. Request cancellation and downstream LLM cancellation are not explicitly
    coordinated.
@@ -116,8 +118,8 @@ system production-ready.
 
 - Define a versioned error envelope and documented authentication model.
 - Add rate limiting and quotas backed by a shared store.
-- Add tenant ownership to graph records and enforce authorization at every
-  repository operation.
+- Add tenant ownership to durable graph records and enforce authorization at
+  every repository operation in the shared backend.
 - Design a safe REST evolution job model with idempotency keys and status
   polling.
 

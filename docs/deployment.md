@@ -32,6 +32,8 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `GOOGLE_API_KEY` | — | for Google via litellm |
 | `GROK_API_KEY` | — | for Grok via litellm |
 | `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
+| `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
+| `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | optional per-process request limit; `0` disables it |
 
 ## CLI
@@ -59,6 +61,9 @@ docker compose up methodos
 - [ ] Set `OPENAI_API_KEY` (or equivalent) in the deployment environment.
 - [ ] Set `METHODOS_API_KEY` for any non-local deployment; `/health` and
       `/metrics` remain public for probes and scraping.
+- [ ] For multiple tenants, set `METHODOS_TENANT_KEYS` and send the matching
+      `X-API-Key`; the server derives the tenant and rejects mismatched
+      `X-Tenant-ID` headers. Do not use a shared `METHODOS_API_KEY` in this mode.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
 - [ ] If using sqlite-vec, ensure the SQLite build in your image supports
@@ -77,6 +82,7 @@ docker compose up methodos
 | GET | `/ready` | — | `{"status": "ready"}` or 503 |
 | GET | `/v1/graphs/{id}` | — | `ProceduralGraph` or 404 |
 | POST | `/v1/graphs` | `{id, from_graph_id?}` | `ProceduralGraph` (201) |
+| PUT | `/v1/graphs/{id}` | `ProceduralGraph` + `If-Match` revision | updated graph or 409 |
 | POST | `/v1/graphs/{id}/guidance` | `{query, trajectory?, window?, guidance_hops?}` | `{guidance}` |
 | POST | `/v1/graphs/{id}/evolve` | — | 501 (reserved; use SDK) |
 
@@ -127,9 +133,11 @@ as the only supported version and rebuild graphs via the CLI on upgrade.
 
 Single-process by default. SQLite is suitable for one service instance with a
 local persistent volume; do not place the database on NFS or share it between
-independent writers. For horizontal scaling, implement a transactional
-Postgres (or equivalent) `Repository` backend and make tenant ownership and
-connection pooling explicit.
+independent writers. For horizontal scaling, use a shared rate-limit store
+and implement a transactional Postgres (or equivalent) `Repository` backend.
+Tenant-key mode currently isolates graph namespaces in the configured process;
+a distributed deployment must carry that tenant scope into the shared
+repository and identity provider.
 
 The evolution loop is CPU/LLM-bound, not I/O-bound. For multi-tenant
 deployments, run one EvolutionEngine per tenant to avoid

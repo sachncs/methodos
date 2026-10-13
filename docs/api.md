@@ -27,6 +27,10 @@ an integer `If-Match` header as a compare-and-swap token and returns `409`
 when another writer has committed a newer revision. Clients should reload
 the graph and retry their edit rather than blindly overwriting it.
 
+When `METHODOS_TENANT_KEYS` is configured, clients authenticate with their
+tenant's `X-API-Key`. The service derives the tenant from the key and scopes
+graph storage to that tenant; `X-Tenant-ID`, if supplied, must match it.
+
 ## `methodos.schema` — Data Models
 
 ```python

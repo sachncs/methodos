@@ -13,6 +13,7 @@ Engineering notes:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -46,6 +47,7 @@ from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 HTTP_REQUESTS = Counter(
     "methodos_http_requests_total",
     "Total HTTP requests handled by methodos.",
@@ -137,6 +139,13 @@ def validate_graph_id(graph_id: str) -> str:
     return graph_id
 
 
+def validate_tenant_id(tenant_id: str) -> str:
+    """Validate a tenant identifier before it enters the request context."""
+    if re.fullmatch(TENANT_ID_PATTERN, tenant_id) is None:
+        raise ValueError("tenant ids must match the tenant identifier pattern")
+    return tenant_id
+
+
 # ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
@@ -164,6 +173,26 @@ def create_app(
         )
     )
     configured_api_key = os.environ.get("METHODOS_API_KEY", "").strip()
+    configured_tenant_keys = os.environ.get("METHODOS_TENANT_KEYS", "").strip()
+    tenant_keys: dict[str, str] = {}
+    if configured_tenant_keys:
+        for item in configured_tenant_keys.split(","):
+            try:
+                tenant_id, tenant_key = item.split(":", maxsplit=1)
+            except ValueError as exc:
+                raise ValueError(
+                    "METHODOS_TENANT_KEYS must be comma-separated tenant:key pairs"
+                ) from exc
+            tenant_id = validate_tenant_id(tenant_id.strip())
+            tenant_key = tenant_key.strip()
+            if not tenant_key:
+                raise ValueError("METHODOS_TENANT_KEYS cannot contain empty keys")
+            if tenant_id in tenant_keys:
+                raise ValueError(f"duplicate tenant id: {tenant_id}")
+            tenant_keys[tenant_id] = tenant_key
+    configured_tenant_id = validate_tenant_id(
+        os.environ.get("METHODOS_TENANT_ID", "default").strip() or "default"
+    )
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:
         raise ValueError("METHODOS_RATE_LIMIT_PER_MINUTE must be non-negative")
@@ -199,6 +228,7 @@ def create_app(
         """Return HTTP errors using the stable application envelope."""
         code = {
             401: "unauthorized",
+            403: "forbidden",
             400: "invalid_request",
             404: "not_found",
             409: "conflict",
@@ -243,8 +273,8 @@ def create_app(
             CORSMiddleware,
             allow_origins=cors_origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST"],
-            allow_headers=["content-type", "x-api-key", "x-request-id"],
+            allow_methods=["GET", "POST", "PUT"],
+            allow_headers=["content-type", "x-api-key", "x-request-id", "x-tenant-id"],
         )
 
     @app.middleware("http")
@@ -267,7 +297,12 @@ def create_app(
         if configured_rate_limit and not public_path:
             now = time.monotonic()
             client_host = request.client.host if request.client else "unknown"
-            window = request_windows[client_host]
+            rate_key = (
+                hashlib.sha256(request.headers.get("x-api-key", "").encode()).hexdigest()
+                if tenant_keys
+                else client_host
+            )
+            window = request_windows[rate_key or client_host]
             while window and now - window[0] >= 60:
                 window.popleft()
             if len(window) >= configured_rate_limit:
@@ -281,20 +316,23 @@ def create_app(
                 limited_response.headers["x-request-id"] = request_id
                 return limited_response
             window.append(now)
-        if configured_api_key and not public_path:
-            supplied_key = request.headers.get("x-api-key", "")
-            if not secrets.compare_digest(supplied_key, configured_api_key):
-                auth_response: Response = JSONResponse(
-                    status_code=401,
-                    content=error_payload(
-                        request, "missing or invalid API key", "unauthorized"
-                    ),
-                    headers={"www-authenticate": "ApiKey"},
+        if (configured_api_key or tenant_keys) and not public_path:
+            try:
+                tenant_id, _ = tenant_auth(request)
+            except HTTPException as exc:
+                code = "forbidden" if exc.status_code == 403 else "unauthorized"
+                auth_response = JSONResponse(
+                    status_code=exc.status_code,
+                    content=error_payload(request, exc.detail, code),
+                    headers={"www-authenticate": "ApiKey"}
+                    if exc.status_code == 401
+                    else {},
                 )
-                HTTP_REQUESTS.labels(request.method, "401").inc()
+                HTTP_REQUESTS.labels(request.method, str(exc.status_code)).inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
                 auth_response.headers["x-request-id"] = request_id
                 return auth_response
+            request.state.tenant_id = tenant_id
         response = await call_next(request)
         HTTP_REQUESTS.labels(request.method, str(response.status_code)).inc()
         HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
@@ -311,6 +349,52 @@ def create_app(
     def get_llm() -> LLMClient:
         llm: LLMClient = app.state.llm
         return llm
+
+    def request_tenant(request: Request) -> str:
+        """Return the authenticated tenant assigned by request middleware."""
+        tenant_id = getattr(request.state, "tenant_id", configured_tenant_id)
+        return validate_tenant_id(tenant_id)
+
+    def storage_graph_id(tenant_id: str, graph_id: str) -> str:
+        """Map a public graph id into an isolated tenant namespace."""
+        if not tenant_keys:
+            return graph_id
+        digest = hashlib.sha256(f"{tenant_id}:{graph_id}".encode()).hexdigest()
+        return digest
+
+    async def load_scoped_graph(
+        repo: Repository, tenant_id: str, graph_id: str
+    ) -> ProceduralGraph:
+        """Load a graph from the authenticated tenant namespace."""
+        stored = await repo.load_graph(storage_graph_id(tenant_id, graph_id))
+        return stored.model_copy(update={"id": graph_id})
+
+    async def create_scoped_graph(
+        repo: Repository, tenant_id: str, graph: ProceduralGraph
+    ) -> None:
+        """Persist a graph under the authenticated tenant namespace."""
+        stored = graph.model_copy(update={"id": storage_graph_id(tenant_id, graph.id)})
+        if isinstance(repo, AtomicRepository):
+            await repo.create_graph(stored)
+        else:
+            await repo.save_graph(stored)
+
+    def tenant_auth(request: Request) -> tuple[str, str]:
+        """Authenticate a request and return `(tenant_id, api_key)`."""
+        supplied_key = request.headers.get("x-api-key", "")
+        requested_tenant = request.headers.get("x-tenant-id")
+        if tenant_keys:
+            for tenant_id, tenant_key in tenant_keys.items():
+                if secrets.compare_digest(supplied_key, tenant_key):
+                    if requested_tenant and requested_tenant != tenant_id:
+                        raise HTTPException(status_code=403, detail="tenant mismatch")
+                    return tenant_id, supplied_key
+            raise HTTPException(status_code=401, detail="missing or invalid API key")
+        if configured_api_key and not secrets.compare_digest(supplied_key, configured_api_key):
+            raise HTTPException(status_code=401, detail="missing or invalid API key")
+        if requested_tenant and requested_tenant != configured_tenant_id:
+            raise HTTPException(status_code=403, detail="tenant mismatch")
+        return configured_tenant_id, supplied_key
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
@@ -336,11 +420,12 @@ def create_app(
     @app.get("/v1/graphs/{graph_id}", response_model=ProceduralGraph)
     async def get_graph(
         graph_id: str,
+        request: Request,
         repo: Repository = Depends(get_repo),
     ) -> ProceduralGraph:
         validate_graph_id(graph_id)
         try:
-            return await repo.load_graph(graph_id)
+            return await load_scoped_graph(repo, request_tenant(request), graph_id)
         except FileNotFoundError:
             logger.info("graph not found: %s", graph_id)
             raise HTTPException(status_code=404, detail="graph not found") from None
@@ -348,11 +433,13 @@ def create_app(
     @app.post("/v1/graphs", response_model=ProceduralGraph, status_code=201)
     async def create_graph(
         request: GraphCreateRequest,
+        http_request: Request,
         repo: Repository = Depends(get_repo),
     ) -> ProceduralGraph:
+        tenant_id = request_tenant(http_request)
         if request.from_graph_id:
             try:
-                base = await repo.load_graph(request.from_graph_id)
+                base = await load_scoped_graph(repo, tenant_id, request.from_graph_id)
             except FileNotFoundError:
                 raise HTTPException(status_code=404, detail="source graph not found") from None
             new_graph = base.model_copy(update={"id": request.id})
@@ -360,14 +447,14 @@ def create_app(
             new_graph = ProceduralGraph(id=request.id)
         if isinstance(repo, AtomicRepository):
             try:
-                await repo.create_graph(new_graph)
+                await create_scoped_graph(repo, tenant_id, new_graph)
             except GraphAlreadyExistsError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
         else:
             try:
-                await repo.load_graph(request.id)
+                await load_scoped_graph(repo, tenant_id, request.id)
             except FileNotFoundError:
-                await repo.save_graph(new_graph)
+                await create_scoped_graph(repo, tenant_id, new_graph)
             else:
                 raise HTTPException(
                     status_code=409,
@@ -382,12 +469,13 @@ def create_app(
     async def get_guidance(
         graph_id: str,
         request: GuidanceRequest,
+        http_request: Request,
         repo: Repository = Depends(get_repo),
         llm: LLMClient = Depends(get_llm),
     ) -> GuidanceResponse:
         validate_graph_id(graph_id)
         try:
-            graph = await repo.load_graph(graph_id)
+            graph = await load_scoped_graph(repo, request_tenant(http_request), graph_id)
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="graph not found") from None
 
@@ -413,6 +501,7 @@ def create_app(
     async def update_graph(
         graph_id: str,
         graph: ProceduralGraph,
+        http_request: Request,
         if_match: str | None = Header(default=None, alias="If-Match"),
         repo: Repository = Depends(get_repo),
     ) -> ProceduralGraph:
@@ -431,7 +520,11 @@ def create_app(
         if not isinstance(repo, VersionedRepository):
             raise HTTPException(status_code=501, detail="repository does not support versioned updates")
         try:
-            return await repo.save_graph_if_revision(graph, expected_revision)
+            stored_graph = graph.model_copy(
+                update={"id": storage_graph_id(request_tenant(http_request), graph_id)}
+            )
+            updated = await repo.save_graph_if_revision(stored_graph, expected_revision)
+            return updated.model_copy(update={"id": graph_id})
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="graph not found") from None
         except GraphRevisionConflictError as exc:

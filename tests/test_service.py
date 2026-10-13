@@ -145,6 +145,46 @@ class TestHealth:
             assert response.status_code == 200
             assert response.headers["access-control-allow-origin"] == "https://console.example"
 
+    def test_tenant_keys_isolate_graph_namespaces(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("METHODOS_API_KEY", raising=False)
+        monkeypatch.setenv("METHODOS_TENANT_KEYS", "alpha:key-a,beta:key-b")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as tenant_client:
+            alpha_headers = {"x-api-key": "key-a", "x-tenant-id": "alpha"}
+            beta_headers = {"x-api-key": "key-b", "x-tenant-id": "beta"}
+            assert tenant_client.post(
+                "/v1/graphs", headers=alpha_headers, json={"id": "shared"}
+            ).status_code == 201
+            assert tenant_client.get(
+                "/v1/graphs/shared", headers=alpha_headers
+            ).status_code == 200
+            assert tenant_client.get(
+                "/v1/graphs/shared", headers=beta_headers
+            ).status_code == 404
+            assert tenant_client.post(
+                "/v1/graphs", headers=beta_headers, json={"id": "shared"}
+            ).status_code == 201
+
+    def test_tenant_key_cannot_claim_another_tenant(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("METHODOS_API_KEY", raising=False)
+        monkeypatch.setenv("METHODOS_TENANT_KEYS", "alpha:key-a,beta:key-b")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM())
+        with TestClient(app) as tenant_client:
+            response = tenant_client.get(
+                "/v1/graphs/g1",
+                headers={"x-api-key": "key-a", "x-tenant-id": "beta"},
+            )
+        assert response.status_code == 403
+        assert response.json()["code"] == "forbidden"
+
 
 # ----------------------------------------------------------------------------
 # GET /v1/graphs/{graph_id}
