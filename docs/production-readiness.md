@@ -113,8 +113,9 @@ system production-ready.
 21. HTTP and LLM spans are instrumented; downstream repository spans and
     collector configuration validation remain open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
-23. No load, soak, chaos, file-corruption, or cancellation tests exist; the
-    Postgres integration test now covers database locking/transactional paths.
+23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
+    cover basic contention; load, soak, chaos, file-corruption, and broader
+    cancellation tests remain open.
 24. The Docker image is built, scanned, and has an SBOM in CI; signing and
     provenance attestation are not yet enforced.
 

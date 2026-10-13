@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import builtins
 import sqlite3
 from pathlib import Path
@@ -249,6 +250,33 @@ class TestFilesystemRepository:
 
 
 class TestSQLiteRepository:
+    async def test_concurrent_readers_and_cas_writers_are_safe(self, tmp_path: Path) -> None:
+        repository = SQLiteRepository(db_path=tmp_path / "concurrent.db")
+        graph = make_graph("concurrent")
+        await repository.save_graph(graph)
+
+        readers = await asyncio.gather(
+            *(repository.load_graph("concurrent") for _ in range(32))
+        )
+        assert all(reader.id == "concurrent" for reader in readers)
+
+        outcomes = await asyncio.gather(
+            *(
+                repository.save_graph_if_revision(
+                    graph.model_copy(update={"metadata": {"writer": index}}),
+                    expected_revision=0,
+                )
+                for index in range(8)
+            ),
+            return_exceptions=True,
+        )
+        successes = [outcome for outcome in outcomes if isinstance(outcome, ProceduralGraph)]
+        conflicts = [
+            outcome for outcome in outcomes if isinstance(outcome, GraphRevisionConflictError)
+        ]
+        assert len(successes) == 1
+        assert len(conflicts) == 7
+
     """SQLiteRepository: WAL, FK, indices, round-trips."""
 
     async def test_save_and_load_round_trip(self, tmp_path: Path) -> None:
