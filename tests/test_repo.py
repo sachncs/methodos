@@ -13,6 +13,7 @@ from methodos.repo import (
     FilesystemRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
+    PostgresRepository,
     Repository,
     ScoredMatch,
     SilentVectorIndex,
@@ -451,6 +452,30 @@ class TestBuildRepository:
         monkeypatch.setenv("PGRAPH_BACKEND", "bogus")
         with pytest.raises(ValueError, match="unknown PGRAPH_BACKEND"):
             build_repository()
+
+    def test_postgres_backend_requires_dsn(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
+        monkeypatch.setenv("PGRAPH_BACKEND", "postgres")
+        monkeypatch.delenv("PGRAPH_POSTGRES_DSN", raising=False)
+        with pytest.raises(ValueError, match="PGRAPH_POSTGRES_DSN is required"):
+            build_repository()
+
+    def test_postgres_backend_constructs_without_connecting(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
+        monkeypatch.setenv("PGRAPH_BACKEND", "postgres")
+        monkeypatch.setenv("PGRAPH_POSTGRES_DSN", "postgresql://localhost/db")
+        repo = build_repository()
+        assert isinstance(repo, PostgresRepository)
+
+    def test_postgres_repository_validates_configuration(self) -> None:
+        with pytest.raises(ValueError, match="dsn must not be empty"):
+            PostgresRepository(dsn=" ")
+        with pytest.raises(ValueError, match="pool sizes"):
+            PostgresRepository(dsn="postgresql://localhost/db", min_size=0)
 
 
 # ----------------------------------------------------------------------------

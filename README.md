@@ -89,6 +89,7 @@ for _ in range(3):
 pip install methodos              # core (SQLite default)
 pip install methodos[eval]        # + datasets/pandas/tiktoken for HotpotQA eval
 pip install methodos[vec]         # + sqlite-vec for fuzzy graph match
+pip install methodos[postgres]   # + asyncpg for horizontally scaled service deployments
 pip install methodos[dev]         # pytest/ruff/mypy/hypothesis
 ```
 
@@ -132,7 +133,7 @@ src/methodos/
 ├── guidance.py      Ψ prompt + generate_guidance
 ├── adapter.py       AgentState, Solver Protocol, GuidanceCache, PGAdapter
 ├── evolution.py     Algorithm 1 + EvolutionEngine
-├── repo.py          Repository + VectorIndex Protocols (SQLite, FS, sqlite-vec)
+├── repo.py          Repository + VectorIndex Protocols (SQLite, Postgres, FS, sqlite-vec)
 ├── service.py       FastAPI app factory (REST: /v1/graphs, /guidance)
 └── cli.py           Typer CLI
 

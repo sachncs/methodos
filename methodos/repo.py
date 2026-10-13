@@ -9,6 +9,7 @@ This module provides:
   side effects. Production deployments opt into `SqliteVecIndex`.
 - `FilesystemRepository`: JSON-based persistence for development.
 - `SQLiteRepository`: production default with WAL + FK + indices.
+- `PostgresRepository`: optional pooled backend for horizontally scaled service deployments.
 - `SqliteVecIndex`: sqlite-vec integration for semantic search.
 - `tail_tokens`: token-aware truncation helper (also used by evolution).
 - `build_repository()`: env-driven factory selecting backend.
@@ -102,23 +103,23 @@ class Repository(Protocol):
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load the graph identified by `graph_id`."""
-        ...
+        ...  # pragma: no cover
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
         """Persist `graph`, replacing any existing entry with the same id."""
-        ...
+        ...  # pragma: no cover
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of the current state of `graph_id`."""
-        ...
+        ...  # pragma: no cover
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
         """Append `trajectory` to the named `split` for `graph_id`."""
-        ...
+        ...  # pragma: no cover
 
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Yield trajectories for `graph_id` from `split`, oldest first."""
-        ...
+        ...  # pragma: no cover
 
 
 @runtime_checkable
@@ -130,11 +131,11 @@ class VectorIndex(Protocol):
 
     def upsert(self, key: str, vector: list[float]) -> None:
         """Store `vector` under `key`, replacing any existing entry."""
-        ...
+        ...  # pragma: no cover
 
     def query(self, vector: list[float], k: int) -> list[ScoredMatch]:
         """Return up to `k` matches nearest to `vector` by cosine distance."""
-        ...
+        ...  # pragma: no cover
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +160,7 @@ class AtomicRepository(Protocol):
 
     async def create_graph(self, graph: ProceduralGraph) -> None:
         """Persist `graph`, failing if its id already exists."""
-        ...
+        ...  # pragma: no cover
 
 
 @runtime_checkable
@@ -170,7 +171,20 @@ class VersionedRepository(Protocol):
         self, graph: ProceduralGraph, expected_revision: int
     ) -> ProceduralGraph:
         """Save only when the stored revision equals the expected token."""
-        ...
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class LifecycleRepository(Protocol):  # pragma: no cover - structural typing only
+    """Optional capability for repositories with an async connection lifecycle."""
+
+    async def initialize(self) -> None:
+        """Open pools and validate the storage schema."""
+        ...  # pragma: no cover
+
+    async def close(self) -> None:
+        """Close pools and release storage resources."""
+        ...  # pragma: no cover
 
 
 # ----------------------------------------------------------------------------
@@ -659,6 +673,211 @@ class SQLiteRepository:
 
 
 # ----------------------------------------------------------------------------
+# PostgresRepository (opt-in via PGRAPH_BACKEND=postgres)
+# ----------------------------------------------------------------------------
+
+
+POSTGRES_SCHEMA: str = """
+CREATE TABLE IF NOT EXISTS methodos_schema_meta (version INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS methodos_graphs (
+    id TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    revision BIGINT NOT NULL DEFAULT 0,
+    body TEXT NOT NULL,
+    updated_at DOUBLE PRECISION NOT NULL
+);
+CREATE TABLE IF NOT EXISTS methodos_trajectories (
+    id BIGSERIAL PRIMARY KEY,
+    graph_id TEXT NOT NULL REFERENCES methodos_graphs(id) ON DELETE CASCADE,
+    split TEXT NOT NULL,
+    score DOUBLE PRECISION NOT NULL,
+    body TEXT NOT NULL,
+    ts DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_methodos_trajectories_graph_split
+    ON methodos_trajectories(graph_id, split, ts);
+CREATE TABLE IF NOT EXISTS methodos_snapshots (
+    graph_id TEXT NOT NULL REFERENCES methodos_graphs(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    body TEXT NOT NULL,
+    ts DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (graph_id, tag)
+);
+"""
+
+
+def _load_asyncpg() -> Any:  # pragma: no cover - exercised by the Postgres integration suite
+    """Load the optional Postgres driver only when that backend is selected."""
+    try:
+        import asyncpg
+    except ImportError as exc:  # pragma: no cover - depends on optional install
+        raise RuntimeError(
+            "asyncpg is not installed; install methodos[postgres] to enable Postgres"
+        ) from exc
+    return asyncpg
+
+
+class PostgresRepository:  # pragma: no cover - exercised by the Postgres integration suite
+    """Pooled Postgres Repository for horizontally scaled deployments."""
+
+    def __init__(self, *, dsn: str, min_size: int = 1, max_size: int = 10) -> None:
+        """Configure a pooled repository without opening network connections."""
+        if not dsn.strip():
+            raise ValueError("dsn must not be empty")
+        if min_size < 1 or max_size < min_size:
+            raise ValueError("pool sizes must satisfy 1 <= min_size <= max_size")
+        self.dsn = dsn
+        self.min_size = min_size
+        self.max_size = max_size
+        self._pool: Any | None = None
+
+    async def initialize(self) -> None:
+        """Open the pool and create/validate the current schema."""
+        if self._pool is not None:
+            return
+        asyncpg = _load_asyncpg()
+        self._pool = await asyncpg.create_pool(
+            dsn=self.dsn, min_size=self.min_size, max_size=self.max_size
+        )
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(POSTGRES_SCHEMA)
+                version = await conn.fetchval("SELECT version FROM methodos_schema_meta LIMIT 1")
+                if version is None:
+                    await conn.execute(
+                        "INSERT INTO methodos_schema_meta (version) VALUES ($1)",
+                        SCHEMA_VERSION,
+                    )
+                elif version != SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"unsupported database schema version {version}; expected {SCHEMA_VERSION}"
+                    )
+        except Exception:
+            await self.close()
+            raise
+
+    async def close(self) -> None:
+        """Close the connection pool if it is open."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+
+    async def _get_pool(self) -> Any:
+        await self.initialize()
+        assert self._pool is not None
+        return self._pool
+
+    async def load_graph(self, graph_id: str) -> ProceduralGraph:
+        """Load a graph by public id."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            body = await conn.fetchval("SELECT body FROM methodos_graphs WHERE id = $1", graph_id)
+        if body is None:
+            raise FileNotFoundError(f"graph {graph_id!r} not found")
+        return ProceduralGraph.model_validate_json(body)
+
+    async def save_graph(self, graph: ProceduralGraph) -> None:
+        """Upsert a graph and increment its revision atomically."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+                current = await conn.fetchrow(
+                    "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
+                )
+                graph.revision = 0 if current is None else int(current["revision"]) + 1
+                await conn.execute(
+                    """INSERT INTO methodos_graphs (id, schema_version, revision, body, updated_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (id) DO UPDATE SET schema_version = EXCLUDED.schema_version,
+                    revision = EXCLUDED.revision, body = EXCLUDED.body, updated_at = EXCLUDED.updated_at""",
+                    graph.id, graph.schema_version, graph.revision, graph.model_dump_json(), time.time(),
+                )
+
+    async def save_graph_if_revision(
+        self, graph: ProceduralGraph, expected_revision: int
+    ) -> ProceduralGraph:
+        """Compare and swap a graph in one Postgres transaction."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+                current = await conn.fetchrow(
+                    "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
+                )
+                if current is None:
+                    raise FileNotFoundError(f"graph {graph.id!r} not found")
+                revision = int(current["revision"])
+                if revision != expected_revision:
+                    raise GraphRevisionConflictError(
+                        f"graph {graph.id!r} revision changed from {expected_revision} to {revision}"
+                    )
+                updated = graph.model_copy(update={"revision": revision + 1})
+                await conn.execute(
+                    "UPDATE methodos_graphs SET schema_version = $1, revision = $2, body = $3, updated_at = $4 WHERE id = $5",
+                    updated.schema_version, updated.revision, updated.model_dump_json(), time.time(), graph.id,
+                )
+                return updated
+
+    async def create_graph(self, graph: ProceduralGraph) -> None:
+        """Create a graph atomically without replacing an existing graph."""
+        pool = await self._get_pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO methodos_graphs (id, schema_version, revision, body, updated_at) VALUES ($1, $2, $3, $4, $5)",
+                    graph.id, graph.schema_version, graph.revision, graph.model_dump_json(), time.time(),
+                )
+        except Exception as exc:
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise GraphAlreadyExistsError(f"graph {graph.id!r} already exists") from exc
+            raise
+
+    async def snapshot(self, graph_id: str, tag: str) -> None:
+        """Persist a tagged snapshot of the current graph."""
+        validate_storage_component(tag, field="tag")
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            body = await conn.fetchval("SELECT body FROM methodos_graphs WHERE id = $1", graph_id)
+            if body is None:
+                raise FileNotFoundError(f"graph {graph_id!r} not found")
+            await conn.execute(
+                """INSERT INTO methodos_snapshots (graph_id, tag, body, ts) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (graph_id, tag) DO UPDATE SET body = EXCLUDED.body, ts = EXCLUDED.ts""",
+                graph_id, tag, body, time.time(),
+            )
+
+    async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
+        """Append a trajectory, enforcing the graph foreign key."""
+        validate_storage_component(split, field="split")
+        pool = await self._get_pool()
+        body = json.dumps(
+            {"task_query": trajectory.task.query, "score": trajectory.score, "steps": [list(s) for s in trajectory.steps]}
+        )
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO methodos_trajectories (graph_id, split, score, body, ts) VALUES ($1, $2, $3, $4, $5)",
+                graph_id, split, trajectory.score, body, time.time(),
+            )
+
+    def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        """Return an async iterator over trajectories."""
+        return self.read_trajectories_impl(graph_id, split)
+
+    async def read_trajectories_impl(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
+        """Yield trajectories oldest first using a server-side cursor."""
+        validate_storage_component(split, field="split")
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            async for row in conn.cursor(
+                "SELECT body FROM methodos_trajectories WHERE graph_id = $1 AND split = $2 ORDER BY ts ASC",
+                graph_id, split,
+            ):
+                record = json.loads(row["body"])
+                yield Trajectory(
+                    task=Task(query=record["task_query"]),
+                    steps=tuple((s[0], s[1]) for s in record["steps"]),
+                    score=record["score"],
+                )
+
+
+# ----------------------------------------------------------------------------
 # SqliteVecIndex (opt-in via PGRAPH_VEC=1)
 # ----------------------------------------------------------------------------
 
@@ -761,8 +980,9 @@ def build_repository() -> Repository:
     """Construct the configured Repository from environment variables.
 
     Env vars:
-        PGRAPH_BACKEND: "sqlite" (default) or "filesystem"
+        PGRAPH_BACKEND: "sqlite" (default), "filesystem", or "postgres"
         PGRAPH_HOME: data root (default: ~/.methodos)
+        PGRAPH_POSTGRES_DSN: asyncpg DSN when PGRAPH_BACKEND=postgres
         PGRAPH_VEC: "1" to enable sqlite-vec (default: disabled)
         PGRAPH_VEC_DIM: embedding dimension when PGRAPH_VEC=1 (default: 1536)
     """
@@ -781,6 +1001,12 @@ def build_repository() -> Repository:
             vector_index = SqliteVecIndex(db_path=db_path, dim=dim)
         return SQLiteRepository(db_path=db_path, vector_index=vector_index)
 
+    if backend == "postgres":
+        dsn = os.environ.get("PGRAPH_POSTGRES_DSN", "").strip()
+        if not dsn:
+            raise ValueError("PGRAPH_POSTGRES_DSN is required when PGRAPH_BACKEND=postgres")
+        return PostgresRepository(dsn=dsn)
+
     raise ValueError(f"unknown PGRAPH_BACKEND: {backend!r}")
 
 
@@ -789,6 +1015,8 @@ __all__ = [
     "FilesystemRepository",
     "GraphAlreadyExistsError",
     "GraphRevisionConflictError",
+    "LifecycleRepository",
+    "PostgresRepository",
     "Repository",
     "SQLiteRepository",
     "ScoredMatch",

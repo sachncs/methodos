@@ -34,6 +34,8 @@ system production-ready.
 - CI generates an SBOM, scans the container, retains the SBOM artifact, and
   runs desktop/mobile browser smoke tests.
 - Tagged releases are validated and published by `.github/workflows/release.yml`.
+- An optional pooled Postgres repository supports horizontal service replicas;
+  its startup schema is idempotent and lifecycle-managed by FastAPI.
 
 ## Open issues
 
@@ -58,8 +60,8 @@ system production-ready.
 8. Graph revisions and a SQLite/filesystem compare-and-swap update API now
    prevent stale HTTP writers; distributed repositories still need the same
    contract.
-9. SQLite is intentionally single-instance; a production Postgres backend is
-   not implemented.
+9. Postgres support is implemented as an optional pooled backend; migration
+   tooling, managed backups, and live database integration tests remain open.
 10. Schema migration infrastructure is only a fail-closed version check;
     migrations themselves are not implemented.
 11. Filesystem trajectory appends are not a multi-process journal and should
@@ -130,7 +132,8 @@ system production-ready.
 - Extend graph revision tokens and compare-and-swap writes to every durable
   backend.
 - Introduce migration runners and migration tests.
-- Implement a transactional Postgres repository.
+- Add Postgres integration tests, migration runners, and backup/restore
+  verification around the transactional repository.
 - Add backup/restore verification and corruption handling.
 
 ### Phase 4 — dependable intelligence

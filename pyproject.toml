@@ -50,6 +50,9 @@ eval = [
 vec = [
     "sqlite-vec>=0.1.6",
 ]
+postgres = [
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -75,6 +78,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["methodos"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/site/node_modules",
+    "/site/dist",
+    "/site/playwright-report",
+    "/site/test-results",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

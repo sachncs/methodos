@@ -17,8 +17,13 @@ WORKDIR /app
 # Copy dependency manifests first for layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install production dependencies (no dev)
-RUN uv sync --frozen --no-dev --no-install-project
+# Install production dependencies (no dev). Opt into asyncpg for Postgres builds.
+ARG METHODOS_POSTGRES=0
+RUN if [ "$METHODOS_POSTGRES" = "1" ]; then \
+      uv sync --frozen --no-dev --no-install-project --extra postgres; \
+    else \
+      uv sync --frozen --no-dev --no-install-project; \
+    fi
 
 # ---- Runtime stage ----
 FROM python:3.12-slim

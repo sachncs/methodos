@@ -9,6 +9,7 @@ service. Production deployment uses Docker; development uses `uv`.
 - An LLM API key (OpenAI, Anthropic, Google, Grok) — set as `OPENAI_API_KEY`
   or the provider-specific equivalent
 - Optional: `sqlite-vec` for semantic graph node matching
+- Optional: Postgres with `asyncpg` for horizontally scaled service deployments
 
 ## Install
 
@@ -16,6 +17,7 @@ service. Production deployment uses Docker; development uses `uv`.
 pip install methodos              # core
 pip install methodos[eval]        # adds datasets/pandas/tiktoken for HotpotQA
 pip install methodos[vec]         # adds sqlite-vec for fuzzy match
+pip install methodos[postgres]    # adds the pooled Postgres repository
 pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for development
 ```
 
@@ -23,8 +25,9 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PGRAPH_BACKEND` | `sqlite` | `sqlite` or `filesystem` |
+| `PGRAPH_BACKEND` | `sqlite` | `sqlite`, `filesystem`, or `postgres` |
 | `PGRAPH_HOME` | `~/.methodos` | data root |
+| `PGRAPH_POSTGRES_DSN` | — | required when `PGRAPH_BACKEND=postgres` |
 | `PGRAPH_VEC` | `0` | `1` enables sqlite-vec |
 | `PGRAPH_VEC_DIM` | `1536` | embedding dimension when `PGRAPH_VEC=1` |
 | `OPENAI_API_KEY` | — | required for OpenAI / litellm |
@@ -66,6 +69,10 @@ docker compose up methodos
       `X-Tenant-ID` headers. Do not use a shared `METHODOS_API_KEY` in this mode.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
+- [ ] For multiple service replicas, install `methodos[postgres]`, set
+      `PGRAPH_BACKEND=postgres` and `PGRAPH_POSTGRES_DSN`, and run the database
+      with managed backups, TLS, pooling limits, and migration review.
+      For the included image, build with `--build-arg METHODOS_POSTGRES=1`.
 - [ ] If using sqlite-vec, ensure the SQLite build in your image supports
       extensions (most pre-built Python wheels do).
 - [ ] Behind a reverse proxy with TLS termination; the service itself is

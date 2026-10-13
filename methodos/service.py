@@ -206,9 +206,17 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.repo = backend_repo
         app.state.llm = backend_llm
+        initialize = getattr(backend_repo, "initialize", None)
+        close = getattr(backend_repo, "close", None)
+        if initialize is not None:
+            await initialize()
         logger.info("methodos service started")
-        yield
-        logger.info("methodos service stopped")
+        try:
+            yield
+        finally:
+            if close is not None:
+                await close()
+            logger.info("methodos service stopped")
 
     app = FastAPI(title="methodos", version="0.1.0", lifespan=lifespan)
 
