@@ -100,9 +100,10 @@ system production-ready.
 
 14. Provider retry classification now distinguishes transient transport,
     throttling, and server errors from permanent client/auth failures; provider
-    SDK-specific mappings and fallback providers remain open.
-15. A process-local circuit breaker exists, but shared-state failover policy
-    is not implemented.
+    SDK-specific mappings remain open. An ordered failover client now provides
+    an application-level fallback strategy.
+15. A process-local circuit breaker exists and failover is covered in-process;
+    shared-state breaker/failover policy across workers remains open.
 16. Token/cost budgets are not persisted or enforced per request, graph, or
     tenant.
 17. Evolution proposals lack a durable approval/audit workflow.

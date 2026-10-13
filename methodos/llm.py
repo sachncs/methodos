@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 import litellm
@@ -300,9 +301,65 @@ class LiteLLMClient:
         ) from last_exc
 
 
+class FailoverLLMClient:
+    """Ordered failover strategy over multiple :class:`LLMClient` providers.
+
+    Each provider owns its retry and circuit-breaker policy. This wrapper only
+    moves to the next provider after a provider reports an ``LLMError``. It
+    deliberately does not catch ``asyncio.CancelledError`` or arbitrary
+    exceptions, so request cancellation and programming errors remain visible
+    to the caller.
+    """
+
+    def __init__(self, providers: Sequence[LLMClient]) -> None:
+        """Initialize with at least one provider in priority order."""
+        if not providers:
+            raise ValueError("providers must contain at least one client")
+        self.providers = tuple(providers)
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        json_schema: type[BaseModel] | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        """Return the first successful response, failing only after all providers."""
+        failures: list[LLMError] = []
+        for index, provider in enumerate(self.providers):
+            with llm_tracer.start_as_current_span("methodos.llm.failover") as span:
+                span.set_attribute("methodos.llm.provider_index", index)
+                span.set_attribute(
+                    "methodos.llm.provider_type", type(provider).__name__
+                )
+                try:
+                    return await provider.complete(
+                        system=system,
+                        user=user,
+                        json_schema=json_schema,
+                        temperature=temperature,
+                    )
+                except LLMError as exc:
+                    span.record_exception(exc)
+                    failures.append(exc)
+                    logger.warning(
+                        "LLM provider %d/%d failed; trying the next provider",
+                        index + 1,
+                        len(self.providers),
+                    )
+        error = LLMError(
+            f"all {len(self.providers)} LLM providers failed"
+        )
+        for failure in failures:
+            error.add_note(str(failure))
+        raise error from failures[-1]
+
+
 __all__ = [
     "CircuitBreaker",
     "CircuitOpenError",
+    "FailoverLLMClient",
     "LLMClient",
     "LLMError",
     "LiteLLMClient",

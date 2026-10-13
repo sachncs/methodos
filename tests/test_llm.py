@@ -14,6 +14,7 @@ import methodos.llm as llm_module
 from methodos.llm import (
     CircuitBreaker,
     CircuitOpenError,
+    FailoverLLMClient,
     LiteLLMClient,
     LLMClient,
     LLMError,
@@ -26,6 +27,69 @@ class SimpleSchema(BaseModel):
 
     answer: str
     confidence: float
+
+
+class StubClient:
+    """Small protocol-compatible provider double."""
+
+    def __init__(self, result: str | None = None, error: LLMError | None = None) -> None:
+        self.result = result
+        self.error = error
+        self.calls = 0
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        user: str,
+        json_schema: type[BaseModel] | None = None,
+        temperature: float = 0.0,
+    ) -> str:
+        del system, user, json_schema, temperature
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
+
+
+def test_failover_client_requires_a_provider() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        FailoverLLMClient([])
+
+
+async def test_failover_client_uses_next_provider_after_llm_failure() -> None:
+    first = StubClient(error=LLMError("primary unavailable"))
+    second = StubClient(result="recovered")
+    client = FailoverLLMClient([first, second])
+
+    assert await client.complete(system="s", user="u") == "recovered"
+    assert first.calls == 1
+    assert second.calls == 1
+
+
+async def test_failover_client_reports_all_provider_failures() -> None:
+    first = StubClient(error=LLMError("primary unavailable"))
+    second = StubClient(error=LLMError("backup unavailable"))
+    client = FailoverLLMClient([first, second])
+
+    with pytest.raises(LLMError, match="all 2 LLM providers failed") as excinfo:
+        await client.complete(system="s", user="u")
+    assert "primary unavailable" in "\n".join(excinfo.value.__notes__ or [])
+    assert "backup unavailable" in "\n".join(excinfo.value.__notes__ or [])
+
+
+async def test_failover_client_does_not_swallow_programming_errors() -> None:
+    class BrokenClient:
+        async def complete(self, **kwargs: Any) -> str:
+            del kwargs
+            raise ValueError("bug")
+
+    backup = StubClient(result="unused")
+    client = FailoverLLMClient([BrokenClient(), backup])
+    with pytest.raises(ValueError, match="bug"):
+        await client.complete(system="s", user="u")
+    assert backup.calls == 0
 
 
 def test_circuit_breaker_opens_and_recovers() -> None:
