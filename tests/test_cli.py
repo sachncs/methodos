@@ -6,6 +6,8 @@ import asyncio
 import builtins
 import json
 import os
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -220,6 +222,23 @@ class TestEvalCommand:
         # typer echoes via stderr for error paths
         combined = (result.stdout or "") + (result.stderr or "")
         assert "unknown benchmark" in combined
+
+    def test_hotpotqa_dispatches_to_optional_runner(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: dict[str, object] = {}
+        fake_module = types.ModuleType("eval.hotpotqa.run")
+
+        async def fake_run_eval(**kwargs: object) -> None:
+            calls.update(kwargs)
+
+        fake_module.run_eval = fake_run_eval  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "eval.hotpotqa.run", fake_module)
+        result = runner.invoke(cli, ["eval", "--benchmark", "hotpotqa", "--n", "1"])
+        assert result.exit_code == 0, (result.exit_code, result.stdout)
+        assert calls["n"] == 1
 
 
 # ----------------------------------------------------------------------------

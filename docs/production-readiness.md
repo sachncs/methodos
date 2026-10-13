@@ -42,6 +42,8 @@ system production-ready.
   replicas; local backends retain the documented process-local limiter.
 - Static API authentication supports overlapping keys for zero-downtime
   rotation; external identity and role management remain deployment work.
+- The core CLI no longer imports optional benchmark dependencies until the
+  `eval` command is invoked.
 
 ## Open issues
 
@@ -69,8 +71,9 @@ system production-ready.
 8. Graph revisions and a SQLite/filesystem compare-and-swap update API now
    prevent stale HTTP writers; distributed repositories still need the same
    contract.
-9. Postgres support is implemented as an optional pooled backend; migration
-   tooling, managed backups, and live database integration tests remain open.
+9. Postgres support is implemented as an optional pooled backend with local
+   and CI integration coverage; migration tooling, managed backups, and
+   restore verification remain open.
 10. Schema migration infrastructure is only a fail-closed version check;
     migrations themselves are not implemented.
 11. Filesystem trajectory appends are not a multi-process journal and should
@@ -141,8 +144,8 @@ system production-ready.
 - Extend graph revision tokens and compare-and-swap writes to every durable
   backend.
 - Introduce migration runners and migration tests.
-- Add Postgres integration tests, migration runners, and backup/restore
-  verification around the transactional repository.
+- Add migration runners and backup/restore verification around the
+  transactional repository; Postgres integration tests are now in place.
 - Add backup/restore verification and corruption handling.
 
 ### Phase 4 — dependable intelligence

@@ -28,7 +28,6 @@ from typing import Annotated
 import typer
 import uvicorn
 
-from eval.hotpotqa.run import run_eval
 from methodos.repo import Repository, Task, build_repository
 from methodos.schema import ProceduralGraph
 
@@ -212,6 +211,15 @@ def eval(
     if benchmark != "hotpotqa":
         typer.echo(f"unknown benchmark: {benchmark!r}", err=True)
         raise typer.Exit(code=1)
+    try:
+        from eval.hotpotqa.run import run_eval
+    except ModuleNotFoundError as exc:
+        typer.echo(
+            "The eval command requires the optional dependencies; "
+            "install methodos[eval].",
+            err=True,
+        )
+        raise typer.Exit(code=2) from exc
 
     async def _run() -> None:
         await run_eval(graph_id=graph_id, n=n, seed=seed, model=model)

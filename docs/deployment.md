@@ -136,16 +136,16 @@ if present).
 
 ## Migration (planned for v2)
 
-`schema_version: Literal[1]` is currently fixed. Bumping to v2 will add a
-migration runner in `methodos.repo.migrate`. For now, treat schema_version
-as the only supported version and rebuild graphs via the CLI on upgrade.
+`schema_version: Literal[1]` is currently fixed and migrations are not yet
+implemented. Treat schema_version as the only supported version and rebuild
+graphs via the CLI on upgrade; do not manually edit production databases.
 
 ## Scaling
 
 Single-process by default. SQLite is suitable for one service instance with a
 local persistent volume; do not place the database on NFS or share it between
-independent writers. For horizontal scaling, use a shared rate-limit store
-and implement a transactional Postgres (or equivalent) `Repository` backend.
+independent writers. For horizontal scaling, use the transactional Postgres
+`Repository` backend and its shared rate-limit store.
 Tenant-key mode currently isolates graph namespaces in the configured process;
 a distributed deployment must carry that tenant scope into the shared
 repository and identity provider.
