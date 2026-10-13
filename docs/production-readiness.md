@@ -82,10 +82,11 @@ system production-ready.
 
 ### Observability and operations
 
-20. Metrics are emitted, but traces and structured application logs are not
-    fully correlated with the request ID.
-21. OpenTelemetry collector configuration exists, but application spans are
-    not instrumented end-to-end.
+20. Request metrics, OTEL spans, and structured completion events are now
+    correlated with the request ID; exporter and retention policy remain
+    deployment responsibilities.
+21. HTTP request spans are instrumented; downstream repository/LLM spans and
+    collector configuration validation remain open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
 23. No load, soak, chaos, file-corruption, database-lock, or cancellation
     tests exist.

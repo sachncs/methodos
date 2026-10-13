@@ -24,10 +24,12 @@ from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from opentelemetry import trace
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import RequestResponseEndpoint
@@ -46,6 +48,8 @@ from methodos.repo import (
 from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
+structured_logger = structlog.get_logger("methodos.service")
+request_tracer = trace.get_tracer("methodos.service")
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 HTTP_REQUESTS = Counter(
@@ -333,9 +337,23 @@ def create_app(
                 auth_response.headers["x-request-id"] = request_id
                 return auth_response
             request.state.tenant_id = tenant_id
-        response = await call_next(request)
+        with request_tracer.start_as_current_span("methodos.http.request") as span:
+            span.set_attribute("http.request.method", request.method)
+            span.set_attribute("url.path", request.url.path)
+            span.set_attribute("methodos.request_id", request_id)
+            response = await call_next(request)
+            span.set_attribute("http.response.status_code", response.status_code)
         HTTP_REQUESTS.labels(request.method, str(response.status_code)).inc()
-        HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
+        duration = time.perf_counter() - started_at
+        HTTP_LATENCY.labels(request.method).observe(duration)
+        structured_logger.info(
+            "http_request_completed",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_seconds=round(duration, 6),
+        )
         response.headers["x-request-id"] = request_id
         response.headers["x-content-type-options"] = "nosniff"
         response.headers["x-frame-options"] = "DENY"

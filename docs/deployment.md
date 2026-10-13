@@ -73,6 +73,9 @@ docker compose up methodos
 - [ ] Scrape `/health` for liveness and `/ready` for repository readiness.
 - [ ] Send `methodos.service:app` access logs to your log aggregator and
       include the `x-request-id` response header in request traces.
+- [ ] Configure an OpenTelemetry tracer provider/exporter in the deployment
+      environment if distributed traces are required; the service emits
+      correlated HTTP spans without forcing a vendor.
 
 ### Endpoints
 
