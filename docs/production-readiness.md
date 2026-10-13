@@ -44,6 +44,9 @@ system production-ready.
   rotation; external identity and role management remain deployment work.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
+- SQLite has an online, atomic, integrity-checked backup capability exposed
+  through `methodos backup`; scheduling, retention, and restore drills remain
+  operational responsibilities.
 
 ## Open issues
 

@@ -131,8 +131,14 @@ concurrent reads during the evolution loop's diagnostic-rollout phase.
 Each graph is stored as JSON in the `graphs` body column; trajectories
 are stored as JSONL-equivalent in the `trajectories` body column.
 
-To back up: copy `~/.methodos/methodos.db` (and the WAL/SHM sidecars
-if present).
+To create an atomic, integrity-checked backup of the configured SQLite store:
+
+```bash
+methodos backup /secure/backups/methodos-$(date +%Y%m%d%H%M%S).db
+```
+
+Schedule this command externally and retain copies according to your policy.
+For Postgres, use the managed provider's backup and restore verification.
 
 ## Migration (planned for v2)
 

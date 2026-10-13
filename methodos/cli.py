@@ -28,7 +28,7 @@ from typing import Annotated
 import typer
 import uvicorn
 
-from methodos.repo import Repository, Task, build_repository
+from methodos.repo import BackupRepository, Repository, Task, build_repository
 from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,23 @@ def replay(
             count += 1
         if count == 0:
             typer.echo(f"(no trajectories for graph {graph_id!r} split={split!r})")
+
+    asyncio.run(_run())
+
+
+@cli.command()
+def backup(
+    destination: Annotated[Path, typer.Argument(help="Destination SQLite backup path.")],
+) -> None:
+    """Create an integrity-checked backup of the configured SQLite database."""
+
+    async def _run() -> None:
+        repo = build_repo_from_env()
+        if not isinstance(repo, BackupRepository):
+            typer.echo("The configured backend does not support local backups.", err=True)
+            raise typer.Exit(code=2)
+        await repo.backup_to(destination)
+        typer.echo(f"created verified backup at {destination}")
 
     asyncio.run(_run())
 

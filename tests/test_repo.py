@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from methodos.repo import (
+    BackupRepository,
     FilesystemRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
@@ -398,6 +399,21 @@ class TestSQLiteRepository:
         with sqlite3.connect(tmp_path / "test.db") as conn:
             row = conn.execute("SELECT version FROM schema_meta").fetchone()
             assert row[0] == 1
+
+    async def test_backup_is_integrity_checked_and_loadable(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "source.db"
+        backup_path = tmp_path / "backups" / "methodos.db"
+        repository = SQLiteRepository(db_path=source_path)
+        await repository.save_graph(make_graph("backup-graph"))
+        assert isinstance(repository, BackupRepository)
+        await repository.backup_to(backup_path)
+        restored = SQLiteRepository(db_path=backup_path)
+        assert (await restored.load_graph("backup-graph")).id == "backup-graph"
+
+    async def test_backup_rejects_source_path(self, tmp_path: Path) -> None:
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+        with pytest.raises(ValueError, match="differ from the source"):
+            await repository.backup_to(repository.db_path)
 
     async def test_unsupported_schema_version_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "future.db"

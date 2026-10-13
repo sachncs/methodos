@@ -26,6 +26,7 @@ Engineering notes:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -193,6 +194,15 @@ class RateLimitRepository(Protocol):  # pragma: no cover - capability contract
 
     async def consume_rate_limit(self, key: str, limit: int) -> tuple[bool, int]:
         """Consume one request and return `(allowed, retry_after_seconds)`."""
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class BackupRepository(Protocol):  # pragma: no cover - capability contract
+    """Optional capability for creating verified storage backups."""
+
+    async def backup_to(self, destination: Path) -> None:
+        """Create an atomic, integrity-checked backup at `destination`."""
         ...  # pragma: no cover
 
 
@@ -503,6 +513,35 @@ class SQLiteRepository:
                     "unsupported database schema version "
                     f"{existing['version']}; expected {SCHEMA_VERSION}"
                 )
+
+    async def backup_to(self, destination: Path) -> None:
+        """Create an atomic online backup and verify SQLite integrity."""
+        target = Path(destination)
+        if target.resolve() == self.db_path.resolve():
+            raise ValueError("backup destination must differ from the source database")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f"{target.name}.", suffix=".tmp", dir=str(target.parent)
+        )
+        os.close(fd)
+
+        def create_backup() -> None:
+            try:
+                with self.connect() as source, sqlite3.connect(temporary_path) as backup:
+                    source.backup(backup)
+                    integrity = backup.execute("PRAGMA integrity_check").fetchone()[0]
+                    if integrity != "ok":
+                        raise RuntimeError(  # pragma: no cover - defensive SQLite failure
+                            f"SQLite backup integrity check failed: {integrity}"
+                        )
+                os.replace(temporary_path, target)
+            finally:
+                temporary = Path(temporary_path)
+                if temporary.exists():
+                    temporary.unlink()
+
+        await asyncio.to_thread(create_backup)
+        logger.info("created verified SQLite backup at %s", target)
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load and return the graph identified by `graph_id`.
