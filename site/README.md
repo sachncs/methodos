@@ -24,6 +24,15 @@ npm run build
 
 The production build is emitted to `site/dist/`.
 
+## Browser smoke tests
+
+After building, run the responsive Chromium checks locally:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
 ## Deploy
 
 Pushing to `master` triggers `.github/workflows/pages.yml`, which builds

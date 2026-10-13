@@ -26,6 +26,8 @@ htmlcov/
 .ruff_cache/
 .hypothesis/
 site/.astro/
+site/test-results/
+site/playwright-report/
 
 # Editor / OS
 .vscode/

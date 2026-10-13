@@ -39,12 +39,43 @@ jobs:
         working-directory: site
         run: npm ci && npm run build
 
+      - name: Install browser for end-to-end smoke tests
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        working-directory: site
+        run: npm run test:e2e
+
       - name: Audit frontend dependencies
         working-directory: site
         run: npm audit --audit-level=high
 
       - name: Build runtime container
         run: docker build --tag methodos:ci --file docker/Dockerfile .
+
+      - name: Generate container SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: methodos:ci
+          artifact-name: methodos-sbom.spdx.json
+          output-file: methodos-sbom.spdx.json
+
+      - name: Scan container for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: methodos:ci
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Upload container SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: methodos-sbom
+          path: methodos-sbom.spdx.json
+          retention-days: 14
 
       - name: Test
         run: uv run pytest --cov=methodos --cov-fail-under=95

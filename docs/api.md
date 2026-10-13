@@ -3,6 +3,30 @@
 This document covers the public API. Everything not listed here is
 implementation detail and may change.
 
+## Error envelope
+
+Every API failure uses the same JSON shape and includes the request
+correlation identifier:
+
+```json
+{
+  "detail": "graph not found",
+  "code": "not_found",
+  "request_id": "7a6d..."
+}
+```
+
+`code` is stable for clients (`invalid_request`, `unauthorized`,
+`not_found`, `conflict`, `rate_limited`, `unavailable`,
+`not_implemented`, `request_failed`, or `internal_error`). Validation
+failures use a list in `detail`; internal errors never expose exception
+messages or storage paths.
+
+Graphs expose a non-negative `revision`. `PUT /v1/graphs/{graph_id}` uses
+an integer `If-Match` header as a compare-and-swap token and returns `409`
+when another writer has committed a newer revision. Clients should reload
+the graph and retry their edit rather than blindly overwriting it.
+
 ## `methodos.schema` — Data Models
 
 ```python
@@ -11,7 +35,7 @@ from methodos.schema import (
     Attribute,  # condition, guidance, pitfalls (all required, max 2000 chars)
     Node,  # id (pattern), description
     Edge,  # src, dst (≠ src), relation, attribute
-    ProceduralGraph,  # id, schema_version=1, nodes, edges, terminal_ids, metadata
+    ProceduralGraph,  # id, revision, schema_version=1, nodes, edges, terminal_ids, metadata
     Edit,  # discriminated union over 5 variants
     EditAddNode,  # kind="add_node", node: Node
     EditDeleteNode,  # kind="delete_node", node_id: str

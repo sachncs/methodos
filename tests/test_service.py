@@ -118,6 +118,15 @@ class TestHealth:
             assert response.status_code == 429
             assert response.headers["retry-after"] == "60"
 
+    def test_negative_rate_limit_configuration_fails_fast(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_RATE_LIMIT_PER_MINUTE", "-1")
+        with pytest.raises(ValueError, match="non-negative"):
+            create_app(repo=seeded_repo, llm=ScriptedLLM())
+
     def test_configured_cors_allows_declared_origin(
         self,
         seeded_repo: SQLiteRepository,
@@ -154,6 +163,29 @@ class TestGetGraph:
         response = client.get("/v1/graphs/nope")
         assert response.status_code == 404
         assert response.json()["detail"] == "graph not found"
+        assert response.json()["code"] == "not_found"
+        assert response.json()["request_id"]
+
+    def test_legacy_repository_rejects_versioned_update(
+        self, seeded_repo: SQLiteRepository
+    ) -> None:
+        class LegacyRepository:
+            async def load_graph(self, graph_id: str) -> ProceduralGraph:
+                return await seeded_repo.load_graph(graph_id)
+
+            async def save_graph(self, graph: ProceduralGraph) -> None:
+                await seeded_repo.save_graph(graph)
+
+        app = create_app(repo=cast(Repository, LegacyRepository()), llm=ScriptedLLM())
+        with TestClient(app) as legacy_client:
+            graph = legacy_client.get("/v1/graphs/g1").json()
+            response = legacy_client.put(
+                "/v1/graphs/g1",
+                headers={"If-Match": "0"},
+                json=graph,
+            )
+        assert response.status_code == 501
+        assert response.json()["code"] == "not_implemented"
 
 
 # ----------------------------------------------------------------------------
@@ -295,6 +327,58 @@ class TestGetGuidance:
             json={"query": "Q?", "trajectory": [["only-action"]]},
         )
         assert response.status_code == 422
+        assert response.json()["code"] == "invalid_request"
+
+
+class TestUpdateGraph:
+    def test_requires_if_match(self, client: TestClient) -> None:
+        response = client.put("/v1/graphs/g1", json={"id": "g1"})
+        assert response.status_code == 428
+
+    def test_compare_and_swap_updates_graph(self, client: TestClient) -> None:
+        graph = client.get("/v1/graphs/g1").json()
+        graph["nodes"]["answer"]["description"] = "updated"
+        response = client.put(
+            "/v1/graphs/g1",
+            headers={"If-Match": "0"},
+            json=graph,
+        )
+        assert response.status_code == 200
+        assert response.json()["revision"] == 1
+        stale = client.put(
+            "/v1/graphs/g1",
+            headers={"If-Match": "0"},
+            json=graph,
+        )
+        assert stale.status_code == 409
+        assert stale.json()["code"] == "conflict"
+
+    def test_rejects_invalid_if_match(self, client: TestClient) -> None:
+        graph = client.get("/v1/graphs/g1").json()
+        response = client.put("/v1/graphs/g1", headers={"If-Match": "old"}, json=graph)
+        assert response.status_code == 400
+        assert response.json()["code"] == "invalid_request"
+
+    def test_rejects_negative_if_match(self, client: TestClient) -> None:
+        graph = client.get("/v1/graphs/g1").json()
+        response = client.put("/v1/graphs/g1", headers={"If-Match": "-1"}, json=graph)
+        assert response.status_code == 400
+
+    def test_rejects_path_body_mismatch(self, client: TestClient) -> None:
+        response = client.put(
+            "/v1/graphs/g1",
+            headers={"If-Match": "0"},
+            json={"id": "other"},
+        )
+        assert response.status_code == 422
+
+    def test_missing_graph_returns_404(self, client: TestClient) -> None:
+        response = client.put(
+            "/v1/graphs/missing",
+            headers={"If-Match": "0"},
+            json={"id": "missing"},
+        )
+        assert response.status_code == 404
 
 
 # ----------------------------------------------------------------------------

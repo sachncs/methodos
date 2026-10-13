@@ -97,12 +97,14 @@ class ProceduralGraph(BaseModel):
     - All `terminal_ids` refer to existing nodes.
     - All `edges[].src` and `edges[].dst` refer to existing nodes.
     - `schema_version` is pinned to 1; migration runner deferred to v2.
+    - `revision` is a non-negative optimistic-concurrency token.
     """
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     id: str = Field(min_length=1, max_length=128)
     schema_version: Literal[1] = 1
+    revision: int = Field(default=0, ge=0)
     nodes: dict[str, Node] = Field(default_factory=dict)
     edges: list[Edge] = Field(default_factory=list)
     terminal_ids: set[str] = Field(default_factory=set)

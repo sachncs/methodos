@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -9,7 +10,7 @@ import pytest
 from pydantic import BaseModel
 
 import methodos.llm as llm_module
-from methodos.llm import LiteLLMClient, LLMClient, LLMError
+from methodos.llm import CircuitBreaker, CircuitOpenError, LiteLLMClient, LLMClient, LLMError
 
 
 class SimpleSchema(BaseModel):
@@ -17,6 +18,28 @@ class SimpleSchema(BaseModel):
 
     answer: str
     confidence: float
+
+
+def test_circuit_breaker_opens_and_recovers() -> None:
+    """Repeated provider failures shed work, then permit a recovery probe."""
+    breaker = CircuitBreaker(failure_threshold=2, recovery_seconds=5.0)
+    breaker.record_failure()
+    assert breaker.allow_request()
+    breaker.record_failure()
+    assert breaker.is_open
+    assert not breaker.allow_request()
+    breaker.opened_at = time.monotonic() - 6.0
+    assert breaker.allow_request()
+    breaker.record_success()
+    assert not breaker.is_open
+    assert breaker.failure_count == 0
+
+
+def test_circuit_breaker_rejects_invalid_configuration() -> None:
+    with pytest.raises(ValueError, match="failure_threshold"):
+        CircuitBreaker(failure_threshold=0)
+    with pytest.raises(ValueError, match="recovery_seconds"):
+        CircuitBreaker(recovery_seconds=0)
 
 
 def test_llm_client_is_runtime_checkable_protocol() -> None:
@@ -53,6 +76,13 @@ def test_litellm_client_construct_rejects_non_positive_timeout() -> None:
 def test_litellm_client_construct_rejects_negative_max_retries() -> None:
     with pytest.raises(ValueError, match="max_retries must be non-negative"):
         LiteLLMClient(model="gpt-4o-mini", max_retries=-1)
+
+
+def test_litellm_client_rejects_invalid_budget_settings() -> None:
+    with pytest.raises(ValueError, match="retry_backoff_seconds"):
+        LiteLLMClient(model="gpt-4o-mini", retry_backoff_seconds=-1)
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        LiteLLMClient(model="gpt-4o-mini", max_output_tokens=0)
 
 
 def test_litellm_client_model_property() -> None:
@@ -170,6 +200,17 @@ async def test_litellm_complete_raises_llm_error_after_exhausting_retries(
     assert "failed after 3 attempts" in str(excinfo.value)
     assert isinstance(excinfo.value.__cause__, RuntimeError)
     assert "always fails" in str(excinfo.value.__cause__)
+
+
+async def test_litellm_complete_sheds_calls_when_circuit_is_open(
+    patched_litellm: dict[str, Any],
+) -> None:
+    breaker = CircuitBreaker(failure_threshold=1, recovery_seconds=60.0)
+    breaker.record_failure()
+    client = LiteLLMClient(model="gpt-4o-mini", circuit_breaker=breaker)
+    with pytest.raises(CircuitOpenError):
+        await client.complete(system="s", user="u")
+    assert patched_litellm["calls"] == []
 
 
 async def test_litellm_complete_does_not_retry_on_programmatic_error(

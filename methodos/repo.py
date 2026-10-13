@@ -148,12 +148,27 @@ class GraphAlreadyExistsError(RuntimeError):
     """Raised when an atomic graph creation finds an existing id."""
 
 
+class GraphRevisionConflictError(RuntimeError):
+    """Raised when a compare-and-swap graph update sees a stale revision."""
+
+
 @runtime_checkable
 class AtomicRepository(Protocol):
     """Optional repository capability for race-free graph creation."""
 
     async def create_graph(self, graph: ProceduralGraph) -> None:
         """Persist `graph`, failing if its id already exists."""
+        ...
+
+
+@runtime_checkable
+class VersionedRepository(Protocol):
+    """Optional capability for optimistic-concurrency graph updates."""
+
+    async def save_graph_if_revision(
+        self, graph: ProceduralGraph, expected_revision: int
+    ) -> ProceduralGraph:
+        """Save only when the stored revision equals the expected token."""
         ...
 
 
@@ -248,6 +263,9 @@ class FilesystemRepository:
         graph_dir = self.graph_dir(graph.id)
         graph_dir.mkdir(parents=True, exist_ok=True)
         target = graph_dir / "graph.json"
+        if target.exists():
+            existing = await self.load_graph(graph.id)
+            graph.revision = existing.revision + 1
         fd, tmp_path_str = tempfile.mkstemp(
             prefix="graph_",
             suffix=".json.tmp",
@@ -289,6 +307,20 @@ class FilesystemRepository:
             if tmp_path.exists():
                 tmp_path.unlink()
             os.close(fd)
+
+    async def save_graph_if_revision(
+        self, graph: ProceduralGraph, expected_revision: int
+    ) -> ProceduralGraph:
+        """Save a graph when its on-disk revision still matches."""
+        existing = await self.load_graph(graph.id)
+        if existing.revision != expected_revision:
+            raise GraphRevisionConflictError(
+                f"graph {graph.id!r} revision changed from {expected_revision} "
+                f"to {existing.revision}"
+            )
+        updated = graph.model_copy(update={"revision": existing.revision + 1})
+        await self.save_graph(updated)
+        return updated
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
@@ -469,7 +501,6 @@ class SQLiteRepository:
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
         """Upsert `graph`; uses UPDATE-then-INSERT so snapshot rows survive."""
-        body = graph.model_dump_json()
         ts = time.time()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("PRAGMA foreign_keys = ON")
@@ -477,17 +508,21 @@ class SQLiteRepository:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
-                    "SELECT 1 FROM graphs WHERE id = ?",
+                    "SELECT body FROM graphs WHERE id = ?",
                     (graph.id,),
                 ) as cur:
                     existing = await cur.fetchone()
                 if existing is None:
+                    body = graph.model_dump_json()
                     await db.execute(
                         "INSERT INTO graphs (id, schema_version, body, updated_at) "
                         "VALUES (?, ?, ?, ?)",
                         (graph.id, graph.schema_version, body, ts),
                     )
                 else:
+                    current = ProceduralGraph.model_validate_json(existing[0])
+                    graph.revision = current.revision + 1
+                    body = graph.model_dump_json()
                     await db.execute(
                         "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? "
                         "WHERE id = ?",
@@ -498,6 +533,44 @@ class SQLiteRepository:
                 await db.rollback()
                 raise
         logger.debug("saved graph %s", graph.id)
+
+    async def save_graph_if_revision(
+        self, graph: ProceduralGraph, expected_revision: int
+    ) -> ProceduralGraph:
+        """Compare and swap a graph in one SQLite write transaction."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT body FROM graphs WHERE id = ?", (graph.id,)
+                ) as cur:
+                    row = await cur.fetchone()
+                if row is None:
+                    raise FileNotFoundError(f"graph {graph.id!r} not found")
+                current = ProceduralGraph.model_validate_json(row[0])
+                if current.revision != expected_revision:
+                    raise GraphRevisionConflictError(
+                        f"graph {graph.id!r} revision changed from {expected_revision} "
+                        f"to {current.revision}"
+                    )
+                updated = graph.model_copy(update={"revision": current.revision + 1})
+                await db.execute(
+                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (
+                        updated.schema_version,
+                        updated.model_dump_json(),
+                        time.time(),
+                        graph.id,
+                    ),
+                )
+                await db.commit()
+                return updated
+            except Exception:
+                await db.rollback()
+                raise
 
     async def create_graph(self, graph: ProceduralGraph) -> None:
         """Create a graph atomically without replacing an existing graph."""
@@ -714,6 +787,7 @@ __all__ = [
     "AtomicRepository",
     "FilesystemRepository",
     "GraphAlreadyExistsError",
+    "GraphRevisionConflictError",
     "Repository",
     "SQLiteRepository",
     "ScoredMatch",
@@ -722,6 +796,7 @@ __all__ = [
     "Task",
     "Trajectory",
     "VectorIndex",
+    "VersionedRepository",
     "build_repository",
     "tail_tokens",
     "validate_storage_component",

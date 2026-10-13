@@ -23,7 +23,8 @@ from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
@@ -33,7 +34,14 @@ from starlette.middleware.base import RequestResponseEndpoint
 from methodos.graph import match_node, neighborhood
 from methodos.guidance import generate_guidance
 from methodos.llm import LiteLLMClient, LLMClient
-from methodos.repo import AtomicRepository, GraphAlreadyExistsError, Repository, build_repository
+from methodos.repo import (
+    AtomicRepository,
+    GraphAlreadyExistsError,
+    GraphRevisionConflictError,
+    Repository,
+    VersionedRepository,
+    build_repository,
+)
 from methodos.schema import ProceduralGraph
 
 logger = logging.getLogger(__name__)
@@ -113,6 +121,15 @@ class ReadinessResponse(BaseModel):
     status: str
 
 
+class ErrorResponse(BaseModel):
+    """Stable error envelope returned by every API failure."""
+
+    model_config = ConfigDict(extra="forbid")
+    detail: str | list[dict[str, object]]
+    code: str
+    request_id: str
+
+
 def validate_graph_id(graph_id: str) -> str:
     """Validate a graph identifier before it reaches a repository."""
     if re.fullmatch(GRAPH_ID_PATTERN, graph_id) is None:
@@ -161,6 +178,61 @@ def create_app(
         logger.info("methodos service stopped")
 
     app = FastAPI(title="methodos", version="0.1.0", lifespan=lifespan)
+
+    def error_payload(request: Request, detail: object, code: str) -> dict[str, object]:
+        """Build the documented error envelope without leaking internals."""
+        safe_detail: str | list[dict[str, object]]
+        if isinstance(detail, str):
+            safe_detail = detail
+        elif isinstance(detail, list) and all(isinstance(item, dict) for item in detail):
+            safe_detail = [dict(item) for item in detail]
+        else:
+            safe_detail = "request failed"
+        return {
+            "detail": safe_detail,
+            "code": code,
+            "request_id": getattr(request.state, "request_id", "unknown"),
+        }
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        """Return HTTP errors using the stable application envelope."""
+        code = {
+            401: "unauthorized",
+            400: "invalid_request",
+            404: "not_found",
+            409: "conflict",
+            422: "invalid_request",
+            428: "precondition_required",
+            429: "rate_limited",
+            501: "not_implemented",
+            503: "unavailable",
+        }.get(exc.status_code, "request_failed")
+        headers = dict(exc.headers or {})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_payload(request, exc.detail, code),
+            headers=headers,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Return Pydantic/FastAPI validation failures in the same envelope."""
+        return JSONResponse(
+            status_code=422,
+            content=error_payload(request, exc.errors(), "invalid_request"),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Hide implementation details while preserving a correlated log."""
+        logger.exception("unhandled request failure", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content=error_payload(request, "internal server error", "internal_error"),
+        )
     cors_origins = [
         origin.strip()
         for origin in os.environ.get("METHODOS_CORS_ORIGINS", "").split(",")
@@ -182,6 +254,7 @@ def create_app(
     ) -> Response:
         """Attach request correlation and baseline browser security headers."""
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        request.state.request_id = request_id
         started_at = time.perf_counter()
         public_path = request.url.path in {
             "/health",
@@ -200,7 +273,7 @@ def create_app(
             if len(window) >= configured_rate_limit:
                 limited_response: Response = JSONResponse(
                     status_code=429,
-                    content={"detail": "rate limit exceeded"},
+                    content=error_payload(request, "rate limit exceeded", "rate_limited"),
                     headers={"retry-after": "60"},
                 )
                 HTTP_REQUESTS.labels(request.method, "429").inc()
@@ -213,7 +286,9 @@ def create_app(
             if not secrets.compare_digest(supplied_key, configured_api_key):
                 auth_response: Response = JSONResponse(
                     status_code=401,
-                    content={"detail": "missing or invalid API key"},
+                    content=error_payload(
+                        request, "missing or invalid API key", "unauthorized"
+                    ),
                     headers={"www-authenticate": "ApiKey"},
                 )
                 HTTP_REQUESTS.labels(request.method, "401").inc()
@@ -334,6 +409,34 @@ def create_app(
         )
         return GuidanceResponse(guidance=guidance)
 
+    @app.put("/v1/graphs/{graph_id}", response_model=ProceduralGraph)
+    async def update_graph(
+        graph_id: str,
+        graph: ProceduralGraph,
+        if_match: str | None = Header(default=None, alias="If-Match"),
+        repo: Repository = Depends(get_repo),
+    ) -> ProceduralGraph:
+        """Compare-and-swap a graph using its integer `If-Match` revision."""
+        validate_graph_id(graph_id)
+        if graph.id != graph_id:
+            raise HTTPException(status_code=422, detail="body graph id does not match path")
+        if if_match is None:
+            raise HTTPException(status_code=428, detail="If-Match revision is required")
+        try:
+            expected_revision = int(if_match.strip('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="If-Match must be an integer revision") from None
+        if expected_revision < 0:
+            raise HTTPException(status_code=400, detail="If-Match must be non-negative")
+        if not isinstance(repo, VersionedRepository):
+            raise HTTPException(status_code=501, detail="repository does not support versioned updates")
+        try:
+            return await repo.save_graph_if_revision(graph, expected_revision)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="graph not found") from None
+        except GraphRevisionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.post(
         "/v1/graphs/{graph_id}/evolve",
         response_model=EvolveResponse,
@@ -363,6 +466,7 @@ app = create_app()
 
 
 __all__ = [
+    "ErrorResponse",
     "EvolveRequest",
     "EvolveResponse",
     "GraphCreateRequest",

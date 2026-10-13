@@ -12,6 +12,7 @@ import pytest
 from methodos.repo import (
     FilesystemRepository,
     GraphAlreadyExistsError,
+    GraphRevisionConflictError,
     Repository,
     ScoredMatch,
     SilentVectorIndex,
@@ -232,6 +233,13 @@ class TestFilesystemRepository:
         with pytest.raises(GraphAlreadyExistsError):
             await repo.create_graph(make_graph("g"))
 
+    async def test_compare_and_swap_updates_revision(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        updated = await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
+        assert updated.revision == 1
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
 
 # ----------------------------------------------------------------------------
 # SQLiteRepository
@@ -274,6 +282,22 @@ class TestSQLiteRepository:
         await repo.create_graph(make_graph("g"))
         with pytest.raises(GraphAlreadyExistsError):
             await repo.create_graph(make_graph("g"))
+
+    async def test_compare_and_swap_updates_revision(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+        updated = make_graph("g")
+        updated.nodes["answer"].description = "updated"
+        result = await repo.save_graph_if_revision(updated, expected_revision=0)
+        assert result.revision == 1
+        assert (await repo.load_graph("g")).revision == 1
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
+
+    async def test_compare_and_swap_missing_graph(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        with pytest.raises(FileNotFoundError):
+            await repo.save_graph_if_revision(make_graph("missing"), expected_revision=0)
 
     async def test_snapshot(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
