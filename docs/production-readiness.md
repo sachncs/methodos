@@ -52,6 +52,9 @@ system production-ready.
   evidence comes from the newest revision.
 - Evolution rollouts accept a polymorphic `ActionExecutor` strategy, so hosts
   can wire tools without monkeypatching module globals.
+- LLM attempts emit model/attempt OpenTelemetry spans and cancellation now has
+  an explicit rollout regression test; collector/exporter policy remains a
+  deployment concern.
 
 ## Open issues
 
@@ -70,8 +73,7 @@ system production-ready.
 5. CORS origins are validated at startup; deployment-specific allowlists still
    need operational review when domains change.
 6. The LLM client now enforces its timeout at the application boundary and
-   preserves task cancellation; end-to-end request cancellation tests remain
-   open.
+   preserves task cancellation; full HTTP disconnect testing remains open.
 7. Error responses use a documented envelope with stable codes and request IDs.
 
 ### Persistence and data integrity
@@ -108,7 +110,7 @@ system production-ready.
 20. Request metrics, OTEL spans, and structured completion events are now
     correlated with the request ID; exporter and retention policy remain
     deployment responsibilities.
-21. HTTP request spans are instrumented; downstream repository/LLM spans and
+21. HTTP and LLM spans are instrumented; downstream repository spans and
     collector configuration validation remain open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
 23. No load, soak, chaos, file-corruption, or cancellation tests exist; the

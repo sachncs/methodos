@@ -23,9 +23,11 @@ import time
 from typing import Any, Protocol, runtime_checkable
 
 import litellm
+from opentelemetry import trace
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+llm_tracer = trace.get_tracer("methodos.llm")
 
 
 @runtime_checkable
@@ -249,8 +251,15 @@ class LiteLLMClient:
                     f"LLM provider circuit is open for model {self.model}"
                 )
             try:
-                async with asyncio.timeout(self.timeout):
-                    response = await litellm.acompletion(**kwargs)
+                with llm_tracer.start_as_current_span("methodos.llm.attempt") as span:
+                    span.set_attribute("methodos.llm.model", self.model)
+                    span.set_attribute("methodos.llm.attempt", attempt + 1)
+                    try:
+                        async with asyncio.timeout(self.timeout):
+                            response = await litellm.acompletion(**kwargs)
+                    except Exception as exc:
+                        span.record_exception(exc)
+                        raise
                 content = response["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise LLMError(

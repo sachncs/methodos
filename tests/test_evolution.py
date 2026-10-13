@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 
@@ -147,6 +148,30 @@ class TestRunRollout:
         )
         assert result.success
         assert executor.actions == ["search"]
+
+    async def test_cancellation_propagates_through_action_executor(self) -> None:
+        started = asyncio.Event()
+
+        class HangingExecutor:
+            async def execute(self, action: str) -> str:
+                del action
+                started.set()
+                await asyncio.Event().wait()
+                return ""
+
+        rollout = asyncio.create_task(
+            run_rollout(
+                graph=make_sample_graph(),
+                solver=StaticSolver(action="search"),
+                llm=ScriptedLLM(),
+                task=Task(query="q"),
+                action_executor=HangingExecutor(),
+            )
+        )
+        await started.wait()
+        rollout.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await rollout
 
     async def test_max_steps_zero_does_nothing(self) -> None:
         solver = StaticSolver(action="FINISH")
