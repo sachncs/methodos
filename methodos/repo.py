@@ -187,6 +187,15 @@ class LifecycleRepository(Protocol):  # pragma: no cover - structural typing onl
         ...  # pragma: no cover
 
 
+@runtime_checkable
+class RateLimitRepository(Protocol):  # pragma: no cover - capability contract
+    """Optional capability for atomically shared request rate limits."""
+
+    async def consume_rate_limit(self, key: str, limit: int) -> tuple[bool, int]:
+        """Consume one request and return `(allowed, retry_after_seconds)`."""
+        ...  # pragma: no cover
+
+
 # ----------------------------------------------------------------------------
 # No-op VectorIndex
 # ----------------------------------------------------------------------------
@@ -703,6 +712,11 @@ CREATE TABLE IF NOT EXISTS methodos_snapshots (
     ts DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (graph_id, tag)
 );
+CREATE TABLE IF NOT EXISTS methodos_rate_limits (
+    key TEXT PRIMARY KEY,
+    window_started DOUBLE PRECISION NOT NULL,
+    request_count INTEGER NOT NULL
+);
 """
 
 
@@ -761,6 +775,30 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+    async def consume_rate_limit(self, key: str, limit: int) -> tuple[bool, int]:
+        """Atomically consume a request in a shared one-minute window."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        pool = await self._get_pool()
+        now = time.time()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO methodos_rate_limits (key, window_started, request_count)
+                VALUES ($1, $2, 1)
+                ON CONFLICT (key) DO UPDATE SET
+                    window_started = CASE WHEN $2 - methodos_rate_limits.window_started >= 60
+                        THEN $2 ELSE methodos_rate_limits.window_started END,
+                    request_count = CASE WHEN $2 - methodos_rate_limits.window_started >= 60
+                        THEN 1 ELSE methodos_rate_limits.request_count + 1 END
+                RETURNING window_started, request_count""",
+                key,
+                now,
+            )
+        window_started = float(row["window_started"])
+        request_count = int(row["request_count"])
+        retry_after = max(1, int(window_started + 60 - now))
+        return request_count <= limit, retry_after
 
     async def _get_pool(self) -> Any:
         await self.initialize()

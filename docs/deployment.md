@@ -37,7 +37,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
 | `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
-| `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | optional per-process request limit; `0` disables it |
+| `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres uses a shared window, SQLite/filesystem use per-process limiting; `0` disables it |
 
 ## CLI
 

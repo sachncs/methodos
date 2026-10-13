@@ -42,6 +42,13 @@ async def test_postgres_repository_round_trip_and_cas() -> None:
     graph = make_graph(graph_id)
     try:
         await repo.initialize()
+        rate_key = f"rate-{uuid4().hex}"
+        allowed, retry_after = await repo.consume_rate_limit(rate_key, 1)
+        assert allowed
+        assert 1 <= retry_after <= 60
+        allowed, retry_after = await repo.consume_rate_limit(rate_key, 1)
+        assert not allowed
+        assert 1 <= retry_after <= 60
         await repo.create_graph(graph)
         with pytest.raises(GraphAlreadyExistsError):
             await repo.create_graph(graph)
@@ -68,4 +75,5 @@ async def test_postgres_repository_round_trip_and_cas() -> None:
         if repo._pool is not None:
             async with repo._pool.acquire() as conn:
                 await conn.execute("DELETE FROM methodos_graphs WHERE id = $1", graph_id)
+                await conn.execute("DELETE FROM methodos_rate_limits WHERE key = $1", rate_key)
         await repo.close()

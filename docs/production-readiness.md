@@ -38,6 +38,8 @@ system production-ready.
   its startup schema is idempotent and lifecycle-managed by FastAPI.
 - Postgres CRUD, compare-and-swap, snapshots, trajectories, and cursor
   iteration run against a disposable database in CI and can be run locally.
+- Postgres-backed request windows are shared atomically across service
+  replicas; local backends retain the documented process-local limiter.
 
 ## Open issues
 
@@ -45,8 +47,9 @@ system production-ready.
 
 1. The REST evolution endpoint still returns 501 because a remote host Solver
    contract has not been designed.
-2. The built-in limiter is per-process only; there is no distributed rate
-   limiter or quota enforcement.
+2. Distributed rate limiting is implemented for the Postgres backend; quota
+   enforcement and shared limiting for SQLite/filesystem deployments remain
+   open.
 3. Tenant-key authentication and server-derived tenant identity now exist;
    roles, rotation, and an external identity provider are still open.
 4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable

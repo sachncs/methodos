@@ -41,6 +41,7 @@ from methodos.repo import (
     AtomicRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
+    RateLimitRepository,
     Repository,
     VersionedRepository,
     build_repository,
@@ -201,6 +202,9 @@ def create_app(
     if configured_rate_limit < 0:
         raise ValueError("METHODOS_RATE_LIMIT_PER_MINUTE must be non-negative")
     request_windows: defaultdict[str, deque[float]] = defaultdict(deque)
+    shared_rate_limiter = (
+        backend_repo if isinstance(backend_repo, RateLimitRepository) else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -314,20 +318,29 @@ def create_app(
                 if tenant_keys
                 else client_host
             )
-            window = request_windows[rate_key or client_host]
-            while window and now - window[0] >= 60:
-                window.popleft()
-            if len(window) >= configured_rate_limit:
+            if shared_rate_limiter is not None:
+                allowed, retry_after = await shared_rate_limiter.consume_rate_limit(
+                    hashlib.sha256((rate_key or client_host).encode()).hexdigest(),
+                    configured_rate_limit,
+                )
+            else:
+                window = request_windows[rate_key or client_host]
+                while window and now - window[0] >= 60:
+                    window.popleft()
+                allowed = len(window) < configured_rate_limit
+                retry_after = 60
+                if allowed:
+                    window.append(now)
+            if not allowed:
                 limited_response: Response = JSONResponse(
                     status_code=429,
                     content=error_payload(request, "rate limit exceeded", "rate_limited"),
-                    headers={"retry-after": "60"},
+                    headers={"retry-after": str(retry_after)},
                 )
                 HTTP_REQUESTS.labels(request.method, "429").inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
                 limited_response.headers["x-request-id"] = request_id
                 return limited_response
-            window.append(now)
         if (configured_api_key or tenant_keys) and not public_path:
             try:
                 tenant_id, _ = tenant_auth(request)
