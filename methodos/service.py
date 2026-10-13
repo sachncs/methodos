@@ -203,7 +203,14 @@ def create_app(
             model="gpt-4o-mini",
         )
     )
-    configured_api_key = os.environ.get("METHODOS_API_KEY", "").strip()
+    configured_api_keys = tuple(
+        key.strip()
+        for key in os.environ.get("METHODOS_API_KEYS", "").split(",")
+        if key.strip()
+    )
+    if not configured_api_keys:
+        legacy_api_key = os.environ.get("METHODOS_API_KEY", "").strip()
+        configured_api_keys = (legacy_api_key,) if legacy_api_key else ()
     configured_tenant_keys = os.environ.get("METHODOS_TENANT_KEYS", "").strip()
     tenant_keys: dict[str, str] = {}
     if configured_tenant_keys:
@@ -312,7 +319,7 @@ def create_app(
     ]
     cors_origins = validate_cors_origins(
         cors_origins,
-        authenticated=bool(configured_api_key or tenant_keys),
+        authenticated=bool(configured_api_keys or tenant_keys),
     )
     if cors_origins:
         app.add_middleware(
@@ -371,7 +378,7 @@ def create_app(
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
                 limited_response.headers["x-request-id"] = request_id
                 return limited_response
-        if (configured_api_key or tenant_keys) and not public_path:
+        if (configured_api_keys or tenant_keys) and not public_path:
             try:
                 tenant_id, _ = tenant_auth(request)
             except HTTPException as exc:
@@ -459,7 +466,10 @@ def create_app(
                         raise HTTPException(status_code=403, detail="tenant mismatch")
                     return tenant_id, supplied_key
             raise HTTPException(status_code=401, detail="missing or invalid API key")
-        if configured_api_key and not secrets.compare_digest(supplied_key, configured_api_key):
+        if configured_api_keys and not any(
+            secrets.compare_digest(supplied_key, configured_key)
+            for configured_key in configured_api_keys
+        ):
             raise HTTPException(status_code=401, detail="missing or invalid API key")
         if requested_tenant and requested_tenant != configured_tenant_id:
             raise HTTPException(status_code=403, detail="tenant mismatch")

@@ -40,6 +40,8 @@ system production-ready.
   iteration run against a disposable database in CI and can be run locally.
 - Postgres-backed request windows are shared atomically across service
   replicas; local backends retain the documented process-local limiter.
+- Static API authentication supports overlapping keys for zero-downtime
+  rotation; external identity and role management remain deployment work.
 
 ## Open issues
 
@@ -51,7 +53,7 @@ system production-ready.
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.
 3. Tenant-key authentication and server-derived tenant identity now exist;
-   roles, rotation, and an external identity provider are still open.
+   roles and an external identity provider are still open.
 4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable
    repository and per-tenant ownership metadata are still required for
    horizontal deployments.

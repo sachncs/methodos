@@ -106,6 +106,21 @@ class TestHealth:
             ).status_code == 200
             assert protected_client.get("/health").status_code == 200
 
+    def test_overlapping_api_keys_support_rotation(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_API_KEYS", "old-secret,new-secret")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as protected_client:
+            assert protected_client.get(
+                "/v1/graphs/g1", headers={"x-api-key": "old-secret"}
+            ).status_code == 200
+            assert protected_client.get(
+                "/v1/graphs/g1", headers={"x-api-key": "new-secret"}
+            ).status_code == 200
+
     def test_rate_limit_returns_retryable_429(
         self,
         seeded_repo: SQLiteRepository,
