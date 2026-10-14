@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 JOB_STATUSES = frozenset({"queued", "running", "succeeded", "failed", "cancelled"})
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +46,16 @@ class EvolutionJobCounts:
     queued: int
     running: int
     failed: int
+
+
+@dataclass(frozen=True, slots=True)
+class EvolutionWorkerHealth:
+    """Operational heartbeat state for a supervised worker."""
+
+    running: bool
+    last_heartbeat: float | None
+    consecutive_errors: int
+    last_error: str | None
 
 
 class JobIdempotencyConflictError(RuntimeError):
@@ -588,6 +600,19 @@ class EvolutionJobWorker:
         self.executor = executor
         self.max_attempts = max_attempts
         self.lease_seconds = lease_seconds
+        self._running = False
+        self._last_heartbeat: float | None = None
+        self._consecutive_errors = 0
+        self._last_error: str | None = None
+
+    def health(self) -> EvolutionWorkerHealth:
+        """Return a snapshot suitable for liveness metrics and probes."""
+        return EvolutionWorkerHealth(
+            running=self._running,
+            last_heartbeat=self._last_heartbeat,
+            consecutive_errors=self._consecutive_errors,
+            last_error=self._last_error,
+        )
 
     async def run_once(self) -> bool:
         """Claim and execute one job; return `False` when the queue is empty."""
@@ -619,13 +644,28 @@ class EvolutionJobWorker:
         """Process jobs until `stop_event` is set or the task is cancelled."""
         if poll_interval <= 0:
             raise ValueError("poll_interval must be positive")
-        while not stop_event.is_set():
-            processed = await self.run_once()
-            if not processed:
+        self._running = True
+        try:
+            while not stop_event.is_set():
+                self._last_heartbeat = time.time()
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
-                except TimeoutError:
-                    continue
+                    processed = await self.run_once()
+                    self._consecutive_errors = 0
+                    self._last_error = None
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._consecutive_errors += 1
+                    self._last_error = type(exc).__name__
+                    logger.exception("evolution worker loop failed")
+                    processed = False
+                if not processed:
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+                    except TimeoutError:
+                        continue
+        finally:
+            self._running = False
 
 
 class StoreBackedEvolutionRunner:

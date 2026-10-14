@@ -38,7 +38,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from methodos.graph import match_node, neighborhood
 from methodos.guidance import generate_guidance
-from methodos.jobs import EvolutionJobMetricsStore
+from methodos.jobs import EvolutionJobMetricsStore, EvolutionJobWorker
 from methodos.llm import LiteLLMClient, LLMClient
 from methodos.repo import (
     AtomicRepository,
@@ -72,6 +72,11 @@ HTTP_LATENCY = Histogram(
 EVOLUTION_JOBS = Gauge(
     "methodos_evolution_jobs",
     "Evolution jobs by queue state.",
+    ["state"],
+)
+EVOLUTION_WORKER = Gauge(
+    "methodos_evolution_worker",
+    "Evolution worker liveness signals.",
     ["state"],
 )
 
@@ -272,6 +277,7 @@ def create_app(
     repo: Repository | None = None,
     llm: LLMClient | None = None,
     evolution_runner: EvolutionRunner | None = None,
+    evolution_worker: EvolutionJobWorker | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to the given (or default-built) backend.
 
@@ -281,6 +287,8 @@ def create_app(
         llm: LLMClient implementation. Defaults to LiteLLMClient with
             model `gpt-4o-mini` (override via `OPENAI_API_KEY` env var).
         evolution_runner: optional host-owned evolution job launcher.
+        evolution_worker: optional supervised worker whose liveness is exported
+            through `/metrics`.
     """
     backend_repo: Repository = repo if repo is not None else build_repository()
     backend_llm: LLMClient = (
@@ -617,6 +625,11 @@ def create_app(
                 EVOLUTION_JOBS.labels("failed").set(counts.failed)
             except Exception:
                 logger.exception("evolution job metrics probe failed")
+        if evolution_worker is not None:
+            health = evolution_worker.health()
+            EVOLUTION_WORKER.labels("running").set(int(health.running))
+            EVOLUTION_WORKER.labels("consecutive_errors").set(health.consecutive_errors)
+            EVOLUTION_WORKER.labels("last_heartbeat").set(health.last_heartbeat or 0)
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/v1/graphs/{graph_id}", response_model=ProceduralGraph)

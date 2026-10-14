@@ -161,7 +161,11 @@ class TestSQLiteEvolutionJobStore:
                 del claimed
                 stop_event.set()
 
-        await EvolutionJobWorker(store, Executor()).run_forever(stop_event, poll_interval=0.01)
+        worker = EvolutionJobWorker(store, Executor())
+        await worker.run_forever(stop_event, poll_interval=0.01)
+        health = worker.health()
+        assert not health.running
+        assert health.last_heartbeat is not None
         with pytest.raises(ValueError):
             await EvolutionJobWorker(store, Executor()).run_forever(
                 asyncio.Event(), poll_interval=0
