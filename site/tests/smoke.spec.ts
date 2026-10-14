@@ -65,7 +65,7 @@ test("not-found route stays within the accessibility budget", async ({ page }) =
 
 test("not-found composition stays visually stable", async ({ page }) => {
   await page.goto("/404.html");
-  await expect(page.locator(".not-found")).toHaveScreenshot("not-found.png", {
+  await expect(page).toHaveScreenshot("not-found.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixelRatio: 0.05,
