@@ -21,6 +21,7 @@ from methodos.repo import (
 )
 from methodos.schema import Node, ProceduralGraph
 from methodos.service import (
+    EvolutionJobStatus,
     EvolveResponse,
     GraphCreateRequest,
     GuidanceResponse,
@@ -502,10 +503,10 @@ class TestEvolveEndpoint:
                 assert request_id
                 return "job-1"
 
-            async def status(self, job_id: str):
+            async def status(self, job_id: str) -> EvolutionJobStatus | None:
                 if job_id != "job-1":
                     return None
-                return {"job_id": job_id, "status": "running", "detail": "working"}
+                return EvolutionJobStatus(job_id=job_id, status="running", detail="working")
 
         app = create_app(
             repo=seeded_repo,
@@ -549,8 +550,8 @@ class TestEvolveEndpoint:
                 del graph_id, k_rounds, request_id
                 return "job-basic"
 
-            async def status(self, job_id: str):
-                return {"job_id": job_id, "status": "queued"}
+            async def status(self, job_id: str) -> EvolutionJobStatus:
+                return EvolutionJobStatus(job_id=job_id, status="queued")
 
             async def start_idempotent(
                 self,
@@ -591,8 +592,8 @@ class TestEvolveEndpoint:
                 del graph_id, k_rounds, request_id
                 return "job-1"
 
-            async def status(self, job_id: str):
-                return {"job_id": job_id, "status": "queued"}
+            async def status(self, job_id: str) -> EvolutionJobStatus:
+                return EvolutionJobStatus(job_id=job_id, status="queued")
 
         app = create_app(
             repo=seeded_repo,
