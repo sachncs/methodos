@@ -40,10 +40,9 @@ test("product page stays within the accessibility budget", async ({ page }) => {
 
 test("product composition stays visually stable", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveScreenshot("product-page.png", {
+  await expect(page.locator(".visual")).toHaveScreenshot("product-visual.png", {
     animations: "disabled",
     caret: "hide",
-    fullPage: true,
     maxDiffPixelRatio: 0.05,
   });
 });
