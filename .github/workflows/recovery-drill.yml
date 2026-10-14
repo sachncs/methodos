@@ -1,0 +1,39 @@
+name: recovery-drill
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recovery-drill
+  cancel-in-progress: true
+
+jobs:
+  sqlite-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.9.x"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync runtime dependencies
+        run: uv sync --frozen
+
+      - name: Create recovery canary
+        run: |
+          drill_database="$(mktemp)"
+          echo "DRILL_DATABASE=${drill_database}" >> "$GITHUB_ENV"
+          uv run python -c 'import asyncio, sys; from methodos.repo import SQLiteRepository; from methodos.schema import Node, ProceduralGraph; repository = SQLiteRepository(db_path=sys.argv[1]); asyncio.run(repository.save_graph(ProceduralGraph(id="scheduled-canary", nodes={"start": Node(id="start")}, terminal_ids={"start"})))' "$drill_database"
+
+      - name: Verify backup and restore
+        run: uv run python scripts/sqlite_restore_drill.py "$DRILL_DATABASE" --graph-id scheduled-canary

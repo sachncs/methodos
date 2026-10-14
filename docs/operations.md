@@ -104,6 +104,11 @@ its dashboard status; retain the drill evidence with the release.
   Add `--graph-id` when a known canary graph should be read from the reopened
   backup. Managed Postgres providers still require an equivalent provider-side
   dump/restore drill.
+- GitHub Actions also runs the SQLite canary drill weekly through
+  `.github/workflows/recovery-drill.yml` and supports an explicit
+  `workflow_dispatch` run. This verifies the repository's backup and reopen
+  path independently of application feature changes; managed-Postgres drills
+  still belong to the deployment environment.
 - Keep API keys, provider credentials, signing identity, and telemetry export
   credentials outside source control.
 - Define dashboard ownership and an error-budget policy before enabling paging
