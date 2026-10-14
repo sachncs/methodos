@@ -57,6 +57,21 @@ test("branded not-found route and crawl metadata are available", async ({ page }
   expect(sitemap.status()).toBe(200);
 });
 
+test("not-found route stays within the accessibility budget", async ({ page }) => {
+  await page.goto("/404.html");
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test("not-found composition stays visually stable", async ({ page }) => {
+  await page.goto("/404.html");
+  await expect(page.locator(".not-found")).toHaveScreenshot("not-found.png", {
+    animations: "disabled",
+    caret: "hide",
+    maxDiffPixelRatio: 0.05,
+  });
+});
+
 test("product composition stays visually stable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".visual")).toHaveScreenshot("product-visual.png", {

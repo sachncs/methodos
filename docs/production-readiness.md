@@ -293,8 +293,8 @@ system production-ready.
 27. The redesigned site is deployed and publicly verified at the GitHub Pages
     URL.
 28. Browser regression smoke tests, axe-core accessibility-budget checks, and
-    product-page visual snapshots run in CI for desktop and mobile; broader
-    multi-page visual coverage remains open.
+    product-page plus branded 404 visual snapshots run in CI for desktop and
+    mobile; broader page coverage should be added if the site grows.
 
 ## Remediation plan
 
@@ -305,8 +305,8 @@ system production-ready.
   vulnerability scanning, coverage, Google-style linting, enforced formatting,
   typing across package/evaluation/example code, and container gates.
 - Remaining: add broader multi-page visual coverage if the site grows beyond
-  the current product page; require branch protection and review ownership in
-  repository settings.
+  the current product page and branded 404 route; require branch protection
+  and review ownership in repository settings.
 
 ### Phase 2 — service contract
 
