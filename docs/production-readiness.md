@@ -203,45 +203,47 @@ system production-ready.
 
 ### Phase 1 — release gate
 
-- Push the Astro migration and verify the deployed URL.
-- Add browser smoke tests for desktop/mobile layout, navigation, links,
-  accessibility landmarks, and the audited accessibility budget.
-- Add Docker image scanning, SBOM, and CI artifact retention.
-- Require Python, frontend, container, and coverage checks on pull requests.
+- Done: Astro migration, GitHub Pages deployment, responsive product redesign,
+  logo, browser smoke tests, axe-core checks, visual snapshots, SBOM,
+  vulnerability scanning, coverage, lint, typing, and container gates.
+- Remaining: add broader multi-page visual coverage if the site grows beyond
+  the current product page; require branch protection and review ownership in
+  repository settings.
 
 ### Phase 2 — service contract
 
-- Define a versioned error envelope and documented authentication model.
-- Add rate limiting and quotas backed by a shared store; Postgres and SQLite
-  rate-limit windows are now implemented, while filesystem deployments remain
-  development-only for this control.
-- Add tenant ownership to durable graph records and enforce authorization at
-  every repository operation in the shared backend.
-- Design a safe REST evolution job model with idempotency keys and status
-  polling.
+- Done: stable error envelope, API-key authentication and roles, CORS
+  validation, shared SQLite/Postgres rate-limit windows, tenant namespaces,
+  tenant-aware jobs, idempotency, and queued evolution status polling.
+- Remaining: integrate an external identity provider, manage key/role
+  lifecycle, add graph-level quotas, and make production scheduler ownership
+  explicit for each deployment.
 
 ### Phase 3 — durable data layer
 
-- Extend contention tests around the existing graph revision tokens and
-  compare-and-swap writes across every durable backend.
-- Add reviewed schema migrations and data-model compatibility tests whenever
-  schema version 2 is introduced.
-- Add migration runners and backup/restore verification around the
-  transactional repository; Postgres integration tests are now in place.
-- Add backup/restore verification and corruption handling.
+- Done: forward-only migrations, revision-safe CAS, SQLite backup creation and
+  verification, snapshot restore, filesystem corruption quarantine, and
+  SQLite/Postgres integration paths.
+- Remaining: expand cross-process contention tests, run scheduled SQLite
+  restore drills, document retention/RPO/RTO, validate managed-Postgres
+  restore procedures, and add operator recovery automation for SQLite
+  corruption.
 
 ### Phase 4 — dependable intelligence
 
-- Classify provider errors, add circuit breakers and fallback providers.
-- Enforce token/cost budgets and cancellation propagation; in-process,
-  SQLite-backed, and Postgres-backed token-budget implementations are now
-  available, with provider-price policy still requiring deployment decisions.
-- Add auditable evolution proposals, approvals, snapshots, rollback, and
-  release promotion.
+- Done: provider error classification, bounded retries, failover, local and
+  shared circuit breakers, cancellation propagation, durable token budgets,
+  audit events, snapshots, and revision-safe rollback.
+- Remaining: add provider-SDK-specific mappings, pricing-aware cost budgets,
+  human approval/identity records, signed release promotion, and explicit
+  policy for which tenant may promote a graph.
 
 ### Phase 5 — operations
 
-- Instrument traces and structured logs with request correlation.
-- Define SLOs and alerts for latency, error rate, LLM failures, queue depth,
-  storage health, and evolution regressions.
-- Add load, soak, fault-injection, and live-provider test environments.
+- Done: request-correlated structured logs, OTEL spans, Prometheus metrics,
+  SLOs, alert rules, Prometheus and Collector syntax validation, runbook,
+  fault-injection tests, and container signing/attestation.
+- Remaining: assign dashboard/paging ownership, define retention and
+  error-budget policy, run sustained load/soak/chaos tests, add full HTTP
+  disconnect tests, enable credentialed live-provider suites, and independently
+  verify release signatures.
