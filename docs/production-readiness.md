@@ -129,7 +129,8 @@ system production-ready.
 20. Request metrics, OTEL spans, and structured completion events are now
     correlated with the request ID; exporter and retention policy remain
     deployment responsibilities.
-21. HTTP, repository-boundary, and LLM spans are instrumented; collector
+21. HTTP, repository-boundary, and LLM spans are instrumented; low-cardinality
+    LLM attempt outcome counters are exported through `/metrics`. Collector
     configuration validation remains open.
 22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now

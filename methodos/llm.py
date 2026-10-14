@@ -26,10 +26,16 @@ from typing import Any, Protocol, runtime_checkable
 
 import litellm
 from opentelemetry import trace
+from prometheus_client import Counter
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 llm_tracer = trace.get_tracer("methodos.llm")
+LLM_ATTEMPTS = Counter(
+    "methodos_llm_attempts_total",
+    "LLM provider attempts by model and outcome.",
+    ["model", "outcome"],
+)
 
 
 @runtime_checkable
@@ -273,11 +279,15 @@ class LiteLLMClient:
             Assistant text (or JSON string if `json_schema` is set).
         """
         if self.budget is not None:
-            self.budget.reserve(
-                system=system,
-                user=user,
-                output_tokens=self.max_output_tokens,
-            )
+            try:
+                self.budget.reserve(
+                    system=system,
+                    user=user,
+                    output_tokens=self.max_output_tokens,
+                )
+            except BudgetExceededError:
+                LLM_ATTEMPTS.labels(self.model, "budget_rejected").inc()
+                raise
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -306,9 +316,11 @@ class LiteLLMClient:
         total_attempts = self.max_retries + 1
         for attempt in range(total_attempts):
             if not self.circuit_breaker.allow_request():
+                LLM_ATTEMPTS.labels(self.model, "circuit_open").inc()
                 raise CircuitOpenError(
                     f"LLM provider circuit is open for model {self.model}"
                 )
+            LLM_ATTEMPTS.labels(self.model, "started").inc()
             try:
                 with llm_tracer.start_as_current_span("methodos.llm.attempt") as span:
                     span.set_attribute("methodos.llm.model", self.model)
@@ -325,10 +337,13 @@ class LiteLLMClient:
                         f"expected str content from {self.model}, got {type(content).__name__}"
                     )
                 self.circuit_breaker.record_success()
+                LLM_ATTEMPTS.labels(self.model, "succeeded").inc()
                 return content
             except LLMError:
+                LLM_ATTEMPTS.labels(self.model, "failed").inc()
                 raise
             except Exception as exc:
+                LLM_ATTEMPTS.labels(self.model, "failed").inc()
                 last_exc = exc
                 logger.warning(
                     "litellm attempt %d/%d for model %s failed: %s",
@@ -415,6 +430,7 @@ class FailoverLLMClient:
 
 
 __all__ = [
+    "LLM_ATTEMPTS",
     "BudgetExceededError",
     "CircuitBreaker",
     "CircuitOpenError",
