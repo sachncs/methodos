@@ -97,6 +97,12 @@ jobs:
             otel/opentelemetry-collector-contrib:0.110.0 \
             validate --config=/etc/otelcol/config.yaml
 
+      - name: Run SQLite backup and restore drill
+        run: |
+          drill_database="$(mktemp)"
+          uv run python -c 'import asyncio, sys; from methodos.repo import SQLiteRepository; from methodos.schema import Node, ProceduralGraph; repository = SQLiteRepository(db_path=sys.argv[1]); asyncio.run(repository.save_graph(ProceduralGraph(id="ci-canary", nodes={"start": Node(id="start")}, terminal_ids={"start"})))' "$drill_database"
+          uv run python scripts/sqlite_restore_drill.py "$drill_database" --graph-id ci-canary
+
       - name: Generate container SBOM
         uses: anchore/sbom-action@v0.24.3
         with:
