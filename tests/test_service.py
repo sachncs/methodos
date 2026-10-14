@@ -119,6 +119,9 @@ class TestHealth:
             )
         assert response.status_code == 413
         assert response.json()["code"] == "request_too_large"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["referrer-policy"] == "no-referrer"
 
     def test_metrics_include_store_backed_evolution_queue(
         self,

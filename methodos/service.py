@@ -453,6 +453,15 @@ def create_app(
             status_code=500,
             content=error_payload(request, "internal server error", "internal_error"),
         )
+
+    def harden_response(response: Response, request_id: str) -> Response:
+        """Attach correlation and browser-security headers to every response."""
+        response.headers["x-request-id"] = request_id
+        response.headers["x-content-type-options"] = "nosniff"
+        response.headers["x-frame-options"] = "DENY"
+        response.headers["referrer-policy"] = "no-referrer"
+        return response
+
     cors_origins = [
         origin.strip()
         for origin in os.environ.get("METHODOS_CORS_ORIGINS", "").split(",")
@@ -499,10 +508,7 @@ def create_app(
                 )
                 HTTP_REQUESTS.labels(request.method, "413").inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
-                oversized_response.headers["x-request-id"] = request_id
-                oversized_response.headers["x-content-type-options"] = "nosniff"
-                oversized_response.headers["x-frame-options"] = "DENY"
-                return oversized_response
+                return harden_response(oversized_response, request_id)
         public_path = request.url.path in {
             "/health",
             "/ready",
@@ -540,8 +546,7 @@ def create_app(
                 )
                 HTTP_REQUESTS.labels(request.method, "429").inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
-                limited_response.headers["x-request-id"] = request_id
-                return limited_response
+                return harden_response(limited_response, request_id)
         if (configured_api_keys or tenant_keys) and not public_path:
             try:
                 tenant_id, _ = tenant_auth(request)
@@ -556,8 +561,7 @@ def create_app(
                 )
                 HTTP_REQUESTS.labels(request.method, str(exc.status_code)).inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
-                auth_response.headers["x-request-id"] = request_id
-                return auth_response
+                return harden_response(auth_response, request_id)
             request.state.tenant_id = tenant_id
         with request_tracer.start_as_current_span("methodos.http.request") as span:
             span.set_attribute("http.request.method", request.method)
@@ -576,11 +580,7 @@ def create_app(
             status_code=response.status_code,
             duration_seconds=round(duration, 6),
         )
-        response.headers["x-request-id"] = request_id
-        response.headers["x-content-type-options"] = "nosniff"
-        response.headers["x-frame-options"] = "DENY"
-        response.headers["referrer-policy"] = "no-referrer"
-        return response
+        return harden_response(response, request_id)
 
     def get_repo() -> Repository:
         repo: Repository = app.state.repo
