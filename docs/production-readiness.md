@@ -46,6 +46,8 @@ system production-ready.
   service processes; filesystem retains the documented process-local limiter.
 - Static API authentication supports overlapping keys for zero-downtime
   rotation; external identity and role management remain deployment work.
+- API-key role mappings fail startup when they reference an unconfigured key,
+  preventing silent least-privilege configuration drift.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
 - SQLite has an online, atomic, integrity-checked backup capability exposed

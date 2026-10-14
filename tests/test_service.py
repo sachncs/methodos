@@ -37,6 +37,7 @@ from methodos.service import (
     HealthResponse,
     create_app,
     parse_api_key_roles,
+    validate_api_key_roles,
     validate_cors_origins,
 )
 from tests.conftest import ScriptedLLM
@@ -138,6 +139,16 @@ class TestHealth:
         }
         with pytest.raises(ValueError, match="invalid key or role"):
             parse_api_key_roles("read=unknown")
+
+    def test_rejects_roles_for_unconfigured_keys(self) -> None:
+        with pytest.raises(ValueError, match="not configured"):
+            validate_api_key_roles({"missing": frozenset({"reader"})}, ("active",))
+
+    def test_accepts_roles_for_configured_keys(self) -> None:
+        validate_api_key_roles(
+            {"reader-key": frozenset({"reader"}), "writer-key": frozenset({"writer"})},
+            ("reader-key", "writer-key"),
+        )
 
     def test_health_returns_ok(self, client: TestClient) -> None:
         response = client.get("/health")

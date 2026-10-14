@@ -321,6 +321,22 @@ def parse_api_key_roles(raw: str) -> dict[str, frozenset[str]]:
     return roles_by_key
 
 
+def validate_api_key_roles(
+    roles_by_key: dict[str, frozenset[str]], configured_keys: tuple[str, ...]
+) -> None:
+    """Reject role assignments that cannot affect an authenticated key.
+
+    A typo in a production role mapping must fail startup instead of creating
+    a false impression that a key has been restricted.
+    """
+    unknown_keys = sorted(set(roles_by_key) - set(configured_keys))
+    if unknown_keys:
+        raise ValueError(
+            "METHODOS_API_KEY_ROLES contains keys that are not configured: "
+            + ", ".join(repr(key) for key in unknown_keys)
+        )
+
+
 def _optional_positive_int(name: str) -> int | None:
     """Parse an optional positive integer environment setting."""
     raw = os.environ.get(name, "").strip()
@@ -439,6 +455,10 @@ def create_app(
         os.environ.get("METHODOS_TENANT_ID", "default").strip() or "default"
     )
     api_key_roles = parse_api_key_roles(os.environ.get("METHODOS_API_KEY_ROLES", ""))
+    validate_api_key_roles(
+        api_key_roles,
+        tuple(tenant_keys.values()) if tenant_keys else configured_api_keys,
+    )
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:
         raise ValueError("METHODOS_RATE_LIMIT_PER_MINUTE must be non-negative")
