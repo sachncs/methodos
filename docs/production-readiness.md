@@ -208,7 +208,8 @@ system production-ready.
 
 - Done: Astro migration, GitHub Pages deployment, responsive product redesign,
   logo, browser smoke tests, axe-core checks, visual snapshots, SBOM,
-  vulnerability scanning, coverage, lint, typing, and container gates.
+  vulnerability scanning, coverage, Google-style linting, enforced formatting,
+  typing, and container gates.
 - Remaining: add broader multi-page visual coverage if the site grows beyond
   the current product page; require branch protection and review ownership in
   repository settings.
