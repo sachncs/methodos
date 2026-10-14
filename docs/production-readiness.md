@@ -33,6 +33,8 @@ system production-ready.
 - Graph updates use optimistic concurrency via revision tokens and `If-Match`.
 - CI generates an SBOM, scans the container, retains the SBOM artifact, and
   runs desktop/mobile browser smoke tests.
+- Tagged releases publish the runtime image to GHCR with BuildKit SBOM and
+  provenance attestations, then sign the immutable digest with keyless Cosign.
 - Tagged releases are validated and published by `.github/workflows/release.yml`.
 - An optional pooled Postgres repository supports horizontal service replicas;
   its startup schema is idempotent and lifecycle-managed by FastAPI.
@@ -126,8 +128,9 @@ system production-ready.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
     cover basic contention; load, soak, chaos, file-corruption, and broader
     cancellation tests remain open.
-24. The Docker image is built, scanned, and has an SBOM in CI; signing and
-    provenance attestation are not yet enforced.
+24. CI scans the Docker image; tagged releases now publish, attest, and
+    keylessly sign the immutable GHCR image digest. Registry retention and
+    independent signature verification remain operational controls.
 
 ### Delivery and governance
 
