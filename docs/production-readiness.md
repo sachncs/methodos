@@ -69,7 +69,9 @@ system production-ready.
   restarts and atomically deduplicates idempotency keys; the optional
   `PostgresEvolutionJobStore` provides the same contract for horizontal
   deployments. `EvolutionJobWorker` now atomically claims jobs and records
-  success, failure, and cancellation around an injected executor.
+  success, failure, and cancellation around an injected executor; persisted
+  leases, bounded retries, and expired-lease recovery prevent abandoned jobs
+  from remaining stuck indefinitely.
 
 ## Open issues
 
@@ -79,8 +81,8 @@ system production-ready.
    a queued job contract, supports authenticated status polling, and exposes a
    fail-closed `Idempotency-Key` capability for runners that guarantee
    deduplication; the default app still returns 501 without a durable runner,
-   and production scheduling, retry policy, and worker liveness supervision
-   remain open.
+   and production scheduling, queue-depth telemetry, and worker liveness
+   supervision remain open.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.

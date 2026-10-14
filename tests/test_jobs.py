@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -108,7 +109,7 @@ class TestSQLiteEvolutionJobStore:
                 del claimed
                 raise RuntimeError("boom")
 
-        assert await EvolutionJobWorker(store, FailingExecutor()).run_once()
+        assert await EvolutionJobWorker(store, FailingExecutor(), max_attempts=1).run_once()
         failed_record = await store.get(failed.job_id)
         assert failed_record is not None
         assert failed_record.status == "failed"
@@ -126,6 +127,80 @@ class TestSQLiteEvolutionJobStore:
         assert cancelled_record is not None
         assert cancelled_record.status == "cancelled"
 
+    async def test_worker_retries_before_failing(self, store: SQLiteEvolutionJobStore) -> None:
+        job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+        attempts = 0
+
+        class RetryExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                nonlocal attempts
+                assert claimed.job_id == job.job_id
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("transient")
+
+        worker = EvolutionJobWorker(store, RetryExecutor(), max_attempts=2)
+        assert await worker.run_once()
+        queued = await store.get(job.job_id)
+        assert queued is not None
+        assert queued.status == "queued"
+        assert await worker.run_once()
+        completed = await store.get(job.job_id)
+        assert completed is not None
+        assert completed.status == "succeeded"
+
+    async def test_expired_lease_is_recovered(self, store: SQLiteEvolutionJobStore) -> None:
+        job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+        claimed = await store.claim_next(lease_seconds=0.01)
+        assert claimed is not None
+        await asyncio.sleep(0.02)
+        assert await store.recover_expired(max_attempts=2) == 1
+        recovered = await store.get(job.job_id)
+        assert recovered is not None
+        assert recovered.status == "queued"
+
+    async def test_expired_lease_reaches_failure_after_attempt_limit(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+        assert await store.claim_next(lease_seconds=0.01) is not None
+        await asyncio.sleep(0.02)
+        assert await store.recover_expired(max_attempts=1) == 1
+        failed = await store.get(job.job_id)
+        assert failed is not None
+        assert failed.status == "failed"
+
+    async def test_store_migrates_legacy_job_schema(self, tmp_path: Path) -> None:
+        database_path = tmp_path / "legacy.db"
+        with sqlite3.connect(database_path) as connection:
+            connection.execute(
+                "CREATE TABLE evolution_jobs (job_id TEXT PRIMARY KEY, graph_id TEXT NOT NULL, "
+                "k_rounds INTEGER NOT NULL, status TEXT NOT NULL, detail TEXT, "
+                "idempotency_key TEXT UNIQUE, request_fingerprint TEXT NOT NULL, "
+                "created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+            )
+        migrated = SQLiteEvolutionJobStore(database_path)
+        job = await migrated.create_or_get(graph_id="graph-1", k_rounds=1, idempotency_key=None)
+        assert job.attempt_count == 0
+
+    async def test_invalid_worker_configuration_and_lease_inputs(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        class Executor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+
+        with pytest.raises(ValueError):
+            EvolutionJobWorker(store, Executor(), max_attempts=0)
+        with pytest.raises(ValueError):
+            EvolutionJobWorker(store, Executor(), lease_seconds=0)
+        with pytest.raises(ValueError):
+            await store.claim_next(lease_seconds=0)
+        with pytest.raises(ValueError):
+            await store.recover_expired(max_attempts=0)
+
     async def test_store_backed_runner_round_trip(self, store: SQLiteEvolutionJobStore) -> None:
         runner = StoreBackedEvolutionRunner(store)
         job_id = await runner.start(graph_id="graph-1", k_rounds=2, request_id="request-1")
@@ -139,3 +214,4 @@ class TestSQLiteEvolutionJobStore:
         status = await runner.status(job_id)
         assert status is not None
         assert status.status == "queued"
+        assert await runner.status("missing") is None

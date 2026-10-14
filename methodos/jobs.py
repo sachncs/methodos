@@ -33,6 +33,8 @@ class EvolutionJob:
     request_fingerprint: str
     created_at: float
     updated_at: float
+    attempt_count: int
+    lease_expires_at: float | None
 
 
 class JobIdempotencyConflictError(RuntimeError):
@@ -61,8 +63,8 @@ class EvolutionJobStore(Protocol):
         """Return a job by id, or `None` when it is unknown."""
         ...
 
-    async def claim_next(self) -> EvolutionJob | None:
-        """Atomically claim the oldest queued job, or return `None`."""
+    async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
+        """Atomically claim the oldest queued job with a lease."""
         ...
 
     async def update(
@@ -73,6 +75,15 @@ class EvolutionJobStore(Protocol):
         detail: str | None = None,
     ) -> EvolutionJob:
         """Update status atomically and return the new record."""
+        ...
+
+
+@runtime_checkable
+class EvolutionJobLeaseStore(EvolutionJobStore, Protocol):
+    """Optional store capability for recovering abandoned worker leases."""
+
+    async def recover_expired(self, *, max_attempts: int) -> int:
+        """Requeue expired jobs or fail them after bounded attempts."""
         ...
 
 
@@ -107,10 +118,21 @@ class SQLiteEvolutionJobStore:
                     idempotency_key TEXT UNIQUE,
                     request_fingerprint TEXT NOT NULL,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    lease_expires_at REAL
                 )
                 """
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(evolution_jobs)")
+            }
+            if "attempt_count" not in columns:
+                connection.execute(
+                    "ALTER TABLE evolution_jobs ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0"
+                )
+            if "lease_expires_at" not in columns:
+                connection.execute("ALTER TABLE evolution_jobs ADD COLUMN lease_expires_at REAL")
 
     @staticmethod
     def _fingerprint(graph_id: str, k_rounds: int) -> str:
@@ -160,8 +182,8 @@ class SQLiteEvolutionJobStore:
                     connection.execute(
                         "INSERT INTO evolution_jobs "
                         "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
-                        "request_fingerprint, created_at, updated_at) "
-                        "VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?)",
+                        "request_fingerprint, created_at, updated_at, attempt_count, "
+                        "lease_expires_at) VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?, 0, NULL)",
                         (job_id, graph_id, k_rounds, idempotency_key, fingerprint, now, now),
                     )
                     row = connection.execute(
@@ -207,7 +229,8 @@ class SQLiteEvolutionJobStore:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     cursor = connection.execute(
-                        "UPDATE evolution_jobs SET status = ?, detail = ?, updated_at = ? "
+                        "UPDATE evolution_jobs SET status = ?, detail = ?, updated_at = ?, "
+                        "lease_expires_at = NULL "
                         "WHERE job_id = ?",
                         (status, detail, now, job_id),
                     )
@@ -225,8 +248,10 @@ class SQLiteEvolutionJobStore:
 
         return await asyncio.to_thread(write)
 
-    async def claim_next(self) -> EvolutionJob | None:
+    async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
         """Atomically transition the oldest queued job to `running`."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
 
         def claim() -> EvolutionJob | None:
             with self._connect() as connection:
@@ -240,9 +265,10 @@ class SQLiteEvolutionJobStore:
                         connection.commit()
                         return None
                     connection.execute(
-                        "UPDATE evolution_jobs SET status = 'running', updated_at = ? "
+                        "UPDATE evolution_jobs SET status = 'running', updated_at = ?, "
+                        "attempt_count = attempt_count + 1, lease_expires_at = ? "
                         "WHERE job_id = ? AND status = 'queued'",
-                        (time.time(), row["job_id"]),
+                        (time.time(), time.time() + lease_seconds, row["job_id"]),
                     )
                     claimed = connection.execute(
                         "SELECT * FROM evolution_jobs WHERE job_id = ?", (row["job_id"],)
@@ -255,6 +281,26 @@ class SQLiteEvolutionJobStore:
                     raise
 
         return await asyncio.to_thread(claim)
+
+    async def recover_expired(self, *, max_attempts: int) -> int:
+        """Requeue expired jobs or mark them failed after `max_attempts`."""
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
+
+        def recover() -> int:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "UPDATE evolution_jobs SET status = CASE WHEN attempt_count >= ? "
+                    "THEN 'failed' ELSE 'queued' END, detail = CASE WHEN attempt_count >= ? "
+                    "THEN 'worker lease expired; retry limit reached' "
+                    "ELSE 'worker lease expired; retrying' END, updated_at = ?, "
+                    "lease_expires_at = NULL WHERE status = 'running' "
+                    "AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?",
+                    (max_attempts, max_attempts, time.time(), time.time()),
+                )
+                return cursor.rowcount
+
+        return await asyncio.to_thread(recover)
 
 
 def _load_asyncpg() -> Any:  # pragma: no cover - covered by optional integration tests
@@ -305,9 +351,19 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                         idempotency_key TEXT UNIQUE,
                         request_fingerprint TEXT NOT NULL,
                         created_at DOUBLE PRECISION NOT NULL,
-                        updated_at DOUBLE PRECISION NOT NULL
+                        updated_at DOUBLE PRECISION NOT NULL,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        lease_expires_at DOUBLE PRECISION
                     )
                     """
+                )
+                await connection.execute(
+                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
+                    "attempt_count INTEGER NOT NULL DEFAULT 0"
+                )
+                await connection.execute(
+                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
+                    "lease_expires_at DOUBLE PRECISION"
                 )
         except Exception:
             await self.close()
@@ -360,8 +416,8 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             row = await connection.fetchrow(
                 "INSERT INTO methodos_evolution_jobs "
                 "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
-                "request_fingerprint, created_at, updated_at) "
-                "VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6) RETURNING *",
+                "request_fingerprint, created_at, updated_at, attempt_count, lease_expires_at) "
+                "VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6, 0, NULL) RETURNING *",
                 job_id,
                 graph_id,
                 k_rounds,
@@ -383,8 +439,10 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             )
         return None if row is None else self._record(row)
 
-    async def claim_next(self) -> EvolutionJob | None:
+    async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
         """Claim one queued job using row locks across workers."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             row = await connection.fetchrow(
@@ -394,13 +452,33 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             if row is None:
                 return None
             updated = await connection.fetchrow(
-                "UPDATE methodos_evolution_jobs SET status = 'running', updated_at = $1 "
-                "WHERE job_id = $2 AND status = 'queued' RETURNING *",
+                "UPDATE methodos_evolution_jobs SET status = 'running', updated_at = $1, "
+                "attempt_count = attempt_count + 1, lease_expires_at = $2 "
+                "WHERE job_id = $3 AND status = 'queued' RETURNING *",
                 time.time(),
+                time.time() + lease_seconds,
                 row["job_id"],
             )
             assert updated is not None
             return self._record(updated)
+
+    async def recover_expired(self, *, max_attempts: int) -> int:
+        """Requeue expired jobs or mark them failed after `max_attempts`."""
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            result = await connection.execute(
+                "UPDATE methodos_evolution_jobs SET status = CASE WHEN attempt_count >= $1 "
+                "THEN 'failed' ELSE 'queued' END, detail = CASE WHEN attempt_count >= $1 "
+                "THEN 'worker lease expired; retry limit reached' "
+                "ELSE 'worker lease expired; retrying' END, updated_at = $2, "
+                "lease_expires_at = NULL WHERE status = 'running' "
+                "AND lease_expires_at IS NOT NULL AND lease_expires_at <= $2",
+                max_attempts,
+                time.time(),
+            )
+        return int(result.split()[-1])
 
     async def update(
         self,
@@ -416,7 +494,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
                 "UPDATE methodos_evolution_jobs SET status = $1, detail = $2, "
-                "updated_at = $3 WHERE job_id = $4 RETURNING *",
+                "updated_at = $3, lease_expires_at = NULL WHERE job_id = $4 RETURNING *",
                 status,
                 detail,
                 time.time(),
@@ -439,14 +517,29 @@ class EvolutionJobExecutor(Protocol):
 class EvolutionJobWorker:
     """Crash-aware worker that drives jobs from queued to terminal state."""
 
-    def __init__(self, store: EvolutionJobStore, executor: EvolutionJobExecutor) -> None:
+    def __init__(
+        self,
+        store: EvolutionJobStore,
+        executor: EvolutionJobExecutor,
+        *,
+        max_attempts: int = 3,
+        lease_seconds: float = 300.0,
+    ) -> None:
         """Configure a worker with durable storage and an injected executor."""
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
         self.store = store
         self.executor = executor
+        self.max_attempts = max_attempts
+        self.lease_seconds = lease_seconds
 
     async def run_once(self) -> bool:
         """Claim and execute one job; return `False` when the queue is empty."""
-        job = await self.store.claim_next()
+        if isinstance(self.store, EvolutionJobLeaseStore):
+            await self.store.recover_expired(max_attempts=self.max_attempts)
+        job = await self.store.claim_next(lease_seconds=self.lease_seconds)
         if job is None:
             return False
         try:
@@ -455,11 +548,10 @@ class EvolutionJobWorker:
             await self.store.update(job.job_id, status="cancelled", detail="worker cancelled")
             raise
         except Exception:
-            await self.store.update(
-                job.job_id,
-                status="failed",
-                detail="evolution execution failed",
-            )
+            if job.attempt_count < self.max_attempts:
+                await self.store.update(job.job_id, status="queued", detail="evolution retry scheduled")
+            else:
+                await self.store.update(job.job_id, status="failed", detail="evolution execution failed")
             return True
         await self.store.update(job.job_id, status="succeeded", detail="evolution completed")
         return True
