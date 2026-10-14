@@ -48,11 +48,13 @@ jobs:
       - name: Smoke-test built Python wheel
         run: |
           wheel_path="$(find release-artifacts -maxdepth 1 -name '*.whl' -print -quit)"
+          package_version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           wheel_venv="${RUNNER_TEMP}/methodos-release-wheel-venv"
           uv venv --python 3.12 "$wheel_venv"
           uv pip install --python "$wheel_venv/bin/python" "$wheel_path"
           "$wheel_venv/bin/methodos" --help >/dev/null
-          "$wheel_venv/bin/python" -c 'import methodos; assert methodos.__version__ == "0.1.0"'
+          EXPECTED_VERSION="$package_version" "$wheel_venv/bin/python" -c \
+            'import methodos, os; assert methodos.__version__ == os.environ["EXPECTED_VERSION"]'
 
       - name: Set up Node
         uses: actions/setup-node@v7.1.0
