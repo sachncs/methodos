@@ -699,6 +699,27 @@ def small_acyclic_graph(draw: st.DrawFn) -> ProceduralGraph:
     )
 
 
+@st.composite
+def small_directed_graph(draw: st.DrawFn) -> ProceduralGraph:
+    """Generate a small arbitrary directed graph, including cycles."""
+    node_ids = [f"n{i}" for i in range(5)]
+    pairs = draw(
+        st.lists(
+            st.tuples(st.integers(min_value=0, max_value=4), st.integers(min_value=0, max_value=4)),
+            unique=True,
+            max_size=12,
+        ).filter(lambda values: all(src != dst for src, dst in values))
+    )
+    edges = [edge(node_ids[src], node_ids[dst]) for src, dst in pairs]
+    terminal_indexes = draw(st.sets(st.integers(min_value=0, max_value=4), max_size=5))
+    return ProceduralGraph(
+        id="generated",
+        nodes={node_id: Node(id=node_id) for node_id in node_ids},
+        edges=edges,
+        terminal_ids={node_ids[index] for index in terminal_indexes},
+    )
+
+
 class TestProperties:
     """Property-based invariants via hypothesis."""
 
@@ -731,3 +752,27 @@ class TestProperties:
             return
         sub = neighborhood(g, root, h=3)
         assert root in sub.nodes
+
+    @given(small_directed_graph())
+    @settings(max_examples=40, deadline=None)
+    def test_adjacency_preserves_every_edge(self, g: ProceduralGraph) -> None:
+        adjacency_map = adjacency(g)
+        assert set(adjacency_map) == set(g.nodes)
+        assert all(edge.dst in adjacency_map[edge.src] for edge in g.edges)
+
+    @given(small_directed_graph(), st.integers(min_value=0, max_value=4))
+    @settings(max_examples=40, deadline=None)
+    def test_zero_hop_neighborhood_contains_only_known_root(
+        self, g: ProceduralGraph, root_index: int
+    ) -> None:
+        root = f"n{root_index}"
+        subgraph = neighborhood(g, root, h=0)
+        assert set(subgraph.nodes) == {root}
+        assert subgraph.edges == []
+        assert subgraph.terminal_ids <= {root}
+
+    @given(small_directed_graph())
+    @settings(max_examples=40, deadline=None)
+    def test_cycle_detection_matches_back_edge_reachability(self, g: ProceduralGraph) -> None:
+        expected = any(has_path_to(g, edge.dst, {edge.src}) for edge in g.edges)
+        assert has_cycle(g) is expected
