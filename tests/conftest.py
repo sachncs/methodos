@@ -57,7 +57,9 @@ class ScriptedLLM(LLMClient):
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
+        del budget_scope
         self.calls.append(
             {
                 "system": system,

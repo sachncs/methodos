@@ -71,6 +71,7 @@ class ScriptedLLM(LLMClient):
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
         self.calls.append(
             {
@@ -78,6 +79,7 @@ class ScriptedLLM(LLMClient):
                 "user": user,
                 "json_schema": json_schema,
                 "temperature": temperature,
+                "budget_scope": budget_scope,
             }
         )
         if not self.responses:

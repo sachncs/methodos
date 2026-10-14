@@ -219,8 +219,9 @@ class StubClient:
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
-        del system, user, json_schema, temperature
+        del system, user, json_schema, temperature, budget_scope
         self.calls += 1
         if self.error is not None:
             raise self.error
@@ -367,7 +368,9 @@ def test_llm_client_is_runtime_checkable_protocol() -> None:
             user: str,
             json_schema: type[BaseModel] | None = None,
             temperature: float = 0.0,
+            budget_scope: str | None = None,
         ) -> str:
+            del budget_scope
             return "ok"
 
     assert isinstance(ProtocolClient(), LLMClient)

@@ -603,7 +603,9 @@ class ScriptedRoundLLM(LLMClient):
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
+        del budget_scope
         self.calls.append(user)
         return self.fn(len(self.calls) - 1, user)
 
