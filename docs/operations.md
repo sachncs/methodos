@@ -1,0 +1,46 @@
+# Operations baseline
+
+This is the minimum operational contract for a Methodos deployment. Values are
+starting SLOs and should be tuned after observing representative traffic.
+
+## SLOs
+
+- Availability: 99.9% successful HTTP responses over a rolling 30-day window,
+  excluding intentional 4xx responses and planned maintenance.
+- Latency: 95th-percentile HTTP latency below one second over five minutes for
+  requests that do not wait on an external evolution job.
+- Provider reliability: fewer than 20% failed LLM attempts over a rolling
+  five-minute window.
+- Recovery: restore a verified SQLite backup or promote a healthy Postgres
+  replica within the deployment's documented recovery-time objective.
+
+The first three signals are emitted by `/metrics` and have starter alert rules
+in [`docker/prometheus-rules.yml`](../docker/prometheus-rules.yml). Alert
+delivery, paging ownership, retention, and error-budget burn calculations are
+deployment responsibilities.
+
+## Incident response
+
+1. Check `/health`, `/ready`, `/metrics`, container logs, and the active
+   `request_id` before restarting anything.
+2. For provider failures, inspect LLM outcome counters and circuit-breaker
+   state; failover is ordered and bounded, so do not increase retries during
+   an incident without an explicit budget review.
+3. For storage failures, stop writers, verify the latest backup, and restore
+   to a separate path or database before promotion.
+4. For corrupted filesystem records, preserve the generated `corrupt/` file,
+   validate the replacement graph, and record the incident before resuming
+   writes.
+5. Record the triggering alert, request IDs, timeline, mitigation, and a
+   follow-up test in the incident log.
+
+## Required deployment checks
+
+- Load the Prometheus rule file and verify alert expressions after every
+  metrics-name change.
+- Run a restore drill at least once per release or according to the service's
+  recovery policy.
+- Keep API keys, provider credentials, signing identity, and telemetry export
+  credentials outside source control.
+- Define dashboard ownership and an error-budget policy before enabling paging
+  in production.

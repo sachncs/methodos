@@ -132,7 +132,10 @@ system production-ready.
 21. HTTP, repository-boundary, and LLM spans are instrumented; low-cardinality
     LLM attempt outcome counters are exported through `/metrics`. Collector
     configuration validation remains open.
-22. No SLOs, alert thresholds, dashboards, or error-budget policy are defined.
+22. Baseline SLOs, starter alert thresholds, and an incident runbook are now
+    versioned in `docs/operations.md` and `docker/prometheus-rules.yml`;
+    dashboards, paging ownership, retention, and error-budget policy remain
+    deployment responsibilities.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
     cover basic contention; load, soak, chaos, file-corruption, and broader
     cancellation tests remain open.
