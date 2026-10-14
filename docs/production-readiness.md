@@ -227,8 +227,8 @@ system production-ready.
   tenant-aware jobs, active-job admission quotas, idempotency, and queued
   evolution status polling.
 - Remaining: integrate an external identity provider, manage key/role
-  lifecycle, wire scoped graph-level token quotas into each production LLM
-  entrypoint, and make production scheduler
+  lifecycle, configure scoped graph-level token budgets for each production
+  LLM deployment, and make production scheduler
   ownership explicit for each deployment.
 
 ### Phase 3 — durable data layer

@@ -486,6 +486,18 @@ class TestGetGuidance:
         assert "guidance" in data
         assert data["guidance"] == "guidance-text"
 
+    def test_passes_tenant_graph_budget_scope(self, seeded_repo: SQLiteRepository) -> None:
+        llm = ScriptedLLM(responses=["scoped-guidance"])
+        app = create_app(repo=seeded_repo, llm=llm)
+        with TestClient(app) as scoped_client:
+            response = scoped_client.post(
+                "/v1/graphs/g1/guidance",
+                json={"query": "What?"},
+            )
+
+        assert response.status_code == 200
+        assert llm.calls[0]["budget_scope"] == "default:g1"
+
     async def test_cancelled_asgi_request_cancels_provider_call(
         self, seeded_repo: SQLiteRepository
     ) -> None:

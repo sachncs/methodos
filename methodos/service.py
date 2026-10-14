@@ -777,6 +777,7 @@ def create_app(
             query=request.query,
             trajectory=steps,
             window=request.window,
+            budget_scope=f"{request_tenant(http_request)}:{graph_id}",
         )
         return GuidanceResponse(guidance=guidance)
 
