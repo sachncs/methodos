@@ -66,7 +66,8 @@ system production-ready.
   migration runner; future schema versions still require a reviewed migration
   and corresponding data-model compatibility tests.
 - The local release gate exercises parallel HTTP reads and compare-and-swap
-  writers through FastAPI, alongside concurrent evolution-job claims.
+  writers through FastAPI, alongside concurrent evolution-job claims and a
+  worker storage-outage recovery test.
 - `SQLiteEvolutionJobStore` now persists queued-job state across process
   restarts and atomically deduplicates idempotency keys; the optional
   `PostgresEvolutionJobStore` provides the same contract for horizontal
@@ -154,8 +155,8 @@ system production-ready.
     deployment responsibilities.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
     cover basic contention, concurrent job claiming, and a parallel HTTP smoke
-    test; sustained load, soak, chaos, file-corruption, and broader
-    cancellation tests remain open.
+    test plus deterministic worker fault injection; sustained load, soak,
+    chaos, file-corruption, and broader cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, and
     keylessly sign the immutable GHCR image digest. Registry retention and
     independent signature verification remain operational controls.

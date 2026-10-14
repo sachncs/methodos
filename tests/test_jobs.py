@@ -195,6 +195,37 @@ class TestSQLiteEvolutionJobStore:
         await EvolutionJobWorker(store, Executor()).run_forever(idle_stop, poll_interval=0.001)
         await stopper
 
+    async def test_worker_survives_one_storage_failure(
+        self,
+        store: SQLiteEvolutionJobStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stop_event = asyncio.Event()
+        await store.create_or_get(graph_id="graph-1", k_rounds=1, idempotency_key=None)
+        original_claim = store.claim_next
+        calls = 0
+
+        async def flaky_claim(*, lease_seconds: float = 300.0) -> EvolutionJob | None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("temporary database outage")
+            return await original_claim(lease_seconds=lease_seconds)
+
+        monkeypatch.setattr(store, "claim_next", flaky_claim)
+
+        class Executor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                stop_event.set()
+
+        worker = EvolutionJobWorker(store, Executor())
+        await worker.run_forever(stop_event, poll_interval=0.001)
+        health = worker.health()
+        assert calls == 2
+        assert health.consecutive_errors == 0
+        assert health.last_error is None
+
     async def test_expired_lease_is_recovered(self, store: SQLiteEvolutionJobStore) -> None:
         job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
         claimed = await store.claim_next(lease_seconds=0.01)
