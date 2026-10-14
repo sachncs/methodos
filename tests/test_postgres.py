@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from uuid import uuid4
 
 import pytest
 
 from methodos.jobs import (
+    EvolutionJob,
     JobIdempotencyConflictError,
+    JobQuotaExceededError,
     PostgresEvolutionJobStore,
 )
 from methodos.repo import (
@@ -119,5 +122,39 @@ async def test_postgres_evolution_job_store_is_durable_and_idempotent() -> None:
                 await conn.execute(
                     "DELETE FROM methodos_evolution_jobs WHERE job_id = $1",
                     created.job_id,
+                )
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_postgres_evolution_job_quota_is_atomic_under_concurrency() -> None:
+    """Concurrent requests cannot bypass a tenant active-job quota."""
+    assert POSTGRES_DSN is not None
+    store = PostgresEvolutionJobStore(dsn=POSTGRES_DSN)
+    graph_id = f"quota-graph-{uuid4().hex}"
+    try:
+        await store.initialize()
+        results = await asyncio.gather(
+            *(
+                store.create_or_get(
+                    graph_id=graph_id,
+                    k_rounds=1,
+                    idempotency_key=None,
+                    tenant_id="quota-tenant",
+                    max_active_jobs=1,
+                )
+                for _ in range(8)
+            ),
+            return_exceptions=True,
+        )
+        successful = [result for result in results if isinstance(result, EvolutionJob)]
+        rejected = [result for result in results if isinstance(result, JobQuotaExceededError)]
+        assert len(successful) == 1
+        assert len(rejected) == 7
+    finally:
+        if store._pool is not None:
+            async with store._pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM methodos_evolution_jobs WHERE graph_id = $1", graph_id
                 )
         await store.close()

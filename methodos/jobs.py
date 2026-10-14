@@ -530,6 +530,16 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                             "idempotency key was used for a different request"
                         )
                     return self._record(row)
+            quota_lock_keys: list[str] = []
+            if max_active_jobs is not None:
+                quota_lock_keys.append(f"tenant:{tenant_id or '<unscoped>'}")
+            if max_active_jobs_per_graph is not None:
+                quota_lock_keys.append(f"graph:{tenant_id or '<unscoped>'}:{graph_id}")
+            for quota_lock_key in sorted(quota_lock_keys):
+                await connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                    quota_lock_key,
+                )
             if max_active_jobs is not None:
                 active = await connection.fetchval(
                     "SELECT COUNT(*) FROM methodos_evolution_jobs "
