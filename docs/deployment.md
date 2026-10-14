@@ -100,6 +100,9 @@ and do not expose the port beyond the local host.
       partial pricing configuration fails startup.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
+- [ ] Keep the default API host binding on loopback (`127.0.0.1:8000`). Put an
+      authenticated TLS reverse proxy or load balancer in front of it before
+      intentionally exposing the service externally.
 - [ ] Preserve the Compose runtime hardening: non-root user, read-only root
       filesystem, writable `/data` volume only, dropped Linux capabilities,
       `no-new-privileges`, a constrained `/tmp` tmpfs, an init process, a

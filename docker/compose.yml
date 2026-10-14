@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     image: methodos:0.1.0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       METHODOS_ENV: ${METHODOS_ENV:-production}
       PGRAPH_BACKEND: sqlite

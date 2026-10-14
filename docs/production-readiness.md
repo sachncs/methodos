@@ -145,6 +145,9 @@ system production-ready.
 - Optional Prometheus and OTLP Compose ports are host-loopback-only by default;
   external telemetry exposure still requires an explicitly authenticated
   deployment path.
+- The default Compose API binding is also host-loopback-only, so external
+  traffic requires an intentional authenticated reverse-proxy or load-balancer
+  configuration.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.
