@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("product page exposes the primary journey", async ({ page }) => {
@@ -29,4 +30,10 @@ test("navigation and accessibility landmarks remain available on mobile", async 
     "#architecture",
   );
   await expect(page.locator('a[href="#start"]')).toHaveAttribute("href", "#start");
+});
+
+test("product page stays within the accessibility budget", async ({ page }) => {
+  await page.goto("/");
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
 });

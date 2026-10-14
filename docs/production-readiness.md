@@ -68,6 +68,9 @@ system production-ready.
 - The local release gate exercises parallel HTTP reads and compare-and-swap
   writers through FastAPI, alongside concurrent evolution-job claims and a
   worker storage-outage recovery test.
+- The Astro browser suite runs axe-core accessibility-budget checks for both
+  desktop and mobile projects; the public product palette now satisfies the
+  audited WCAG contrast checks.
 - `SQLiteEvolutionJobStore` now persists queued-job state across process
   restarts and atomically deduplicates idempotency keys; the optional
   `PostgresEvolutionJobStore` provides the same contract for horizontal
@@ -171,16 +174,17 @@ system production-ready.
     still open.
 27. The redesigned site is deployed and publicly verified at the GitHub Pages
     URL.
-28. Browser regression smoke tests are part of CI; broader visual-diff and
-    accessibility-budget enforcement remain open.
+28. Browser regression smoke tests and axe-core accessibility-budget checks
+    run in CI for desktop and mobile; broader visual-diff coverage remains
+    open.
 
 ## Remediation plan
 
 ### Phase 1 — release gate
 
 - Push the Astro migration and verify the deployed URL.
-- Add a browser smoke test for desktop/mobile layout, navigation, links, and
-  accessibility landmarks.
+- Add browser smoke tests for desktop/mobile layout, navigation, links,
+  accessibility landmarks, and the audited accessibility budget.
 - Add Docker image scanning, SBOM, and CI artifact retention.
 - Require Python, frontend, container, and coverage checks on pull requests.
 
