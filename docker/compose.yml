@@ -7,8 +7,12 @@ services:
     ports:
       - "8000:8000"
     environment:
+      METHODOS_ENV: ${METHODOS_ENV:-production}
       PGRAPH_BACKEND: sqlite
       PGRAPH_HOME: /data
+      METHODOS_API_KEYS: ${METHODOS_API_KEYS:-}
+      METHODOS_API_KEY_ROLES: ${METHODOS_API_KEY_ROLES:-}
+      METHODOS_TENANT_KEYS: ${METHODOS_TENANT_KEYS:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:

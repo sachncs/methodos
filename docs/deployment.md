@@ -65,8 +65,15 @@ methodos eval hotpotqa --n 200  # run paired HotpotQA eval
 uvicorn methodos.service:app --reload --host 127.0.0.1 --port 8000
 
 # Docker
+METHODOS_API_KEYS='replace-with-a-long-key' \\
+METHODOS_API_KEY_ROLES='replace-with-a-long-key=reader|writer|operator' \\
 docker compose -f docker/compose.yml up methodos
 ```
+
+The Compose file defaults to `METHODOS_ENV=production` and fails closed until
+API keys and explicit role mappings are supplied. For an intentionally
+unauthenticated local Compose sandbox, set `METHODOS_ENV=development` explicitly
+and do not expose the port beyond the local host.
 
 ### Production checklist
 

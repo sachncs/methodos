@@ -115,6 +115,9 @@ system production-ready.
   repository, rejects credentials shorter than 16 characters, and requires an
   explicit role mapping for every key. Development and test remain explicitly
   permissive.
+- The production Compose manifest now defaults to `METHODOS_ENV=production`
+  and passes authentication/role configuration through without insecure
+  development defaults.
 
 ## Open issues
 
