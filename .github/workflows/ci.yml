@@ -90,6 +90,13 @@ jobs:
             prom/prometheus:v2.54.1 \
             check rules /etc/prometheus/prometheus-rules.yml
 
+      - name: Validate OpenTelemetry Collector configuration
+        run: |
+          docker run --rm \
+            --volume "${{ github.workspace }}/docker/otel-collector.yaml:/etc/otelcol/config.yaml:ro" \
+            otel/opentelemetry-collector-contrib:0.110.0 \
+            validate --config=/etc/otelcol/config.yaml
+
       - name: Generate container SBOM
         uses: anchore/sbom-action@v0
         with:
