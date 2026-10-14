@@ -53,7 +53,15 @@ claim to execute queued jobs.
   Record throughput, p95 latency, failure count, and the deployment revision;
   use a dedicated load environment for sustained or destructive tests.
 - Run a restore drill at least once per release or according to the service's
-  recovery policy.
+  recovery policy. For SQLite, the repository-level drill is:
+
+  ```bash
+  uv run python scripts/sqlite_restore_drill.py "$PGRAPH_HOME/methodos.db"
+  ```
+
+  Add `--graph-id` when a known canary graph should be read from the reopened
+  backup. Managed Postgres providers still require an equivalent provider-side
+  dump/restore drill.
 - Keep API keys, provider credentials, signing identity, and telemetry export
   credentials outside source control.
 - Define dashboard ownership and an error-budget policy before enabling paging
