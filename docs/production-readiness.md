@@ -104,8 +104,9 @@ system production-ready.
   atomic durable token budgets for local and horizontally scaled deployments;
   `ScopedTokenBudget` adds explicit graph-capable scope routing, and the
   service wires durable scoped budgets from paired deployment settings.
-  Provider-specific cost pricing remains open; durable active-job quotas can be
-  configured per tenant and per graph.
+  Optional provider pricing and cumulative USD ceilings are now enforced by the
+  same atomic budget stores; durable active-job quotas can be configured per
+  tenant and per graph.
 - `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
   shared async breaker state with an atomic half-open probe lease; gateway
   policy and provider-specific breaker tuning remain deployment concerns.
@@ -186,7 +187,8 @@ system production-ready.
     explicit graph-capable scope routed through the polymorphic LLM contract;
     SQLite-backed durable accounting and Postgres-backed accounting remain
     available; paired deployment settings now wire scoped budgets into the
-    default service LLM, while provider-specific cost pricing remains open.
+    default service LLM. Optional pricing-aware USD ceilings are supported when
+    the deployment supplies a reviewed provider/model price table.
 17. Evolution round decisions are now durably auditable across supported
     repositories; human approval, identity, and promotion policy are still
     open.
@@ -252,7 +254,8 @@ system production-ready.
   tenant-aware jobs, active-job admission quotas, idempotency, and queued
   evolution status polling.
 - Remaining: integrate an external identity provider, manage key/role
-  lifecycle, configure provider pricing for scoped graph-level token budgets,
+  lifecycle, review provider/model price tables for scoped graph-level cost
+  budgets,
   and make production scheduler
   ownership explicit for each deployment.
 
@@ -271,7 +274,8 @@ system production-ready.
 - Done: provider error classification, bounded retries, failover, local and
   shared circuit breakers, cancellation propagation, durable and scoped token budgets,
   audit events, snapshots, and revision-safe rollback.
-- Remaining: add provider-SDK-specific mappings, pricing-aware cost budgets,
+- Remaining: add provider-SDK-specific mappings and maintain provider/model
+  price-table review,
   human approval/identity records, signed release promotion, and explicit
   policy for which tenant may promote a graph.
 

@@ -44,6 +44,9 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_MAX_BODY_BYTES` | `1048576` | maximum streamed HTTP request body size; oversized requests return `413` |
 | `METHODOS_TOKEN_BUDGET_TOTAL` | — | optional cumulative LLM token ceiling per `tenant:graph` scope; must be paired with input ceiling |
 | `METHODOS_TOKEN_BUDGET_INPUT` | — | optional per-request estimated input-token ceiling per `tenant:graph` scope; must be paired with total ceiling |
+| `METHODOS_TOKEN_BUDGET_COST_USD` | — | optional cumulative estimated USD ceiling; must be paired with both per-1K token prices |
+| `METHODOS_TOKEN_PRICE_INPUT_PER_1K_USD` | — | input-token price used by the cost ceiling |
+| `METHODOS_TOKEN_PRICE_OUTPUT_PER_1K_USD` | — | output-token price used by the cost ceiling |
 
 ## CLI
 
@@ -83,6 +86,9 @@ docker compose -f docker/compose.yml up methodos
 - [ ] For durable graph-scoped LLM quotas, set both token budget variables. Use
       SQLite for a single service process group or Postgres for horizontally
       scaled deployments; filesystem mode rejects this configuration.
+- [ ] If spend control is required, set the USD ceiling and both provider price
+      variables. Keep the price table aligned with the provider/model contract;
+      partial pricing configuration fails startup.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
 - [ ] Preserve the Compose runtime hardening: non-root user, read-only root

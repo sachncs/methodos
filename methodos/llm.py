@@ -24,6 +24,7 @@ import math
 import sqlite3
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
@@ -122,6 +123,28 @@ class ScopedAsyncTokenBudget(Protocol):
         ...  # pragma: no cover
 
 
+@dataclass(frozen=True, slots=True)
+class TokenPricing:
+    """Provider pricing and a cumulative estimated-cost ceiling in USD."""
+
+    max_total_cost_usd: float
+    input_cost_per_1k_usd: float
+    output_cost_per_1k_usd: float
+
+    def __post_init__(self) -> None:
+        """Validate non-negative prices and a positive cumulative ceiling."""
+        if self.max_total_cost_usd <= 0:
+            raise ValueError("max_total_cost_usd must be positive")
+        if self.input_cost_per_1k_usd < 0 or self.output_cost_per_1k_usd < 0:
+            raise ValueError("token prices must be non-negative")
+
+    def estimate(self, *, input_tokens: int, output_tokens: int) -> float:
+        """Estimate one request's cost from its token counts."""
+        return (input_tokens * self.input_cost_per_1k_usd / 1000) + (
+            output_tokens * self.output_cost_per_1k_usd / 1000
+        )
+
+
 class TokenBudget:
     """Shared, in-process token budget that can be injected per tenant.
 
@@ -131,7 +154,13 @@ class TokenBudget:
     charge for failed attempts.
     """
 
-    def __init__(self, *, max_total_tokens: int, max_input_tokens: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_total_tokens: int,
+        max_input_tokens: int,
+        pricing: TokenPricing | None = None,
+    ) -> None:
         """Initialize positive cumulative and per-request input limits."""
         if max_total_tokens <= 0:
             raise ValueError("max_total_tokens must be positive")
@@ -140,6 +169,8 @@ class TokenBudget:
         self.max_total_tokens = max_total_tokens
         self.max_input_tokens = max_input_tokens
         self.consumed_tokens = 0
+        self.pricing = pricing
+        self.consumed_cost_usd = 0.0
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -161,7 +192,22 @@ class TokenBudget:
                 "LLM cumulative token budget exceeded: "
                 f"{self.consumed_tokens + requested} > {self.max_total_tokens}"
             )
+        request_cost = (
+            self.pricing.estimate(input_tokens=input_tokens, output_tokens=output_tokens)
+            if self.pricing is not None
+            else 0.0
+        )
+        if (
+            self.pricing is not None
+            and self.consumed_cost_usd + request_cost > self.pricing.max_total_cost_usd
+        ):
+            raise BudgetExceededError(
+                "LLM cumulative cost budget exceeded: "
+                f"{self.consumed_cost_usd + request_cost:.8f} > "
+                f"{self.pricing.max_total_cost_usd:.8f} USD"
+            )
         self.consumed_tokens += requested
+        self.consumed_cost_usd += request_cost
         return input_tokens
 
 
@@ -229,11 +275,13 @@ class SQLiteTokenBudget(TokenBudget):
         key: str,
         max_total_tokens: int,
         max_input_tokens: int,
+        pricing: TokenPricing | None = None,
     ) -> None:
         """Initialize a durable budget identified by `key`."""
         super().__init__(
             max_total_tokens=max_total_tokens,
             max_input_tokens=max_input_tokens,
+            pricing=pricing,
         )
         if not key:
             raise ValueError("key must not be empty")
@@ -254,8 +302,14 @@ class SQLiteTokenBudget(TokenBudget):
         with self._connect() as connection:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS token_budgets ("
-                "key TEXT PRIMARY KEY, consumed_tokens INTEGER NOT NULL)"
+                "key TEXT PRIMARY KEY, consumed_tokens INTEGER NOT NULL, "
+                "consumed_cost_usd REAL NOT NULL DEFAULT 0)"
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(token_budgets)")}
+            if "consumed_cost_usd" not in columns:
+                connection.execute(
+                    "ALTER TABLE token_budgets ADD COLUMN consumed_cost_usd REAL NOT NULL DEFAULT 0"
+                )
 
     def reserve(self, *, system: str, user: str, output_tokens: int) -> int:
         """Atomically reserve tokens or raise `BudgetExceededError`."""
@@ -271,25 +325,40 @@ class SQLiteTokenBudget(TokenBudget):
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
-                    "SELECT consumed_tokens FROM token_budgets WHERE key = ?",
+                    "SELECT consumed_tokens, consumed_cost_usd FROM token_budgets WHERE key = ?",
                     (self.key,),
                 ).fetchone()
                 consumed = 0 if row is None else int(row[0])
+                consumed_cost = 0.0 if row is None else float(row[1])
                 total = consumed + requested
                 if total > self.max_total_tokens:
                     raise BudgetExceededError(
                         f"LLM cumulative token budget exceeded: {total} > {self.max_total_tokens}"
                     )
+                request_cost = (
+                    self.pricing.estimate(input_tokens=input_tokens, output_tokens=output_tokens)
+                    if self.pricing is not None
+                    else 0.0
+                )
+                total_cost = consumed_cost + request_cost
+                if self.pricing is not None and total_cost > self.pricing.max_total_cost_usd:
+                    raise BudgetExceededError(
+                        f"LLM cumulative cost budget exceeded: {total_cost:.8f} > "
+                        f"{self.pricing.max_total_cost_usd:.8f} USD"
+                    )
                 connection.execute(
-                    "INSERT INTO token_budgets (key, consumed_tokens) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET consumed_tokens = excluded.consumed_tokens",
-                    (self.key, total),
+                    "INSERT INTO token_budgets (key, consumed_tokens, consumed_cost_usd) "
+                    "VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+                    "consumed_tokens = excluded.consumed_tokens, "
+                    "consumed_cost_usd = excluded.consumed_cost_usd",
+                    (self.key, total, total_cost),
                 )
                 connection.commit()
             except Exception:
                 connection.rollback()
                 raise
         self.consumed_tokens = total
+        self.consumed_cost_usd = total_cost
         return input_tokens
 
     async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
@@ -323,6 +392,7 @@ class PostgresTokenBudget:  # pragma: no cover - exercised by optional integrati
         key: str,
         max_total_tokens: int,
         max_input_tokens: int,
+        pricing: TokenPricing | None = None,
         min_size: int = 1,
         max_size: int = 10,
     ) -> None:
@@ -344,6 +414,8 @@ class PostgresTokenBudget:  # pragma: no cover - exercised by optional integrati
         self.min_size = min_size
         self.max_size = max_size
         self.consumed_tokens = 0
+        self.pricing = pricing
+        self.consumed_cost_usd = 0.0
         self._pool: Any | None = None
 
     async def _get_pool(self) -> Any:
@@ -359,7 +431,12 @@ class PostgresTokenBudget:  # pragma: no cover - exercised by optional integrati
                 async with self._pool.acquire() as connection:
                     await connection.execute(
                         "CREATE TABLE IF NOT EXISTS methodos_token_budgets ("
-                        "key TEXT PRIMARY KEY, consumed_tokens BIGINT NOT NULL)"
+                        "key TEXT PRIMARY KEY, consumed_tokens BIGINT NOT NULL, "
+                        "consumed_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0)"
+                    )
+                    await connection.execute(
+                        "ALTER TABLE methodos_token_budgets ADD COLUMN IF NOT EXISTS "
+                        "consumed_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0"
                     )
             except Exception:
                 await self.close()
@@ -382,23 +459,33 @@ class PostgresTokenBudget:  # pragma: no cover - exercised by optional integrati
         if output_tokens <= 0:
             raise ValueError("output_tokens must be positive")
         requested = input_tokens + output_tokens
+        request_cost = (
+            self.pricing.estimate(input_tokens=input_tokens, output_tokens=output_tokens)
+            if self.pricing is not None
+            else 0.0
+        )
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "INSERT INTO methodos_token_budgets (key, consumed_tokens) "
-                "VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET "
-                "consumed_tokens = methodos_token_budgets.consumed_tokens + $2 "
+                "INSERT INTO methodos_token_budgets (key, consumed_tokens, consumed_cost_usd) "
+                "VALUES ($1, $2, $4) ON CONFLICT (key) DO UPDATE SET "
+                "consumed_tokens = methodos_token_budgets.consumed_tokens + $2, "
+                "consumed_cost_usd = methodos_token_budgets.consumed_cost_usd + $4 "
                 "WHERE methodos_token_budgets.consumed_tokens + $2 <= $3 "
+                "AND methodos_token_budgets.consumed_cost_usd + $4 <= $5 "
                 "RETURNING consumed_tokens",
                 self.key,
                 requested,
                 self.max_total_tokens,
+                request_cost,
+                self.pricing.max_total_cost_usd if self.pricing is not None else float("inf"),
             )
         if row is None:
             raise BudgetExceededError(
                 "LLM cumulative token budget exceeded for Postgres-backed budget"
             )
         self.consumed_tokens = int(row["consumed_tokens"])
+        self.consumed_cost_usd += request_cost
         return input_tokens
 
 
@@ -1076,5 +1163,6 @@ __all__ = [
     "ScopedAsyncTokenBudget",
     "ScopedTokenBudget",
     "TokenBudget",
+    "TokenPricing",
     "is_retryable_provider_error",
 ]

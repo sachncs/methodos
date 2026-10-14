@@ -174,6 +174,29 @@ class TestHealth:
         with pytest.raises(ValueError, match="must be set together"):
             create_app(repo=seeded_repo)
 
+    def test_configures_pricing_aware_scoped_budget(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_COST_USD", "0.50")
+        monkeypatch.setenv("METHODOS_TOKEN_PRICE_INPUT_PER_1K_USD", "0.50")
+        monkeypatch.setenv("METHODOS_TOKEN_PRICE_OUTPUT_PER_1K_USD", "1.00")
+
+        app = create_app(repo=seeded_repo)
+
+        with TestClient(app):
+            assert isinstance(app.state.llm.budget, ScopedTokenBudget)
+
+    def test_rejects_partial_pricing_configuration(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_COST_USD", "0.50")
+        with pytest.raises(ValueError, match="must be set together"):
+            create_app(repo=seeded_repo)
+
     def test_rejects_durable_budget_for_filesystem(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

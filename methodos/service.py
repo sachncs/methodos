@@ -52,6 +52,7 @@ from methodos.llm import (
     PostgresTokenBudget,
     ScopedTokenBudget,
     SQLiteTokenBudget,
+    TokenPricing,
 )
 from methodos.repo import (
     AtomicRepository,
@@ -358,15 +359,49 @@ def _optional_positive_int(name: str) -> int | None:
     return value
 
 
+def _optional_nonnegative_float(name: str) -> float | None:
+    """Parse an optional non-negative decimal environment setting."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a non-negative number") from exc
+    if value < 0:
+        raise ValueError(f"{name} must be a non-negative number")
+    return value
+
+
 def _build_scoped_budget(repo: Repository) -> ScopedTokenBudget | None:
     """Build durable graph-scoped budgets from explicit deployment settings."""
     total = _optional_positive_int("METHODOS_TOKEN_BUDGET_TOTAL")
     maximum_input = _optional_positive_int("METHODOS_TOKEN_BUDGET_INPUT")
+    maximum_cost = _optional_nonnegative_float("METHODOS_TOKEN_BUDGET_COST_USD")
+    input_price = _optional_nonnegative_float("METHODOS_TOKEN_PRICE_INPUT_PER_1K_USD")
+    output_price = _optional_nonnegative_float("METHODOS_TOKEN_PRICE_OUTPUT_PER_1K_USD")
     if total is None and maximum_input is None:
+        if any(value is not None for value in (maximum_cost, input_price, output_price)):
+            raise ValueError(
+                "METHODOS_TOKEN_BUDGET_TOTAL and METHODOS_TOKEN_BUDGET_INPUT must be set "
+                "when pricing is configured"
+            )
         return None
     if total is None or maximum_input is None:
         raise ValueError(
             "METHODOS_TOKEN_BUDGET_TOTAL and METHODOS_TOKEN_BUDGET_INPUT must be set together"
+        )
+    pricing: TokenPricing | None = None
+    if any(value is not None for value in (maximum_cost, input_price, output_price)):
+        if maximum_cost is None or input_price is None or output_price is None:
+            raise ValueError(
+                "METHODOS_TOKEN_BUDGET_COST_USD, METHODOS_TOKEN_PRICE_INPUT_PER_1K_USD, "
+                "and METHODOS_TOKEN_PRICE_OUTPUT_PER_1K_USD must be set together"
+            )
+        pricing = TokenPricing(
+            max_total_cost_usd=maximum_cost,
+            input_cost_per_1k_usd=input_price,
+            output_cost_per_1k_usd=output_price,
         )
 
     factory: Callable[[str], SQLiteTokenBudget | PostgresTokenBudget]
@@ -378,6 +413,7 @@ def _build_scoped_budget(repo: Repository) -> ScopedTokenBudget | None:
                 key=f"llm:{scope}",
                 max_total_tokens=total,
                 max_input_tokens=maximum_input,
+                pricing=pricing,
             )
 
         factory = sqlite_factory
@@ -390,6 +426,7 @@ def _build_scoped_budget(repo: Repository) -> ScopedTokenBudget | None:
                 key=f"llm:{scope}",
                 max_total_tokens=total,
                 max_input_tokens=maximum_input,
+                pricing=pricing,
             )
 
         factory = postgres_factory

@@ -27,6 +27,7 @@ from methodos.llm import (
     SQLiteCircuitBreaker,
     SQLiteTokenBudget,
     TokenBudget,
+    TokenPricing,
     is_retryable_provider_error,
 )
 
@@ -52,6 +53,25 @@ def test_token_budget_rejects_large_input() -> None:
     budget = TokenBudget(max_total_tokens=100, max_input_tokens=2)
     with pytest.raises(BudgetExceededError, match="input"):
         budget.reserve(system="123456789", user="u", output_tokens=1)
+
+
+def test_token_budget_enforces_pricing_ceiling() -> None:
+    pricing = TokenPricing(
+        max_total_cost_usd=0.001,
+        input_cost_per_1k_usd=0.5,
+        output_cost_per_1k_usd=1.0,
+    )
+    assert pricing.estimate(input_tokens=2, output_tokens=5) == pytest.approx(0.006)
+    budget = TokenBudget(max_total_tokens=100, max_input_tokens=100, pricing=pricing)
+    with pytest.raises(BudgetExceededError, match="cost"):
+        budget.reserve(system="1234", user="1234", output_tokens=5)
+
+
+def test_token_pricing_validates_values() -> None:
+    with pytest.raises(ValueError, match="max_total_cost_usd"):
+        TokenPricing(max_total_cost_usd=0, input_cost_per_1k_usd=1, output_cost_per_1k_usd=1)
+    with pytest.raises(ValueError, match="non-negative"):
+        TokenPricing(max_total_cost_usd=1, input_cost_per_1k_usd=-1, output_cost_per_1k_usd=1)
 
 
 def test_sqlite_token_budget_persists_and_scopes_keys(tmp_path: Path) -> None:
@@ -80,6 +100,32 @@ def test_sqlite_token_budget_persists_and_scopes_keys(tmp_path: Path) -> None:
         max_input_tokens=10,
     )
     assert other_tenant.reserve(system="1234", user="1234", output_tokens=5) == 2
+
+
+def test_sqlite_token_budget_persists_pricing_ceiling(tmp_path: Path) -> None:
+    database = tmp_path / "priced-token-budget.db"
+    pricing = TokenPricing(
+        max_total_cost_usd=0.01,
+        input_cost_per_1k_usd=1.0,
+        output_cost_per_1k_usd=1.0,
+    )
+    first = SQLiteTokenBudget(
+        database_path=database,
+        key="tenant-a",
+        max_total_tokens=100,
+        max_input_tokens=100,
+        pricing=pricing,
+    )
+    first.reserve(system="1234", user="1234", output_tokens=5)
+    reopened = SQLiteTokenBudget(
+        database_path=database,
+        key="tenant-a",
+        max_total_tokens=100,
+        max_input_tokens=100,
+        pricing=pricing,
+    )
+    with pytest.raises(BudgetExceededError, match="cost"):
+        reopened.reserve(system="1234", user="1234", output_tokens=5)
 
 
 def test_sqlite_token_budget_validates_key_and_request(tmp_path: Path) -> None:
