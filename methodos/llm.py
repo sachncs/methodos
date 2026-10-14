@@ -22,7 +22,7 @@ import logging
 import math
 import sqlite3
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
@@ -418,6 +418,27 @@ def is_retryable_provider_error(exc: Exception) -> bool:
     if any(marker in error_name for marker in permanent_markers):
         return False
     return isinstance(exc, (ConnectionError, OSError, TimeoutError, RuntimeError))
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    """Read a numeric upstream retry hint from common exception shapes."""
+    headers = getattr(exc, "headers", None)
+    if not isinstance(headers, Mapping):
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None)
+    if not isinstance(headers, Mapping):
+        return None
+    raw_value: object = next(
+        (value for key, value in headers.items() if str(key).lower() == "retry-after"),
+        None,
+    )
+    if not isinstance(raw_value, (str, int, float)):
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value >= 0 else None
 
 
 class CircuitBreaker:
@@ -820,6 +841,17 @@ class LiteLLMClient:
             if close is not None:
                 await close()
 
+    def _retry_delay(self, exc: Exception, attempt: int) -> float:
+        """Return a bounded backoff, honoring a numeric provider hint."""
+        exponential: float = min(
+            float(self.max_retry_backoff_seconds),
+            float(self.retry_backoff_seconds) * (2**attempt),
+        )
+        retry_after = _retry_after_seconds(exc)
+        if retry_after is None:
+            return exponential
+        return min(float(self.max_retry_backoff_seconds), max(exponential, retry_after))
+
     async def complete(
         self,
         *,
@@ -953,10 +985,7 @@ class LiteLLMClient:
                 else:
                     self.circuit_breaker.record_failure()
                 if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
-                    delay = min(
-                        self.max_retry_backoff_seconds,
-                        self.retry_backoff_seconds * (2**attempt),
-                    )
+                    delay = self._retry_delay(exc, attempt)
                     await asyncio.sleep(delay)
         assert last_exc is not None
         logger.error(

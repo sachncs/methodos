@@ -626,6 +626,37 @@ async def test_litellm_complete_retries_on_transient_failure(
     assert call_count["n"] == 3
 
 
+async def test_litellm_complete_honors_bounded_retry_after_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    call_count = {"n": 0}
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def recorded_acompletion(**kwargs: Any) -> dict[str, Any]:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            error = RuntimeError("rate limited")
+            error.status_code = 429  # type: ignore[attr-defined]
+            error.headers = {"Retry-After": "20"}  # type: ignore[attr-defined]
+            raise error
+        return {"choices": [{"message": {"content": "recovered"}}]}
+
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(recorded_acompletion))
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    client = LiteLLMClient(
+        model="gpt-4o-mini",
+        max_retries=1,
+        retry_backoff_seconds=0.25,
+        max_retry_backoff_seconds=3.0,
+    )
+
+    assert await client.complete(system="s", user="u") == "recovered"
+    assert delays == [3.0]
+
+
 async def test_litellm_complete_raises_llm_error_after_exhausting_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
