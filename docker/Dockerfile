@@ -30,6 +30,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    METHODOS_ENV=production \
     PGRAPH_BACKEND=sqlite \
     PGRAPH_HOME=/data
 

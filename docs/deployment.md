@@ -30,7 +30,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `PGRAPH_POSTGRES_DSN` | — | required when `PGRAPH_BACKEND=postgres` |
 | `PGRAPH_VEC` | `0` | `1` enables sqlite-vec |
 | `PGRAPH_VEC_DIM` | `1536` | embedding dimension when `PGRAPH_VEC=1` |
-| `METHODOS_ENV` | `development` | `development`, `test`, `staging`, or `production`; staging/production fail closed without auth and durable persistence |
+| `METHODOS_ENV` | `development` for source runs; `production` in the container image and Compose | `development`, `test`, `staging`, or `production`; staging/production fail closed without auth and durable persistence |
 | `OPENAI_API_KEY` | — | required for OpenAI / litellm |
 | `ANTHROPIC_API_KEY` | — | for Anthropic via litellm |
 | `GOOGLE_API_KEY` | — | for Google via litellm |

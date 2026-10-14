@@ -123,6 +123,9 @@ system production-ready.
 - The production Compose manifest now defaults to `METHODOS_ENV=production`
   and passes authentication/role configuration through without insecure
   development defaults.
+- The runtime Docker image also defaults to `METHODOS_ENV=production`; the
+  direct-container CI smoke test supplies explicit credentials and exercises
+  the protected image path.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.

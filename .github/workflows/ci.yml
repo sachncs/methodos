@@ -80,6 +80,8 @@ jobs:
       - name: Run container health and load smoke test
         run: |
           docker run --detach --name methodos-ci --publish 8000:8000 \
+            --env METHODOS_API_KEYS=ci-container-key-0123456789 \
+            --env METHODOS_API_KEY_ROLES=ci-container-key-0123456789=reader \
             --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev \
             --cap-drop ALL --security-opt no-new-privileges:true \
             methodos:ci
