@@ -5,6 +5,11 @@ test("product page exposes the primary journey", async ({ page }) => {
   await expect(page).toHaveTitle("methodos — procedural memory for agents");
   await expect(page.getByRole("heading", { name: /Give your agent a way forward/ })).toBeVisible();
   await expect(page.getByRole("img", { name: "Procedural graph" })).toBeVisible();
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    "https://sachncs.github.io/methodos/",
+  );
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /methodos/);
   await expect(page.getByRole("link", { name: "Read the docs ↗" })).toHaveAttribute(
     "href",
     /github.com\/sachncs\/methodos/,
