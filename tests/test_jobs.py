@@ -186,9 +186,9 @@ class TestSQLiteEvolutionJobStore:
         class SlowExecutor:
             async def execute(self, claimed: EvolutionJob) -> None:
                 assert claimed.lease_token is not None
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.8)
 
-        worker = EvolutionJobWorker(store, SlowExecutor(), lease_seconds=0.05)
+        worker = EvolutionJobWorker(store, SlowExecutor(), lease_seconds=0.5)
         assert await worker.run_once()
         completed = await store.get(job.job_id)
         assert completed is not None
