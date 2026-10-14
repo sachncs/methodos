@@ -94,7 +94,9 @@ system production-ready.
 12. SQLite backup creation and verification are available; scheduling,
     retention policy, managed-Postgres restore drills, and a full disaster-
     recovery runbook remain open.
-13. Corrupt JSON/SQLite records do not have a repair/quarantine workflow.
+13. Filesystem JSON graph/trajectory corruption now raises a stable error and
+    preserves the bad record under `corrupt/`; SQLite corruption is classified
+    but still requires operator recovery from a verified backup.
 
 ### LLM and evolution
 

@@ -156,6 +156,10 @@ class GraphRevisionConflictError(RuntimeError):
     """Raised when a compare-and-swap graph update sees a stale revision."""
 
 
+class CorruptRecordError(RuntimeError):
+    """Raised when persisted JSON or SQLite graph data cannot be validated."""
+
+
 @runtime_checkable
 class AtomicRepository(Protocol):
     """Optional repository capability for race-free graph creation."""
@@ -271,6 +275,15 @@ def validate_storage_component(value: str, *, field: str) -> str:
     return value
 
 
+def _quarantine_file(path: Path) -> Path:
+    """Move a corrupt development record aside without deleting evidence."""
+    quarantine_dir = path.parent / "corrupt"
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
+    destination = quarantine_dir / f"{path.name}.{time.time_ns()}.corrupt"
+    os.replace(path, destination)
+    return destination
+
+
 # ----------------------------------------------------------------------------
 # FilesystemRepository
 # ----------------------------------------------------------------------------
@@ -308,9 +321,20 @@ class FilesystemRepository:
         path = self.graph_dir(graph_id) / "graph.json"
         if not path.exists():
             raise FileNotFoundError(f"graph {graph_id!r} not found at {path}")
-        async with aiofiles.open(path, encoding="utf-8") as f:
-            data = json.loads(await f.read())
-        return ProceduralGraph.model_validate(data)
+        try:
+            async with aiofiles.open(path, encoding="utf-8") as f:
+                data = json.loads(await f.read())
+            return ProceduralGraph.model_validate(data)
+        except (ValueError, TypeError) as exc:
+            try:
+                quarantined = _quarantine_file(path)
+            except OSError as quarantine_exc:
+                raise CorruptRecordError(
+                    f"corrupt graph {graph_id!r}; quarantine failed"
+                ) from quarantine_exc
+            raise CorruptRecordError(
+                f"corrupt graph {graph_id!r} quarantined at {quarantined}"
+            ) from exc
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
         """Persist `graph` atomically (temp-file + rename)."""
@@ -447,10 +471,21 @@ class FilesystemRepository:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                record = json.loads(stripped)
-                task = Task(query=record["task_query"])
-                steps = tuple((s[0], s[1]) for s in record["steps"])
-                yield Trajectory(task=task, steps=steps, score=record["score"])
+                try:
+                    record = json.loads(stripped)
+                    task = Task(query=record["task_query"])
+                    steps = tuple((s[0], s[1]) for s in record["steps"])
+                    yield Trajectory(task=task, steps=steps, score=record["score"])
+                except (ValueError, TypeError, KeyError, IndexError) as exc:
+                    try:
+                        quarantined = _quarantine_file(path)
+                    except OSError as quarantine_exc:
+                        raise CorruptRecordError(
+                            f"corrupt trajectory log for {graph_id!r}; quarantine failed"
+                        ) from quarantine_exc
+                    raise CorruptRecordError(
+                        f"corrupt trajectory log quarantined at {quarantined}"
+                    ) from exc
 
 
 # ----------------------------------------------------------------------------
@@ -618,7 +653,12 @@ class SQLiteRepository:
                 row = await cur.fetchone()
                 if row is None:
                     raise FileNotFoundError(f"graph {graph_id!r} not found")
-                return ProceduralGraph.model_validate_json(row["body"])
+                try:
+                    return ProceduralGraph.model_validate_json(row["body"])
+                except ValueError as exc:
+                    raise CorruptRecordError(
+                        f"corrupt SQLite graph record {graph_id!r}"
+                    ) from exc
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
         """Upsert `graph`; uses UPDATE-then-INSERT so snapshot rows survive."""
@@ -1243,6 +1283,7 @@ def build_repository() -> Repository:
 
 __all__ = [
     "AtomicRepository",
+    "CorruptRecordError",
     "FilesystemRepository",
     "GraphAlreadyExistsError",
     "GraphRevisionConflictError",

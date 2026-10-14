@@ -10,9 +10,11 @@ from typing import Any
 
 import pytest
 
+import methodos.repo as repo_module
 from methodos.migrations import Migration, MigrationError, MigrationRunner
 from methodos.repo import (
     BackupRepository,
+    CorruptRecordError,
     FilesystemRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
@@ -215,6 +217,36 @@ class TestFilesystemRepository:
         with pytest.raises(FileNotFoundError, match="not found"):
             await repo.load_graph("nope")
 
+    async def test_corrupt_graph_is_quarantined(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        graph_path = tmp_path / "graphs" / "bad" / "graph.json"
+        graph_path.parent.mkdir(parents=True)
+        graph_path.write_text("{not-json", encoding="utf-8")
+
+        with pytest.raises(CorruptRecordError, match="quarantined"):
+            await repo.load_graph("bad")
+
+        assert not graph_path.exists()
+        assert len(list(graph_path.parent.joinpath("corrupt").iterdir())) == 1
+
+    async def test_corrupt_graph_reports_quarantine_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        graph_path = tmp_path / "graphs" / "bad" / "graph.json"
+        graph_path.parent.mkdir(parents=True)
+        graph_path.write_text("{not-json", encoding="utf-8")
+
+        def fail_quarantine(path: Path) -> Path:
+            del path
+            raise OSError("read-only storage")
+
+        monkeypatch.setattr(repo_module, "_quarantine_file", fail_quarantine)
+        with pytest.raises(CorruptRecordError, match="quarantine failed"):
+            await repo.load_graph("bad")
+
     async def test_save_creates_directories(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("deep"))
@@ -275,6 +307,36 @@ class TestFilesystemRepository:
         assert trajectories[0].score == 1.0
         assert trajectories[1].task.query == "q2"
         assert trajectories[1].score == 0.5
+
+    async def test_corrupt_trajectory_log_is_quarantined(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+        trajectory_path = tmp_path / "graphs" / "g" / "trajectories" / "train.jsonl"
+        trajectory_path.parent.mkdir(parents=True)
+        trajectory_path.write_text("{not-json\n", encoding="utf-8")
+
+        with pytest.raises(CorruptRecordError, match="trajectory log quarantined"):
+            [item async for item in repo.read_trajectories("g", "train")]
+
+        assert not trajectory_path.exists()
+
+    async def test_corrupt_trajectory_reports_quarantine_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        trajectory_path = tmp_path / "graphs" / "g" / "trajectories" / "train.jsonl"
+        trajectory_path.parent.mkdir(parents=True)
+        trajectory_path.write_text("{not-json\n", encoding="utf-8")
+
+        def fail_quarantine(path: Path) -> Path:
+            del path
+            raise OSError("read-only storage")
+
+        monkeypatch.setattr(repo_module, "_quarantine_file", fail_quarantine)
+        with pytest.raises(CorruptRecordError, match="quarantine failed"):
+            [item async for item in repo.read_trajectories("g", "train")]
 
     async def test_read_trajectories_filtered_by_split(
         self,
@@ -371,6 +433,17 @@ class TestSQLiteRepository:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         with pytest.raises(FileNotFoundError, match="not found"):
             await repo.load_graph("nope")
+
+    async def test_corrupt_graph_record_raises_stable_error(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        with sqlite3.connect(tmp_path / "test.db") as connection:
+            connection.execute(
+                "INSERT INTO graphs (id, schema_version, body, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                ("bad", 1, "{not-json", 0.0),
+            )
+        with pytest.raises(CorruptRecordError, match="corrupt SQLite"):
+            await repo.load_graph("bad")
 
     async def test_save_overwrites(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
