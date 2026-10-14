@@ -6,7 +6,7 @@ service. Production deployment uses Docker; development uses `uv`.
 ## Requirements
 
 - Python 3.12+ for the runtime
-- An LLM API key (OpenAI, Anthropic, Google, Grok) — set as `OPENAI_API_KEY`
+- An LLM API key (OpenAI, Anthropic, Google, or Groq) — set as `OPENAI_API_KEY`
   or the provider-specific equivalent
 - Optional: `sqlite-vec` for semantic graph node matching
 - Optional: Postgres with `asyncpg` for horizontally scaled service deployments
@@ -34,7 +34,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `OPENAI_API_KEY` | — | required for OpenAI / litellm |
 | `ANTHROPIC_API_KEY` | — | for Anthropic via litellm |
 | `GOOGLE_API_KEY` | — | for Google via litellm |
-| `GROK_API_KEY` | — | for Grok via litellm |
+| `GROQ_API_KEY` | — | for Groq via litellm |
 | `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
 | `METHODOS_API_KEYS` | — | comma-separated overlapping keys for zero-downtime key rotation; takes precedence over `METHODOS_API_KEY` |
 | `METHODOS_API_KEY_ROLES` | — | comma-separated `key=reader|writer|operator` assignments; required for every key in staging/production |
