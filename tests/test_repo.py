@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import multiprocessing
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,32 @@ def make_graph(graph_id: str = "test") -> ProceduralGraph:
         edges=[],
         terminal_ids={"answer"},
     )
+
+
+def _sqlite_cas_process_worker(
+    database_path: str,
+    barrier: Any,
+    results: Any,
+) -> None:
+    """Attempt one cross-process CAS update and report the outcome."""
+
+    async def attempt() -> None:
+        repository = SQLiteRepository(db_path=Path(database_path))
+        graph = await repository.load_graph("shared")
+        barrier.wait(timeout=15)
+        try:
+            await repository.save_graph_if_revision(graph, expected_revision=0)
+        except GraphRevisionConflictError:
+            results.put("conflict")
+        except Exception as exc:  # pragma: no cover - failure diagnostics from child process
+            results.put(f"error:{type(exc).__name__}:{exc}")
+        else:
+            results.put("success")
+
+    try:
+        asyncio.run(attempt())
+    except Exception as exc:  # pragma: no cover - failure diagnostics from child process
+        results.put(f"error:{type(exc).__name__}:{exc}")
 
 
 def test_migration_runner_applies_ordered_sqlite_upgrades() -> None:
@@ -566,6 +593,37 @@ class TestSQLiteRepository:
         assert (await repo.load_graph("g")).revision == 1
         with pytest.raises(GraphRevisionConflictError):
             await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
+
+    async def test_compare_and_swap_serializes_independent_processes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        database_path = tmp_path / "cross-process.db"
+        repo = SQLiteRepository(db_path=database_path)
+        await repo.save_graph(make_graph("shared"))
+
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(4)
+        results = context.Queue()
+        processes = [
+            context.Process(
+                target=_sqlite_cas_process_worker,
+                args=(str(database_path), barrier, results),
+            )
+            for _ in range(4)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=20)
+
+        assert all(not process.is_alive() for process in processes)
+        assert all(process.exitcode == 0 for process in processes)
+        outcomes = [results.get(timeout=2) for _ in processes]
+        assert outcomes.count("success") == 1
+        assert outcomes.count("conflict") == 3
+        assert all(outcome in {"success", "conflict"} for outcome in outcomes)
+        assert (await repo.load_graph("shared")).revision == 1
 
     async def test_compare_and_swap_missing_graph(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")

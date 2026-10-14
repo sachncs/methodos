@@ -210,9 +210,10 @@ system production-ready.
 ### Persistence and data integrity
 
 8. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
-   across filesystem, SQLite, and Postgres repositories; SQLite now has an
-   independent-repository-instance contention regression test, while broader
-   multi-process and filesystem contention testing remains open.
+   across filesystem, SQLite, and Postgres repositories; SQLite has regression
+   coverage for independent repository instances and four concurrent OS
+   processes. Filesystem multi-process contention remains intentionally outside
+   its development-only deployment boundary.
 9. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; managed Postgres backups and restore drills
    remain operational responsibilities.
@@ -330,8 +331,9 @@ system production-ready.
   verification and non-overwriting restore, snapshot restore, filesystem
   corruption quarantine, SQLite/Postgres integration paths, and a versioned
   RPO/RTO and restore-drill contract.
-- Remaining: expand true cross-process/filesystem contention tests, configure
-  retention, and execute managed-Postgres restore procedures.
+- Remaining: configure retention and execute managed-Postgres restore
+  procedures; filesystem multi-process contention remains out of scope because
+  filesystem persistence is development-only.
 
 ### Phase 4 — dependable intelligence
 
