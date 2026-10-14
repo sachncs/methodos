@@ -38,7 +38,11 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from methodos.graph import match_node, neighborhood
 from methodos.guidance import generate_guidance
-from methodos.jobs import EvolutionJobMetricsStore, EvolutionJobWorker
+from methodos.jobs import (
+    EvolutionJobMetricsStore,
+    EvolutionJobWorker,
+    JobIdempotencyConflictError,
+)
 from methodos.llm import LiteLLMClient, LLMClient
 from methodos.repo import (
     AtomicRepository,
@@ -816,6 +820,10 @@ def create_app(
     ) -> EvolveResponse:
         validate_graph_id(graph_id)
         require_role(http_request, "operator")
+        try:
+            await load_scoped_graph(repo, request_tenant(http_request), graph_id)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="graph not found") from None
         del repo
         if evolution_runner is None:
             raise HTTPException(
@@ -829,24 +837,27 @@ def create_app(
         idempotency_key = validate_idempotency_key(
             http_request.headers.get("idempotency-key")
         )
-        if idempotency_key is not None:
-            if not isinstance(evolution_runner, IdempotentEvolutionRunner):
-                raise HTTPException(
-                    status_code=501,
-                    detail="configured evolution runner does not support idempotency",
+        try:
+            if idempotency_key is not None:
+                if not isinstance(evolution_runner, IdempotentEvolutionRunner):
+                    raise HTTPException(
+                        status_code=501,
+                        detail="configured evolution runner does not support idempotency",
+                    )
+                job_id = await evolution_runner.start_idempotent(
+                    graph_id=graph_id,
+                    k_rounds=request.k_rounds,
+                    request_id=request_id,
+                    idempotency_key=idempotency_key,
                 )
-            job_id = await evolution_runner.start_idempotent(
-                graph_id=graph_id,
-                k_rounds=request.k_rounds,
-                request_id=request_id,
-                idempotency_key=idempotency_key,
-            )
-        else:
-            job_id = await evolution_runner.start(
-                graph_id=graph_id,
-                k_rounds=request.k_rounds,
-                request_id=request_id,
-            )
+            else:
+                job_id = await evolution_runner.start(
+                    graph_id=graph_id,
+                    k_rounds=request.k_rounds,
+                    request_id=request_id,
+                )
+        except JobIdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return EvolveResponse(detail="evolution queued", job_id=job_id, status="queued")
 
     return app

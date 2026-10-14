@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from methodos.jobs import (
     EvolutionJob,
     EvolutionJobWorker,
+    JobIdempotencyConflictError,
     SQLiteEvolutionJobStore,
     StoreBackedEvolutionRunner,
 )
@@ -575,6 +576,70 @@ class TestEvolveEndpoint:
         assert response.status_code == 501
         body = response.json()
         assert "Python SDK" in body["detail"]
+
+    def test_rejects_evolution_for_missing_graph(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        class Runner:
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                del graph_id, k_rounds, request_id
+                return "job-1"
+
+            async def status(self, job_id: str) -> EvolutionJobStatus | None:
+                del job_id
+                return None
+
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=Runner(),
+        )
+        with TestClient(app) as runner_client:
+            response = runner_client.post(
+                "/v1/graphs/missing/evolve",
+                json={"k_rounds": 5},
+            )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "graph not found"
+
+    def test_idempotency_conflict_is_a_structured_conflict(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        class IdempotentRunner:
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                del graph_id, k_rounds, request_id
+                return "job-1"
+
+            async def status(self, job_id: str) -> EvolutionJobStatus | None:
+                del job_id
+                return None
+
+            async def start_idempotent(
+                self,
+                *,
+                graph_id: str,
+                k_rounds: int,
+                request_id: str,
+                idempotency_key: str,
+            ) -> str:
+                del graph_id, k_rounds, request_id, idempotency_key
+                raise JobIdempotencyConflictError("idempotency key was used for a different request")
+
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=IdempotentRunner(),
+        )
+        with TestClient(app) as runner_client:
+            response = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers={"Idempotency-Key": "retry-1"},
+                json={"k_rounds": 5},
+            )
+        assert response.status_code == 409
+        assert response.json()["detail"] == "idempotency key was used for a different request"
 
     async def test_injected_runner_returns_accepted_job(
         self,
