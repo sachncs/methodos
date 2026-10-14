@@ -198,6 +198,16 @@ class VersionedRepository(Protocol):
 class SnapshotRepository(Protocol):
     """Optional capability for reading and restoring named graph snapshots."""
 
+    async def snapshot_if_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Persist a snapshot only when the graph revision is unchanged."""
+        ...  # pragma: no cover
+
     async def restore_snapshot(
         self,
         graph_id: str,
@@ -442,16 +452,39 @@ class FilesystemRepository:
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
         validate_storage_component(tag, field="tag")
-        graph_dir = self.graph_dir(graph_id)
-        src = graph_dir / "graph.json"
-        if not src.exists():
-            raise FileNotFoundError(f"graph {graph_id!r} not found")
-        snap_dir = graph_dir / "snapshots"
-        snap_dir.mkdir(parents=True, exist_ok=True)
-        dest = snap_dir / f"{tag}.json"
-        data = src.read_bytes()
-        async with aiofiles.open(dest, "wb") as f:
-            await f.write(data)
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=None)
+
+    async def snapshot_if_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Persist a snapshot only when the current revision matches."""
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=expected_revision)
+
+    async def _snapshot_with_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None,
+    ) -> None:
+        """Write one snapshot while holding the development repository lock."""
+        validate_storage_component(tag, field="tag")
+        async with self._graph_lock(graph_id):
+            graph = await self.load_graph(graph_id)
+            if expected_revision is not None and graph.revision != expected_revision:
+                raise GraphRevisionConflictError(
+                    f"graph {graph_id!r} revision changed from {expected_revision} "
+                    f"to {graph.revision}"
+                )
+            snap_dir = self.graph_dir(graph_id) / "snapshots"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            dest = snap_dir / f"{tag}.json"
+            async with aiofiles.open(dest, "wb") as f:
+                await f.write(graph.model_dump_json(indent=2).encode())
         logger.debug("snapshotted graph %s to tag %s", graph_id, tag)
 
     async def restore_snapshot(
@@ -961,19 +994,49 @@ class SQLiteRepository:
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=None)
+
+    async def snapshot_if_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Persist a snapshot only when the current revision matches."""
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=expected_revision)
+
+    async def _snapshot_with_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None,
+    ) -> None:
+        """Persist a snapshot inside one SQLite write transaction."""
         validate_storage_component(tag, field="tag")
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
             await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute("BEGIN IMMEDIATE")
             async with db.execute(
                 "SELECT body FROM graphs WHERE id = ?",
                 (graph_id,),
             ) as cur:
                 row = await cur.fetchone()
                 if row is None:
+                    await db.rollback()
                     raise FileNotFoundError(f"graph {graph_id!r} not found")
                 body = row["body"]
+            if expected_revision is not None:
+                current = ProceduralGraph.model_validate_json(body)
+                if current.revision != expected_revision:
+                    await db.rollback()
+                    raise GraphRevisionConflictError(
+                        f"graph {graph_id!r} revision changed from {expected_revision} "
+                        f"to {current.revision}"
+                    )
             ts = time.time()
             await db.execute(
                 "INSERT OR REPLACE INTO snapshots (graph_id, tag, body, ts) VALUES (?, ?, ?, ?)",
@@ -1321,18 +1384,45 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of the current graph."""
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=None)
+
+    async def snapshot_if_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Persist a snapshot only when the current revision matches."""
+        await self._snapshot_with_revision(graph_id, tag, expected_revision=expected_revision)
+
+    async def _snapshot_with_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int | None,
+    ) -> None:
+        """Persist a snapshot in one Postgres transaction."""
         validate_storage_component(tag, field="tag")
         pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            body = await conn.fetchval("SELECT body FROM methodos_graphs WHERE id = $1", graph_id)
-            if body is None:
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT body, revision FROM methodos_graphs WHERE id = $1", graph_id
+            )
+            if row is None:
                 raise FileNotFoundError(f"graph {graph_id!r} not found")
+            revision = int(row["revision"])
+            if expected_revision is not None and revision != expected_revision:
+                raise GraphRevisionConflictError(
+                    f"graph {graph_id!r} revision changed from {expected_revision} to {revision}"
+                )
             await conn.execute(
                 """INSERT INTO methodos_snapshots (graph_id, tag, body, ts) VALUES ($1, $2, $3, $4)
-                ON CONFLICT (graph_id, tag) DO UPDATE SET body = EXCLUDED.body, ts = EXCLUDED.ts""",
+                    ON CONFLICT (graph_id, tag) DO UPDATE SET body = EXCLUDED.body, ts = EXCLUDED.ts""",
                 graph_id,
                 tag,
-                body,
+                row["body"],
                 time.time(),
             )
 

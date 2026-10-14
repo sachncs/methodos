@@ -1508,6 +1508,67 @@ class TestRollbackEndpoint:
         assert response.status_code == 404
 
 
+class TestSnapshotEndpoint:
+    def test_creates_snapshot_with_revision_guard(
+        self,
+        client: TestClient,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        response = client.post(
+            "/v1/graphs/g1/snapshot/release-1",
+            headers={"If-Match": "0"},
+        )
+
+        assert response.status_code == 201
+        assert response.json() == {
+            "graph_id": "g1",
+            "tag": "release-1",
+            "revision": 0,
+        }
+
+        stale = client.post(
+            "/v1/graphs/g1/snapshot/release-2",
+            headers={"If-Match": "1"},
+        )
+        assert stale.status_code == 409
+
+    def test_requires_if_match(self, client: TestClient) -> None:
+        response = client.post("/v1/graphs/g1/snapshot/release-1")
+        assert response.status_code == 428
+
+    def test_rejects_invalid_if_match(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/snapshot/release-1",
+            headers={"If-Match": "old"},
+        )
+        assert response.status_code == 400
+
+    def test_rejects_unsafe_tag(self, client: TestClient) -> None:
+        response = client.post(
+            "/v1/graphs/g1/snapshot/bad%20tag",
+            headers={"If-Match": "0"},
+        )
+        assert response.status_code == 422
+
+    def test_requires_operator_role(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_API_KEYS", "writer-key,operator-key")
+        monkeypatch.setenv(
+            "METHODOS_API_KEY_ROLES",
+            "writer-key=writer,operator-key=operator",
+        )
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as role_client:
+            response = role_client.post(
+                "/v1/graphs/g1/snapshot/release-1",
+                headers={"x-api-key": "writer-key", "If-Match": "0"},
+            )
+        assert response.status_code == 403
+
+
 # ----------------------------------------------------------------------------
 # DTO validation
 # ----------------------------------------------------------------------------

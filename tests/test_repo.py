@@ -295,6 +295,16 @@ class TestFilesystemRepository:
         with pytest.raises(ValueError, match="invalid tag"):
             await repo.snapshot("g", "../escape")
 
+    async def test_snapshot_if_revision_guards_write(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        await repo.save_graph(make_graph("g"))
+
+        await repo.snapshot_if_revision("g", "release-1", expected_revision=0)
+
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.snapshot_if_revision("g", "release-2", expected_revision=1)
+        assert not (tmp_path / "graphs" / "g" / "snapshots" / "release-2.json").exists()
+
     async def test_restore_snapshot_advances_revision(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -655,6 +665,23 @@ class TestSQLiteRepository:
 
         with pytest.raises(ValueError, match="invalid tag"):
             await repo.snapshot("g", "../escape")
+
+    async def test_snapshot_if_revision_guards_write(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+
+        await repo.snapshot_if_revision("g", "release-1", expected_revision=0)
+
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.snapshot_if_revision("g", "release-2", expected_revision=1)
+        with sqlite3.connect(tmp_path / "test.db") as conn:
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM snapshots WHERE graph_id = ? AND tag = ?",
+                    ("g", "release-2"),
+                ).fetchone()
+                is None
+            )
 
     async def test_restore_snapshot_advances_revision(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")

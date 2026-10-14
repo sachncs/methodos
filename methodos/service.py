@@ -68,6 +68,7 @@ from methodos.repo import (
     SQLiteRepository,
     VersionedRepository,
     build_repository,
+    validate_storage_component,
 )
 from methodos.schema import ProceduralGraph
 
@@ -157,6 +158,15 @@ class EvolveResponse(BaseModel):
     detail: str
     job_id: str | None = None
     status: str | None = None
+
+
+class SnapshotResponse(BaseModel):
+    """Response returned after an operator creates a guarded snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+    graph_id: str
+    tag: str
+    revision: int = Field(ge=0)
 
 
 class EvolutionJobStatus(BaseModel):
@@ -1121,6 +1131,49 @@ def create_app(
         except GraphRevisionConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.post(
+        "/v1/graphs/{graph_id}/snapshot/{tag}",
+        response_model=SnapshotResponse,
+        status_code=201,
+    )
+    async def snapshot_graph(
+        graph_id: str,
+        tag: str,
+        http_request: Request,
+        if_match: str | None = Header(default=None, alias="If-Match"),
+        repo: Repository = Depends(get_repo),
+    ) -> SnapshotResponse:
+        """Create an operator-only snapshot guarded by the current revision."""
+        validate_graph_id(graph_id)
+        require_role(http_request, "operator")
+        try:
+            validate_storage_component(tag, field="tag")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if if_match is None:
+            raise HTTPException(status_code=428, detail="If-Match revision is required")
+        try:
+            expected_revision = int(if_match.strip('"'))
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="If-Match must be an integer revision"
+            ) from None
+        if expected_revision < 0:
+            raise HTTPException(status_code=400, detail="If-Match must be non-negative")
+        if not isinstance(repo, SnapshotRepository):
+            raise HTTPException(status_code=501, detail="repository does not support snapshots")
+        try:
+            await repo.snapshot_if_revision(
+                storage_graph_id(request_tenant(http_request), graph_id),
+                tag,
+                expected_revision=expected_revision,
+            )
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="graph not found") from None
+        except GraphRevisionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return SnapshotResponse(graph_id=graph_id, tag=tag, revision=expected_revision)
+
     @app.get("/v1/evolution/jobs/{job_id}", response_model=EvolutionJobStatus)
     async def evolution_job_status(
         job_id: str,
@@ -1246,6 +1299,7 @@ __all__ = [
     "HealthResponse",
     "IdempotentEvolutionRunner",
     "ReadinessResponse",
+    "SnapshotResponse",
     "TenantScopedEvolutionRunner",
     "app",
     "create_app",

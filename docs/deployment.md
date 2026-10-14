@@ -137,6 +137,7 @@ and do not expose the port beyond the local host.
 | POST | `/v1/graphs/{id}/guidance` | `{query, trajectory?, window?, guidance_hops?}` | `{guidance}` |
 | POST | `/v1/graphs/{id}/evolve` | `{k_rounds}` + optional `Idempotency-Key` | 202 queued / 429 quota exceeded / 501 without runner or idempotency capability |
 | GET | `/v1/evolution/jobs/{job_id}` | — | job status / 404 / 501 |
+| POST | `/v1/graphs/{id}/snapshot/{tag}` | `If-Match` + operator role | 201 / 404 / 409 |
 | POST | `/v1/graphs/{id}/rollback/{tag}` | `If-Match` + operator role | 200 / 404 / 409 |
 
 ### Example: request guidance

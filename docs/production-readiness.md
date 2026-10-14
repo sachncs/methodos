@@ -72,6 +72,9 @@ system production-ready.
   preventing silent least-privilege configuration drift.
 - Snapshot rollback now requires the explicit `operator` role; ordinary writer
   keys cannot perform this destructive graph operation.
+- Operator snapshot creation is revision-guarded across filesystem, SQLite, and
+  Postgres backends; release approval, identity, and promotion policy remain
+  deployment responsibilities.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
 - The development/test environment installs Starlette's recommended `httpx2`
@@ -255,9 +258,9 @@ system production-ready.
 17. Evolution round decisions are now durably auditable across supported
     repositories; human approval, identity, and promotion policy are still
     open.
-18. Backend snapshot restore now provides revision-safe graph rollback; an
-    authenticated release action, approval record, and promotion workflow are
-    still open.
+18. Backend snapshot restore now provides revision-safe graph rollback, and the
+    authenticated snapshot action is revision-guarded; approval records, human
+    identity, and promotion workflow are still open.
 19. Live provider tests are skipped without API credentials.
 
 ### Observability and operations

@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from methodos.adapter import AgentState, GuidanceCache
 from methodos.llm import LLMClient
-from methodos.repo import EvolutionEvent, Trajectory
+from methodos.repo import EvolutionEvent, GraphRevisionConflictError, Trajectory
 from methodos.schema import (
     Attribute,
     Edge,
@@ -138,6 +138,21 @@ class InMemoryRepository:
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         graph = await self.load_graph(graph_id)
+        self.snapshots.append((graph_id, tag, graph))
+
+    async def snapshot_if_revision(
+        self,
+        graph_id: str,
+        tag: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        graph = await self.load_graph(graph_id)
+        if graph.revision != expected_revision:
+            raise GraphRevisionConflictError(
+                f"graph {graph_id!r} revision changed; expected "
+                f"{expected_revision}, found {graph.revision}"
+            )
         self.snapshots.append((graph_id, tag, graph))
 
     async def append_trajectory(self, graph_id: str, split: str, trajectory: Trajectory) -> None:
