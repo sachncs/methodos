@@ -36,6 +36,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `GROK_API_KEY` | — | for Grok via litellm |
 | `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
 | `METHODOS_API_KEYS` | — | comma-separated overlapping keys for zero-downtime key rotation; takes precedence over `METHODOS_API_KEY` |
+| `METHODOS_API_KEY_ROLES` | — | optional comma-separated `key=reader|writer|operator` role assignments; unspecified authenticated keys remain writers |
 | `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres uses a shared window, SQLite/filesystem use per-process limiting; `0` disables it |
@@ -65,6 +66,9 @@ docker compose up methodos
 - [ ] Set `OPENAI_API_KEY` (or equivalent) in the deployment environment.
 - [ ] Set `METHODOS_API_KEY` or `METHODOS_API_KEYS` for any non-local deployment; `/health` and
       `/metrics` remain public for probes and scraping.
+- [ ] For least privilege, set `METHODOS_API_KEY_ROLES` and assign readers,
+      writers, and operators explicitly; unspecified keys retain the legacy
+      writer role for backward compatibility.
 - [ ] For multiple tenants, set `METHODOS_TENANT_KEYS` and send the matching
       `X-API-Key`; the server derives the tenant and rejects mismatched
       `X-Tenant-ID` headers. Do not use a shared `METHODOS_API_KEY` in this mode.

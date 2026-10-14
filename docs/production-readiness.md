@@ -75,8 +75,9 @@ system production-ready.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.
-3. Tenant-key authentication and server-derived tenant identity now exist;
-   roles and an external identity provider are still open.
+3. Tenant-key authentication, server-derived tenant identity, and optional
+   reader/writer/operator API-key roles now exist; external identity-provider
+   integration and role lifecycle management remain open.
 4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable
    repository and per-tenant ownership metadata are still required for
    horizontal deployments.

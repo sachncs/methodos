@@ -179,6 +179,32 @@ def validate_cors_origins(origins: list[str], *, authenticated: bool) -> list[st
     return validated
 
 
+VALID_ROLES = frozenset({"reader", "writer", "operator"})
+
+
+def parse_api_key_roles(raw: str) -> dict[str, frozenset[str]]:
+    """Parse `key=role|role` entries without exposing key material."""
+    roles_by_key: dict[str, frozenset[str]] = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            key, raw_roles = item.split("=", maxsplit=1)
+        except ValueError as exc:
+            raise ValueError(
+                "METHODOS_API_KEY_ROLES must be comma-separated key=role|role entries"
+            ) from exc
+        key = key.strip()
+        roles = frozenset(role.strip().lower() for role in raw_roles.split("|") if role.strip())
+        if not key or not roles or not roles <= VALID_ROLES:
+            raise ValueError("METHODOS_API_KEY_ROLES contains an invalid key or role")
+        if key in roles_by_key:
+            raise ValueError("duplicate API key in METHODOS_API_KEY_ROLES")
+        roles_by_key[key] = roles
+    return roles_by_key
+
+
 # ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
@@ -233,6 +259,7 @@ def create_app(
     configured_tenant_id = validate_tenant_id(
         os.environ.get("METHODOS_TENANT_ID", "default").strip() or "default"
     )
+    api_key_roles = parse_api_key_roles(os.environ.get("METHODOS_API_KEY_ROLES", ""))
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:
         raise ValueError("METHODOS_RATE_LIMIT_PER_MINUTE must be non-negative")
@@ -433,6 +460,17 @@ def create_app(
         tenant_id = getattr(request.state, "tenant_id", configured_tenant_id)
         return validate_tenant_id(tenant_id)
 
+    def require_role(request: Request, role: str) -> None:
+        """Require a role assigned by authentication middleware."""
+        roles = getattr(request.state, "roles", VALID_ROLES)
+        role_grants = {
+            "reader": {"reader", "writer", "operator"},
+            "writer": {"writer", "operator"},
+            "operator": {"operator"},
+        }
+        if not roles.intersection(role_grants[role]):
+            raise HTTPException(status_code=403, detail=f"{role} role is required")
+
     def storage_graph_id(tenant_id: str, graph_id: str) -> str:
         """Map a public graph id into an isolated tenant namespace."""
         if not tenant_keys:
@@ -470,13 +508,18 @@ def create_app(
                 if secrets.compare_digest(supplied_key, tenant_key):
                     if requested_tenant and requested_tenant != tenant_id:
                         raise HTTPException(status_code=403, detail="tenant mismatch")
+                    request.state.roles = api_key_roles.get(supplied_key, frozenset({"writer"}))
                     return tenant_id, supplied_key
             raise HTTPException(status_code=401, detail="missing or invalid API key")
-        if configured_api_keys and not any(
-            secrets.compare_digest(supplied_key, configured_key)
-            for configured_key in configured_api_keys
-        ):
-            raise HTTPException(status_code=401, detail="missing or invalid API key")
+        if configured_api_keys:
+            matched_key = next(
+                (configured_key for configured_key in configured_api_keys
+                 if secrets.compare_digest(supplied_key, configured_key)),
+                None,
+            )
+            if matched_key is None:
+                raise HTTPException(status_code=401, detail="missing or invalid API key")
+            request.state.roles = api_key_roles.get(matched_key, frozenset({"writer"}))
         if requested_tenant and requested_tenant != configured_tenant_id:
             raise HTTPException(status_code=403, detail="tenant mismatch")
         return configured_tenant_id, supplied_key
@@ -509,6 +552,7 @@ def create_app(
         repo: Repository = Depends(get_repo),
     ) -> ProceduralGraph:
         validate_graph_id(graph_id)
+        require_role(request, "reader")
         try:
             return await load_scoped_graph(repo, request_tenant(request), graph_id)
         except FileNotFoundError:
@@ -521,6 +565,7 @@ def create_app(
         http_request: Request,
         repo: Repository = Depends(get_repo),
     ) -> ProceduralGraph:
+        require_role(http_request, "writer")
         tenant_id = request_tenant(http_request)
         if request.from_graph_id:
             try:
@@ -559,6 +604,7 @@ def create_app(
         llm: LLMClient = Depends(get_llm),
     ) -> GuidanceResponse:
         validate_graph_id(graph_id)
+        require_role(http_request, "reader")
         try:
             graph = await load_scoped_graph(repo, request_tenant(http_request), graph_id)
         except FileNotFoundError:
@@ -592,6 +638,7 @@ def create_app(
     ) -> ProceduralGraph:
         """Compare-and-swap a graph using its integer `If-Match` revision."""
         validate_graph_id(graph_id)
+        require_role(http_request, "writer")
         if graph.id != graph_id:
             raise HTTPException(status_code=422, detail="body graph id does not match path")
         if if_match is None:
@@ -629,6 +676,7 @@ def create_app(
     ) -> ProceduralGraph:
         """Restore a named graph snapshot with optimistic concurrency control."""
         validate_graph_id(graph_id)
+        require_role(http_request, "writer")
         if if_match is None:
             raise HTTPException(status_code=428, detail="If-Match revision is required")
         try:
@@ -661,9 +709,11 @@ def create_app(
     async def evolve_graph(
         graph_id: str,
         request: EvolveRequest,
+        http_request: Request,
         repo: Repository = Depends(get_repo),
     ) -> EvolveResponse:
         validate_graph_id(graph_id)
+        require_role(http_request, "operator")
         # Evolution requires a host Solver; supply one via the Python SDK.
         del graph_id, request, repo
         raise HTTPException(

@@ -26,6 +26,7 @@ from methodos.service import (
     GuidanceResponse,
     HealthResponse,
     create_app,
+    parse_api_key_roles,
     validate_cors_origins,
 )
 from tests.conftest import ScriptedLLM
@@ -69,6 +70,14 @@ def client(seeded_repo: SQLiteRepository) -> Iterator[TestClient]:
 
 
 class TestHealth:
+    def test_parse_api_key_roles(self) -> None:
+        assert parse_api_key_roles("read=reader,ops=operator|writer") == {
+            "read": frozenset({"reader"}),
+            "ops": frozenset({"operator", "writer"}),
+        }
+        with pytest.raises(ValueError, match="invalid key or role"):
+            parse_api_key_roles("read=unknown")
+
     def test_health_returns_ok(self, client: TestClient) -> None:
         response = client.get("/health")
         assert response.status_code == 200
@@ -120,6 +129,32 @@ class TestHealth:
             assert protected_client.get(
                 "/v1/graphs/g1", headers={"x-api-key": "new-secret"}
             ).status_code == 200
+
+    def test_explicit_roles_gate_mutations(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_API_KEYS", "read-secret,write-secret")
+        monkeypatch.setenv(
+            "METHODOS_API_KEY_ROLES",
+            "read-secret=reader,write-secret=writer",
+        )
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as protected_client:
+            assert protected_client.get(
+                "/v1/graphs/g1", headers={"x-api-key": "read-secret"}
+            ).status_code == 200
+            denied = protected_client.post(
+                "/v1/graphs", headers={"x-api-key": "read-secret"}, json={"id": "denied"}
+            )
+            assert denied.status_code == 403
+            created = protected_client.post(
+                "/v1/graphs",
+                headers={"x-api-key": "write-secret"},
+                json={"id": "created"},
+            )
+            assert created.status_code == 201
 
     def test_rate_limit_returns_retryable_429(
         self,
