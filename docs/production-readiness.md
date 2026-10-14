@@ -64,6 +64,8 @@ system production-ready.
   rotation; external identity and role management remain deployment work.
 - API-key role mappings fail startup when they reference an unconfigured key,
   preventing silent least-privilege configuration drift.
+- Snapshot rollback now requires the explicit `operator` role; ordinary writer
+  keys cannot perform this destructive graph operation.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
 - The development/test environment installs Starlette's recommended `httpx2`

@@ -1094,7 +1094,7 @@ def create_app(
     ) -> ProceduralGraph:
         """Restore a named graph snapshot with optimistic concurrency control."""
         validate_graph_id(graph_id)
-        require_role(http_request, "writer")
+        require_role(http_request, "operator")
         if if_match is None:
             raise HTTPException(status_code=428, detail="If-Match revision is required")
         try:

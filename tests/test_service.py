@@ -1358,6 +1358,29 @@ class TestEvolveEndpoint:
         response = client.get("/v1/evolution/jobs/job-1")
         assert response.status_code == 501
 
+    def test_rollback_requires_operator_role(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_API_KEYS", "writer-key,operator-key")
+        monkeypatch.setenv(
+            "METHODOS_API_KEY_ROLES",
+            "writer-key=writer,operator-key=operator",
+        )
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as role_client:
+            denied = role_client.post(
+                "/v1/graphs/g1/rollback/release-1",
+                headers={"x-api-key": "writer-key", "If-Match": "0"},
+            )
+            allowed = role_client.post(
+                "/v1/graphs/g1/rollback/release-1",
+                headers={"x-api-key": "operator-key", "If-Match": "0"},
+            )
+        assert denied.status_code == 403
+        assert allowed.status_code == 404
+
 
 class TestRollbackEndpoint:
     async def test_rolls_back_with_revision_guard(
