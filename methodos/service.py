@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -403,7 +404,13 @@ def create_app(
         if isinstance(detail, str):
             safe_detail = detail
         elif isinstance(detail, list) and all(isinstance(item, dict) for item in detail):
-            safe_detail = [dict(item) for item in detail]
+            encoded_detail = jsonable_encoder(detail)
+            safe_detail = (
+                encoded_detail
+                if isinstance(encoded_detail, list)
+                and all(isinstance(item, dict) for item in encoded_detail)
+                else "request failed"
+            )
         else:
             safe_detail = "request failed"
         return {
