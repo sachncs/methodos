@@ -73,8 +73,9 @@ system production-ready.
 - Snapshot rollback now requires the explicit `operator` role; ordinary writer
   keys cannot perform this destructive graph operation.
 - Operator snapshot creation is revision-guarded across filesystem, SQLite, and
-  Postgres backends; release approval, identity, and promotion policy remain
-  deployment responsibilities.
+  Postgres backends; the Postgres implementation locks the graph row for the
+  duration of the snapshot transaction. Release approval, identity, and
+  promotion policy remain deployment responsibilities.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
 - The development/test environment installs Starlette's recommended `httpx2`

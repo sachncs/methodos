@@ -69,6 +69,10 @@ async def test_postgres_repository_round_trip_and_cas() -> None:
         with pytest.raises(GraphRevisionConflictError):
             await repo.save_graph_if_revision(updated, expected_revision=0)
 
+        await repo.snapshot_if_revision(graph_id, "release-guarded", expected_revision=1)
+        with pytest.raises(GraphRevisionConflictError):
+            await repo.snapshot_if_revision(graph_id, "release-stale", expected_revision=0)
+
         await repo.snapshot(graph_id, "release-1")
         await repo.append_trajectory(
             graph_id,

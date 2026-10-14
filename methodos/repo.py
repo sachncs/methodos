@@ -1408,7 +1408,7 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
-                "SELECT body, revision FROM methodos_graphs WHERE id = $1", graph_id
+                "SELECT body, revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph_id
             )
             if row is None:
                 raise FileNotFoundError(f"graph {graph_id!r} not found")
