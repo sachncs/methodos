@@ -202,6 +202,10 @@ system production-ready.
    The service rejects oversized declared and streamed request bodies with a
    bounded `413` response; reverse-proxy limits remain an additional perimeter
    control.
+- Service configuration parsing now rejects malformed, negative, NaN, and
+  infinite numeric values, incomplete pricing budgets, and readiness-probe
+  failures with explicit tests; the full local suite currently reports 96.12%
+  coverage.
 
 ### Persistence and data integrity
 

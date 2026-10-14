@@ -36,6 +36,9 @@ from methodos.service import (
     GraphCreateRequest,
     GuidanceResponse,
     HealthResponse,
+    _build_scoped_budget,
+    _optional_nonnegative_float,
+    _positive_float,
     create_app,
     parse_api_key_roles,
     validate_api_key_roles,
@@ -86,6 +89,70 @@ def client(seeded_repo: SQLiteRepository) -> Iterator[TestClient]:
 
 
 class TestHealth:
+    @pytest.mark.parametrize("value", ["not-a-number", "-1", "inf", "nan"])
+    def test_rejects_invalid_optional_nonnegative_float(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TEST_FLOAT", value)
+
+        with pytest.raises(ValueError, match="non-negative number"):
+            _optional_nonnegative_float("METHODOS_TEST_FLOAT")
+
+    @pytest.mark.parametrize("value", ["not-a-number", "0", "-1", "inf", "nan"])
+    def test_rejects_invalid_positive_float(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TEST_FLOAT", value)
+
+        with pytest.raises(ValueError, match="positive number"):
+            _positive_float("METHODOS_TEST_FLOAT", 1.0)
+
+    def test_pricing_requires_a_token_budget(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_COST_USD", "1")
+
+        with pytest.raises(ValueError, match="must be set when pricing is configured"):
+            _build_scoped_budget(seeded_repo)
+
+    def test_pricing_requires_all_price_fields(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_COST_USD", "1")
+        monkeypatch.setenv("METHODOS_TOKEN_PRICE_INPUT_PER_1K_USD", "0.01")
+
+        with pytest.raises(ValueError, match="must be set together"):
+            _build_scoped_budget(seeded_repo)
+
+    def test_readiness_returns_ready_when_probe_graph_exists(
+        self,
+        graph: ProceduralGraph,
+    ) -> None:
+        class RepositoryWithProbe:
+            async def load_graph(self, graph_id: str) -> ProceduralGraph:
+                del graph_id
+                return graph
+
+        app = create_app(
+            repo=cast(Repository, RepositoryWithProbe()),
+            llm=ScriptedLLM(responses=["x"]),
+        )
+        with TestClient(app) as readiness_client:
+            response = readiness_client.get("/ready")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}
+
     def test_production_mode_requires_authentication(self, seeded_repo: SQLiteRepository) -> None:
         with pytest.raises(ValueError, match="requires METHODOS_API_KEYS"):
             validate_runtime_mode(
