@@ -74,6 +74,28 @@ jobs:
       - name: Build runtime container
         run: docker build --tag methodos:ci --file docker/Dockerfile .
 
+      - name: Run container health and load smoke test
+        run: |
+          docker run --detach --name methodos-ci --publish 8000:8000 methodos:ci
+          cleanup() {
+            docker logs methodos-ci || true
+            docker rm --force methodos-ci || true
+          }
+          trap cleanup EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          uv run python scripts/http_load_smoke.py \
+            --url http://127.0.0.1:8000/health \
+            --requests 100 \
+            --concurrency 10
+
       - name: Validate production Compose configuration
         run: docker compose -f docker/compose.yml config --quiet
 
