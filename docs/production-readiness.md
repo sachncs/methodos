@@ -105,8 +105,10 @@ system production-ready.
 - The local release gate exercises parallel HTTP reads and compare-and-swap
   writers through FastAPI, alongside concurrent evolution-job claims and a
   worker storage-outage recovery test.
-- The HTTP load probe supports a hard-capped repeated-round mode; CI runs five
-  1,000-request rounds and reports aggregate throughput and p95/p99 latency.
+- The HTTP load probe supports hard-capped repeated-round and duration-based
+  soak modes; CI runs five 1,000-request rounds, while local operators can run
+  a bounded duration soak (up to 3,600 seconds and 100,000 requests) and
+  review aggregate throughput plus p95/p99 latency.
 - The Astro browser suite runs axe-core accessibility-budget checks for both
   desktop and mobile projects; the public product palette now satisfies the
   audited WCAG contrast checks.
@@ -285,8 +287,9 @@ system production-ready.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
    cover independent repository instances, basic contention, concurrent job
    claiming, and a parallel HTTP smoke test plus deterministic worker fault
-   injection; sustained load, soak, chaos, file-corruption, and broader
-   cancellation tests remain open.
+   injection. A bounded duration-based HTTP soak probe is available for local
+   and deployment checks; long-duration load, chaos, file-corruption, and
+   broader cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, keylessly
    sign, and verify the immutable GHCR image digest against the exact release
    workflow identity, and publish a digest/source release manifest. A checked-in
@@ -362,6 +365,7 @@ system production-ready.
   fault-injection tests, container signing/attestation, and executable release-
   manifest verification.
 - Remaining: assign dashboard/paging ownership, define retention and
-  error-budget policy, run long-duration load/soak/chaos tests, exercise
+  error-budget policy, run long-duration load/chaos tests beyond the bounded
+  soak probe, exercise
   reverse-proxy disconnect behavior, enable credentialed live-provider suites,
   and independently verify release signatures.

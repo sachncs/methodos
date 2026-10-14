@@ -28,15 +28,19 @@ async def run_check(
     concurrency: int,
     timeout: float,
     rounds: int = 1,
+    duration_seconds: float | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> int:
-    """Issue bounded repeated request rounds and return a shell exit status."""
+    """Issue bounded repeated request rounds or a duration-capped soak check."""
     if requests < 1 or concurrency < 1 or timeout <= 0 or rounds < 1:
         raise ValueError(
             "requests, concurrency, and rounds must be positive; timeout must be positive"
         )
-    total_requests = requests * rounds
-    if total_requests > 100_000:
+    if duration_seconds is not None and duration_seconds <= 0:
+        raise ValueError("duration_seconds must be positive")
+    if duration_seconds is not None and duration_seconds > 3600:
+        raise ValueError("duration_seconds must not exceed 3600")
+    if duration_seconds is None and requests * rounds > 100_000:
         raise ValueError("total requests must not exceed 100000")
     concurrency = min(concurrency, requests)
     started_all = time.perf_counter()
@@ -60,16 +64,25 @@ async def run_check(
                 except Exception as exc:
                     failures.append(f"{type(exc).__name__}: {exc}")
 
-        for _ in range(rounds):
+        started_soak = time.monotonic()
+        completed_rounds = 0
+        while (
+            duration_seconds is not None
+            and (completed_rounds == 0 or time.monotonic() - started_soak < duration_seconds)
+        ) or (duration_seconds is None and completed_rounds < rounds):
             await asyncio.gather(*(request_once() for _ in range(requests)))
+            completed_rounds += 1
+            if completed_rounds * requests >= 100_000:
+                break
 
+    total_requests = requests * completed_rounds
     succeeded = total_requests - len(failures)
     elapsed_all = time.perf_counter() - started_all
     p95 = percentile(latencies, 0.95) if latencies else float("nan")
     p99 = percentile(latencies, 0.99) if latencies else float("nan")
     throughput = succeeded / elapsed_all if elapsed_all > 0 else 0.0
     print(
-        f"requests={total_requests} rounds={rounds} succeeded={succeeded} failed={len(failures)} "
+        f"requests={total_requests} rounds={completed_rounds} succeeded={succeeded} failed={len(failures)} "
         f"throughput_per_second={throughput:.2f} p95_seconds={p95:.4f} p99_seconds={p99:.4f}"
     )
     for failure in failures[:5]:
@@ -85,11 +98,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=25)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument(
+        "--duration-seconds",
+        type=float,
+        help="run repeated request rounds for at most this duration (max 3600 seconds)",
+    )
     args = parser.parse_args()
     if args.requests < 1 or args.concurrency < 1 or args.rounds < 1 or args.timeout <= 0:
         parser.error("requests, concurrency, and rounds must be positive; timeout must be positive")
-    if args.requests * args.rounds > 100_000:
+    if args.duration_seconds is None and args.requests * args.rounds > 100_000:
         parser.error("requests multiplied by rounds must not exceed 100000")
+    if args.duration_seconds is not None and not 0 < args.duration_seconds <= 3600:
+        parser.error("duration-seconds must be positive and at most 3600")
     return args
 
 
@@ -103,6 +123,7 @@ def main() -> int:
             concurrency=min(args.concurrency, args.requests),
             timeout=args.timeout,
             rounds=args.rounds,
+            duration_seconds=args.duration_seconds,
         )
     )
 

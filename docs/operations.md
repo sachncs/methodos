@@ -92,8 +92,9 @@ its dashboard status; retain the drill evidence with the release.
   ```
 
   Record throughput, p95/p99 latency, failure count, and the deployment revision;
-  this is a bounded five-round gate, not a substitute for a dedicated long-duration
-  soak or destructive test environment.
+  this is a bounded five-round gate. For a bounded local soak, use for example
+  `--duration-seconds 60`; both modes enforce a 100,000-request cap. Neither is a
+  substitute for a dedicated destructive test environment.
 - Run a restore drill at least once per release or according to the service's
   recovery policy. For SQLite, the repository-level drill is:
 

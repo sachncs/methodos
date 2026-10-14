@@ -63,6 +63,31 @@ def test_run_check_returns_failure_for_non_200(capsys: pytest.CaptureFixture[str
     assert "HTTP 503" in captured.err
 
 
+def test_run_check_supports_duration_capped_soak(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200)
+
+    result = asyncio.run(
+        run_check(
+            url="https://example.test/health",
+            requests=2,
+            concurrency=1,
+            timeout=1,
+            duration_seconds=0.01,
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "succeeded=" in output
+    assert "failed=0" in output
+    assert "rounds=" in output
+
+
 def test_run_check_counts_unexpected_transport_failures(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -108,5 +133,19 @@ def test_run_check_rejects_invalid_limits(
                 concurrency=concurrency,
                 timeout=timeout,
                 rounds=rounds,
+            )
+        )
+
+
+@pytest.mark.parametrize("duration_seconds", [0, -1, 3601])
+def test_run_check_rejects_invalid_duration(duration_seconds: float) -> None:
+    with pytest.raises(ValueError):
+        asyncio.run(
+            run_check(
+                url="https://example.test/health",
+                requests=1,
+                concurrency=1,
+                timeout=1,
+                duration_seconds=duration_seconds,
             )
         )
