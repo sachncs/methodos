@@ -83,7 +83,8 @@ system production-ready.
    a queued job contract, supports authenticated status polling, and exposes a
    fail-closed `Idempotency-Key` capability for runners that guarantee
    deduplication; the default app still returns 501 without a durable runner,
-   and production scheduler ownership and alert thresholds remain open.
+   and production scheduler ownership and alert-threshold tuning remain open;
+   starter queue and worker alerts are now versioned.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.

@@ -54,3 +54,30 @@ groups:
         annotations:
           summary: Methodos metrics target is unavailable
           description: Prometheus cannot scrape the Methodos service.
+
+      - alert: MethodosEvolutionQueueBacklog
+        expr: methodos_evolution_jobs{state="queued"} > 100
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Methodos evolution queue is backing up
+          description: More than 100 evolution jobs have been queued for 10 minutes.
+
+      - alert: MethodosEvolutionWorkerDown
+        expr: methodos_evolution_worker{state="running"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: Methodos evolution worker is not running
+          description: A deployment configured with a worker has reported no running worker for 5 minutes.
+
+      - alert: MethodosEvolutionWorkerErrors
+        expr: methodos_evolution_worker{state="consecutive_errors"} > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Methodos evolution worker is experiencing errors
+          description: The supervised worker has had consecutive storage or queue errors for 5 minutes.

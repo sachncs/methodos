@@ -19,6 +19,11 @@ in [`docker/prometheus-rules.yml`](../docker/prometheus-rules.yml). Alert
 delivery, paging ownership, retention, and error-budget burn calculations are
 deployment responsibilities.
 
+When a host configures `EvolutionJobWorker`, the same endpoint emits queue
+backlog and worker-heartbeat signals. Enable the evolution alerts only for
+deployments that run a worker; the REST service alone intentionally does not
+claim to execute queued jobs.
+
 ## Incident response
 
 1. Check `/health`, `/ready`, `/metrics`, container logs, and the active
@@ -44,3 +49,6 @@ deployment responsibilities.
   credentials outside source control.
 - Define dashboard ownership and an error-budget policy before enabling paging
   in production.
+- For worker deployments, define the scheduler/process supervisor, set a
+  restart policy, and page on `MethodosEvolutionWorkerDown` before accepting
+  evolution traffic.
