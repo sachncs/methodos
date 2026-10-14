@@ -35,6 +35,9 @@ class TestSQLiteEvolutionJobStore:
             idempotency_key="retry-1",
         )
         assert created.status == "queued"
+        counts = await store.counts()
+        assert counts.queued == 1
+        assert counts.running == counts.failed == 0
         running = await store.update(created.job_id, status="running", detail="started")
         assert running.detail == "started"
 
@@ -148,6 +151,31 @@ class TestSQLiteEvolutionJobStore:
         completed = await store.get(job.job_id)
         assert completed is not None
         assert completed.status == "succeeded"
+
+    async def test_worker_loop_stops_after_signal(self, store: SQLiteEvolutionJobStore) -> None:
+        stop_event = asyncio.Event()
+        await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+
+        class Executor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                stop_event.set()
+
+        await EvolutionJobWorker(store, Executor()).run_forever(stop_event, poll_interval=0.01)
+        with pytest.raises(ValueError):
+            await EvolutionJobWorker(store, Executor()).run_forever(
+                asyncio.Event(), poll_interval=0
+            )
+
+        idle_stop = asyncio.Event()
+
+        async def stop_idle_worker() -> None:
+            await asyncio.sleep(0.01)
+            idle_stop.set()
+
+        stopper = asyncio.create_task(stop_idle_worker())
+        await EvolutionJobWorker(store, Executor()).run_forever(idle_stop, poll_interval=0.001)
+        await stopper
 
     async def test_expired_lease_is_recovered(self, store: SQLiteEvolutionJobStore) -> None:
         job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)

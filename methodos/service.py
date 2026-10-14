@@ -32,12 +32,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import RequestResponseEndpoint
 
 from methodos.graph import match_node, neighborhood
 from methodos.guidance import generate_guidance
+from methodos.jobs import EvolutionJobMetricsStore
 from methodos.llm import LiteLLMClient, LLMClient
 from methodos.repo import (
     AtomicRepository,
@@ -67,6 +68,11 @@ HTTP_LATENCY = Histogram(
     "methodos_http_request_duration_seconds",
     "HTTP request duration in seconds.",
     ["method"],
+)
+EVOLUTION_JOBS = Gauge(
+    "methodos_evolution_jobs",
+    "Evolution jobs by queue state.",
+    ["state"],
 )
 
 
@@ -602,6 +608,15 @@ def create_app(
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> Response:
         """Expose process and client-library metrics for scraping."""
+        job_store = getattr(evolution_runner, "store", None)
+        if isinstance(job_store, EvolutionJobMetricsStore):
+            try:
+                counts = await job_store.counts()
+                EVOLUTION_JOBS.labels("queued").set(counts.queued)
+                EVOLUTION_JOBS.labels("running").set(counts.running)
+                EVOLUTION_JOBS.labels("failed").set(counts.failed)
+            except Exception:
+                logger.exception("evolution job metrics probe failed")
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/v1/graphs/{graph_id}", response_model=ProceduralGraph)

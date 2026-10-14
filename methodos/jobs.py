@@ -37,6 +37,15 @@ class EvolutionJob:
     lease_expires_at: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class EvolutionJobCounts:
+    """Low-cardinality queue counts suitable for metrics."""
+
+    queued: int
+    running: int
+    failed: int
+
+
 class JobIdempotencyConflictError(RuntimeError):
     """Raised when a key is reused for a different evolution request."""
 
@@ -57,15 +66,15 @@ class EvolutionJobStore(Protocol):
         idempotency_key: str | None,
     ) -> EvolutionJob:
         """Create a job or return the existing job for an idempotency key."""
-        ...
+        ...  # pragma: no cover
 
     async def get(self, job_id: str) -> EvolutionJob | None:
         """Return a job by id, or `None` when it is unknown."""
-        ...
+        ...  # pragma: no cover
 
     async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
         """Atomically claim the oldest queued job with a lease."""
-        ...
+        ...  # pragma: no cover
 
     async def update(
         self,
@@ -75,7 +84,11 @@ class EvolutionJobStore(Protocol):
         detail: str | None = None,
     ) -> EvolutionJob:
         """Update status atomically and return the new record."""
-        ...
+        ...  # pragma: no cover
+
+    async def counts(self) -> EvolutionJobCounts:
+        """Return low-cardinality counts by operational state."""
+        ...  # pragma: no cover
 
 
 @runtime_checkable
@@ -84,6 +97,15 @@ class EvolutionJobLeaseStore(EvolutionJobStore, Protocol):
 
     async def recover_expired(self, *, max_attempts: int) -> int:
         """Requeue expired jobs or fail them after bounded attempts."""
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class EvolutionJobMetricsStore(EvolutionJobStore, Protocol):
+    """Optional store capability for queue-depth metrics."""
+
+    async def counts(self) -> EvolutionJobCounts:
+        """Return low-cardinality counts by operational state."""
         ...
 
 
@@ -192,7 +214,7 @@ class SQLiteEvolutionJobStore:
                     connection.commit()
                     assert row is not None
                     return self._record(row)
-                except Exception:
+                except Exception:  # pragma: no cover - defensive transaction rollback
                     connection.rollback()
                     raise
 
@@ -211,6 +233,24 @@ class SQLiteEvolutionJobStore:
                 return None if row is None else self._record(row)
 
         return await asyncio.to_thread(read)
+
+    async def counts(self) -> EvolutionJobCounts:
+        """Return queue counts from one consistent SQLite read."""
+
+        def read_counts() -> EvolutionJobCounts:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT status, COUNT(*) AS count FROM evolution_jobs "
+                    "GROUP BY status"
+                ).fetchall()
+            values = {str(row["status"]): int(row["count"]) for row in rows}
+            return EvolutionJobCounts(
+                queued=values.get("queued", 0),
+                running=values.get("running", 0),
+                failed=values.get("failed", 0),
+            )
+
+        return await asyncio.to_thread(read_counts)
 
     async def update(
         self,
@@ -439,6 +479,20 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             )
         return None if row is None else self._record(row)
 
+    async def counts(self) -> EvolutionJobCounts:
+        """Return queue counts from a shared Postgres read."""
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT status, COUNT(*) AS count FROM methodos_evolution_jobs GROUP BY status"
+            )
+        values = {str(row["status"]): int(row["count"]) for row in rows}
+        return EvolutionJobCounts(
+            queued=values.get("queued", 0),
+            running=values.get("running", 0),
+            failed=values.get("failed", 0),
+        )
+
     async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
         """Claim one queued job using row locks across workers."""
         if lease_seconds <= 0:
@@ -555,6 +609,23 @@ class EvolutionJobWorker:
             return True
         await self.store.update(job.job_id, status="succeeded", detail="evolution completed")
         return True
+
+    async def run_forever(
+        self,
+        stop_event: asyncio.Event,
+        *,
+        poll_interval: float = 1.0,
+    ) -> None:
+        """Process jobs until `stop_event` is set or the task is cancelled."""
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
+        while not stop_event.is_set():
+            processed = await self.run_once()
+            if not processed:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+                except TimeoutError:
+                    continue
 
 
 class StoreBackedEvolutionRunner:

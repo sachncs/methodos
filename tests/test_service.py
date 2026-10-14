@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 
+from methodos.jobs import SQLiteEvolutionJobStore, StoreBackedEvolutionRunner
 from methodos.llm import LLMClient
 from methodos.repo import (
     FilesystemRepository,
@@ -96,6 +97,23 @@ class TestHealth:
         assert response.status_code == 200
         assert "python_info" in response.text
         assert "methodos_http_requests_total" in response.text
+
+    def test_metrics_include_store_backed_evolution_queue(
+        self,
+        seeded_repo: SQLiteRepository,
+        tmp_path: Path,
+    ) -> None:
+        job_store = SQLiteEvolutionJobStore(tmp_path / "jobs.db")
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=StoreBackedEvolutionRunner(job_store),
+        )
+        with TestClient(app) as metrics_client:
+            response = metrics_client.get("/metrics")
+        assert response.status_code == 200
+        assert "methodos_evolution_jobs" in response.text
+        assert 'state="queued"' in response.text
 
     def test_readiness_checks_repository(self, client: TestClient) -> None:
         response = client.get("/ready")

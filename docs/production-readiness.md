@@ -71,7 +71,8 @@ system production-ready.
   deployments. `EvolutionJobWorker` now atomically claims jobs and records
   success, failure, and cancellation around an injected executor; persisted
   leases, bounded retries, and expired-lease recovery prevent abandoned jobs
-  from remaining stuck indefinitely.
+  from remaining stuck indefinitely. Queue counts are exposed through
+  Prometheus metrics, and the worker has a cancellable supervised loop.
 
 ## Open issues
 
@@ -81,7 +82,7 @@ system production-ready.
    a queued job contract, supports authenticated status polling, and exposes a
    fail-closed `Idempotency-Key` capability for runners that guarantee
    deduplication; the default app still returns 501 without a durable runner,
-   and production scheduling, queue-depth telemetry, and worker liveness
+   and production scheduler ownership, alert thresholds, and worker liveness
    supervision remain open.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
