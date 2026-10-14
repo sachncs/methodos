@@ -55,6 +55,7 @@ from methodos.llm import (
 )
 from methodos.repo import (
     AtomicRepository,
+    FilesystemRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
     PostgresRepository,
@@ -401,6 +402,35 @@ def _build_scoped_budget(repo: Repository) -> ScopedTokenBudget | None:
     return ScopedTokenBudget(factory)
 
 
+def validate_runtime_mode(
+    mode: str,
+    *,
+    repo: Repository,
+    authenticated: bool,
+) -> str:
+    """Fail closed for deployment modes that are intended for shared hosts.
+
+    Filesystem persistence is process-local and API authentication is disabled
+    by default for developer ergonomics. Neither default is safe for a shared
+    staging or production service, so those modes require explicit durable
+    persistence and credentials at startup.
+    """
+    normalized = mode.strip().lower() or "development"
+    if normalized not in {"development", "test", "staging", "production"}:
+        raise ValueError("METHODOS_ENV must be one of development, test, staging, or production")
+    if normalized in {"staging", "production"}:
+        if not authenticated:
+            raise ValueError(
+                f"METHODOS_ENV={normalized} requires METHODOS_API_KEYS or METHODOS_TENANT_KEYS"
+            )
+        if isinstance(repo, FilesystemRepository):
+            raise ValueError(
+                f"METHODOS_ENV={normalized} requires SQLite or Postgres persistence; "
+                "filesystem is process-local"
+            )
+    return normalized
+
+
 # ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
@@ -464,6 +494,11 @@ def create_app(
     validate_api_key_roles(
         api_key_roles,
         tuple(tenant_keys.values()) if tenant_keys else configured_api_keys,
+    )
+    validate_runtime_mode(
+        os.environ.get("METHODOS_ENV", "development"),
+        repo=backend_repo,
+        authenticated=bool(configured_api_keys or tenant_keys),
     )
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:

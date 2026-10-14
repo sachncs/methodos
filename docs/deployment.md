@@ -30,6 +30,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `PGRAPH_POSTGRES_DSN` | — | required when `PGRAPH_BACKEND=postgres` |
 | `PGRAPH_VEC` | `0` | `1` enables sqlite-vec |
 | `PGRAPH_VEC_DIM` | `1536` | embedding dimension when `PGRAPH_VEC=1` |
+| `METHODOS_ENV` | `development` | `development`, `test`, `staging`, or `production`; staging/production fail closed without auth and durable persistence |
 | `OPENAI_API_KEY` | — | required for OpenAI / litellm |
 | `ANTHROPIC_API_KEY` | — | for Anthropic via litellm |
 | `GOOGLE_API_KEY` | — | for Google via litellm |
@@ -69,6 +70,8 @@ docker compose -f docker/compose.yml up methodos
 - [ ] Set `OPENAI_API_KEY` (or equivalent) in the deployment environment.
 - [ ] Set `METHODOS_API_KEY` or `METHODOS_API_KEYS` for any non-local deployment; `/health` and
       `/metrics` remain public for probes and scraping.
+- [ ] Set `METHODOS_ENV=production` (or `staging`) so startup rejects missing
+      authentication and process-local filesystem persistence.
 - [ ] For least privilege, set `METHODOS_API_KEY_ROLES` and assign readers,
       writers, and operators explicitly; unspecified keys retain the legacy
       writer role for backward compatibility.

@@ -109,6 +109,9 @@ system production-ready.
 - `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
   shared async breaker state with an atomic half-open probe lease; gateway
   policy and provider-specific breaker tuning remain deployment concerns.
+- Runtime modes now fail closed for staging and production: startup requires
+  API-key or tenant-key authentication and rejects the process-local filesystem
+  repository. Development and test remain explicitly permissive.
 
 ## Open issues
 
@@ -131,7 +134,8 @@ system production-ready.
 4. Tenant graph namespaces are isolated in tenant-key mode; a shared durable
    repository and per-tenant ownership metadata are still required for
    horizontal deployments.
-5. CORS origins are validated at startup; deployment-specific allowlists still
+5. Runtime mode validation now rejects unauthenticated staging/production
+   processes and filesystem persistence there. CORS origins are validated at startup; deployment-specific allowlists still
    need operational review when domains change.
 6. The LLM client now enforces its timeout at the application boundary and
    preserves task cancellation, covered by a direct cancellation test. The

@@ -42,6 +42,7 @@ from methodos.service import (
     validate_cors_origins,
     validate_graph_id,
     validate_idempotency_key,
+    validate_runtime_mode,
     validate_tenant_id,
 )
 from tests.conftest import ScriptedLLM
@@ -85,6 +86,33 @@ def client(seeded_repo: SQLiteRepository) -> Iterator[TestClient]:
 
 
 class TestHealth:
+    def test_production_mode_requires_authentication(self, seeded_repo: SQLiteRepository) -> None:
+        with pytest.raises(ValueError, match="requires METHODOS_API_KEYS"):
+            validate_runtime_mode(
+                "production",
+                repo=seeded_repo,
+                authenticated=False,
+            )
+
+    def test_production_mode_rejects_filesystem_persistence(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="requires SQLite or Postgres"):
+            validate_runtime_mode(
+                "production",
+                repo=FilesystemRepository(root=tmp_path / "files"),
+                authenticated=True,
+            )
+
+    @pytest.mark.parametrize("mode", ["development", "test", "staging", "production"])
+    def test_runtime_mode_accepts_known_modes(
+        self, seeded_repo: SQLiteRepository, mode: str
+    ) -> None:
+        authenticated = mode in {"staging", "production"}
+        assert validate_runtime_mode(mode, repo=seeded_repo, authenticated=authenticated) == mode
+
+    def test_runtime_mode_rejects_unknown_mode(self, seeded_repo: SQLiteRepository) -> None:
+        with pytest.raises(ValueError, match="must be one of"):
+            validate_runtime_mode("preview", repo=seeded_repo, authenticated=False)
+
     def test_configures_durable_scoped_budget(
         self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
     ) -> None:
