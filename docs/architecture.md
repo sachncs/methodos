@@ -16,8 +16,10 @@ methodos/
 ├── guidance.py      Ψ prompt + generate_guidance
 ├── adapter.py       AgentState, Solver Protocol, GuidanceCache, PGAdapter
 ├── evolution.py     Algorithm 1 (refiner + rollback) + EvolutionEngine
-├── repo.py          Repository + VectorIndex Protocols, Filesystem + SQLite + SqliteVec
-├── service.py       FastAPI app factory (REST: /v1/graphs, /guidance, /evolve)
+├── repo.py          Repository + capability Protocols, Filesystem + SQLite + Postgres
+├── jobs.py          Durable evolution jobs, leases, retries, workers, and runner strategies
+├── migrations.py    Forward-only SQLite/Postgres schema migrations
+├── service.py       FastAPI app factory (REST: /v1/graphs, /guidance, /evolve, job status)
 └── cli.py           Typer CLI (init, inspect, serve, replay, evolve, eval)
 ```
 
@@ -101,6 +103,10 @@ CREATE TABLE trajectories (id PK, graph_id FK CASCADE, split, score, body, ts);
 CREATE TABLE snapshots (graph_id FK, tag, body, ts, PK(graph_id, tag));
 CREATE TABLE rejection_memory (id PK, graph_id FK CASCADE, body, val_score, ts);
   idx_rejection_graph_ts;
+CREATE TABLE methodos_evolution_jobs (... durable queue state, leases, retries ...);
+CREATE TABLE methodos_evolution_events (... append-only evolution audit records ...);
+CREATE TABLE methodos_token_budgets (... atomic tenant/provider reservations ...);
+CREATE TABLE methodos_circuit_breakers (... shared failure state and probe leases ...);
 ```
 
 Vector search opt-in: `PGRAPH_VEC=1` loads sqlite-vec; `match_node` falls
@@ -113,17 +119,24 @@ The cache key uses `graph.id` rather than content because content
 identity is implicit in id per the contract: graphs evolve by creating
 new ids via `apply_edits`.
 
-## Threading model
+## Concurrency model
 
-All I/O is `async def`; concurrency is `asyncio` only. No threading.
-SQLite is accessed via `aiosqlite`; the filesystem via `aiofiles`.
+Public SDK and service boundaries are async. Async-native backends use
+`aiosqlite` or `asyncpg`; synchronous filesystem and SQLite capability stores
+used by shared rate limits, token budgets, and circuit breakers are dispatched
+through `asyncio.to_thread` so they do not block the event loop. SQLite WAL,
+transactions, leases, and compare-and-swap revisions provide local
+concurrency guarantees; Postgres is the recommended horizontally scaled
+backend.
 
 ## Deployment
 
 - Single Docker container; non-root; `VOLUME /data` for `PGRAPH_HOME`.
 - Health endpoint at `/health`.
-- Evolution is intentionally NOT exposed as an HTTP endpoint — it requires
-  a host Solver which is application-specific.
+- Evolution is exposed as a queued HTTP contract only when the host injects a
+  durable `EvolutionRunner`; the default app fails closed with HTTP 501.
+  Runners own solver execution, queue durability, tenant binding, and
+  idempotency guarantees.
 - Observability is opt-in: `otel-collector` and `prometheus` profiles in
   `docker/compose.yml`.
 
