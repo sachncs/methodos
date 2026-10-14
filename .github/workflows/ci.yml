@@ -51,6 +51,17 @@ jobs:
       - name: Type check
         run: uv run mypy methodos tests scripts eval/hotpotqa/*.py examples
 
+      - name: Build and smoke-test Python wheel
+        run: |
+          wheel_dir="$(mktemp -d)"
+          uv build --wheel --out-dir "$wheel_dir"
+          wheel_path="$(find "$wheel_dir" -maxdepth 1 -name '*.whl' -print -quit)"
+          wheel_venv="${RUNNER_TEMP}/methodos-wheel-venv"
+          uv venv --python 3.12 "$wheel_venv"
+          uv pip install --python "$wheel_venv/bin/python" "$wheel_path"
+          "$wheel_venv/bin/methodos" --help >/dev/null
+          "$wheel_venv/bin/python" -c 'import methodos; assert methodos.__version__ == "0.1.0"'
+
       - name: Setup Node
         uses: actions/setup-node@v7.1.0
         with:
