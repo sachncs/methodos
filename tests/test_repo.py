@@ -487,6 +487,29 @@ class TestSQLiteRepository:
         assert len(successes) == 1
         assert len(conflicts) == 7
 
+    async def test_independent_repository_instances_share_cas_conflicts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        database = tmp_path / "independent-repositories.db"
+        repositories = [SQLiteRepository(db_path=database) for _ in range(8)]
+        graph = make_graph("independent")
+        await repositories[0].save_graph(graph)
+
+        outcomes = await asyncio.gather(
+            *(
+                repository.save_graph_if_revision(
+                    graph.model_copy(update={"metadata": {"writer": index}}),
+                    expected_revision=0,
+                )
+                for index, repository in enumerate(repositories)
+            ),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(outcome, ProceduralGraph) for outcome in outcomes) == 1
+        assert sum(isinstance(outcome, GraphRevisionConflictError) for outcome in outcomes) == 7
+        assert (await repositories[0].load_graph("independent")).revision == 1
+
     """SQLiteRepository: WAL, FK, indices, round-trips."""
 
     async def test_save_and_load_round_trip(self, tmp_path: Path) -> None:

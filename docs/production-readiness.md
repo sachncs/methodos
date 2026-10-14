@@ -178,9 +178,9 @@ system production-ready.
 ### Persistence and data integrity
 
 8. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
-   across filesystem, SQLite, and Postgres repositories; filesystem CAS is
-   serialized per graph within a process, while broader multi-process
-   contention testing remains open.
+   across filesystem, SQLite, and Postgres repositories; SQLite now has an
+   independent-repository-instance contention regression test, while broader
+   multi-process and filesystem contention testing remains open.
 9. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; managed Postgres backups and restore drills
    remain operational responsibilities.
@@ -240,9 +240,10 @@ system production-ready.
     deployment responsibilities; a starter dashboard is versioned in
     `docker/grafana-dashboard.json`.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
-    cover basic contention, concurrent job claiming, and a parallel HTTP smoke
-    test plus deterministic worker fault injection; sustained load, soak,
-    chaos, file-corruption, and broader cancellation tests remain open.
+   cover independent repository instances, basic contention, concurrent job
+   claiming, and a parallel HTTP smoke test plus deterministic worker fault
+   injection; sustained load, soak, chaos, file-corruption, and broader
+   cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, keylessly
    sign, and verify the immutable GHCR image digest against the exact release
    workflow identity. Registry retention and independent operator verification
@@ -292,8 +293,8 @@ system production-ready.
   verification and non-overwriting restore, snapshot restore, filesystem
   corruption quarantine, SQLite/Postgres integration paths, and a versioned
   RPO/RTO and restore-drill contract.
-- Remaining: expand cross-process contention tests, configure retention, and
-  execute managed-Postgres restore procedures.
+- Remaining: expand true cross-process/filesystem contention tests, configure
+  retention, and execute managed-Postgres restore procedures.
 
 ### Phase 4 — dependable intelligence
 
