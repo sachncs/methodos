@@ -23,6 +23,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Verify Astro-only site sources
+        run: |
+          forbidden="$({
+            find . -path './.git' -prune -o \
+              -path './site/node_modules' -prune -o \
+              -path './site/dist' -prune -o \
+              -type f \( \
+                -name '_config.yml' -o \
+                -name '_config.yaml' -o \
+                -name 'Gemfile' -o \
+                -name 'Gemfile.lock' \
+              \) -print
+          } | sort)"
+          if [ -n "$forbidden" ]; then
+            echo "Jekyll source files are not allowed in the Astro site:" >&2
+            printf '%s\n' "$forbidden" >&2
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v7.1.0
         with:
