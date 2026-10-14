@@ -23,6 +23,7 @@ from methodos.llm import (
     LiteLLMClient,
     LLMClient,
     LLMError,
+    ScopedTokenBudget,
     SQLiteCircuitBreaker,
     SQLiteTokenBudget,
     TokenBudget,
@@ -141,6 +142,68 @@ def test_sqlite_token_budget_supports_async_reservation(tmp_path: Path) -> None:
     assert asyncio.run(budget.reserve_async(system="1234", user="1234", output_tokens=5)) == 2
 
 
+def test_scoped_token_budget_isolates_graph_scopes() -> None:
+    created: dict[str, TokenBudget] = {}
+
+    def factory(scope: str) -> TokenBudget:
+        created[scope] = TokenBudget(max_total_tokens=10, max_input_tokens=10)
+        return created[scope]
+
+    budget = ScopedTokenBudget(factory)
+    assert (
+        asyncio.run(
+            budget.reserve_scoped_async(
+                scope="tenant-a:graph-a", system="1234", user="1234", output_tokens=5
+            )
+        )
+        == 2
+    )
+    assert (
+        asyncio.run(
+            budget.reserve_scoped_async(
+                scope="tenant-a:graph-b", system="1234", user="1234", output_tokens=5
+            )
+        )
+        == 2
+    )
+    assert set(created) == {"tenant-a:graph-a", "tenant-a:graph-b"}
+    with pytest.raises(ValueError, match="scope must not be empty"):
+        asyncio.run(
+            budget.reserve_scoped_async(scope=" ", system="1234", user="1234", output_tokens=1)
+        )
+
+
+def test_scoped_token_budget_supports_durable_async_budgets(tmp_path: Path) -> None:
+    database = tmp_path / "scoped-token-budget.db"
+    budget = ScopedTokenBudget(
+        lambda scope: SQLiteTokenBudget(
+            database_path=database,
+            key=scope,
+            max_total_tokens=10,
+            max_input_tokens=10,
+        )
+    )
+    assert (
+        asyncio.run(
+            budget.reserve_scoped_async(
+                scope="tenant-a:graph-a", system="1234", user="1234", output_tokens=5
+            )
+        )
+        == 2
+    )
+
+
+async def test_litellm_client_requires_scope_for_scoped_budget() -> None:
+    client = LiteLLMClient(
+        model="test-model",
+        budget=ScopedTokenBudget(
+            lambda _scope: TokenBudget(max_total_tokens=10, max_input_tokens=10)
+        ),
+    )
+    with pytest.raises(BudgetExceededError, match="explicit budget_scope"):
+        await client.complete(system="s", user="u")
+
+
 class StubClient:
     """Small protocol-compatible provider double."""
 
@@ -178,6 +241,30 @@ async def test_failover_client_uses_next_provider_after_llm_failure() -> None:
     assert await client.complete(system="s", user="u") == "recovered"
     assert first.calls == 1
     assert second.calls == 1
+
+
+async def test_failover_client_preserves_budget_scope() -> None:
+    class ScopedProvider:
+        def __init__(self) -> None:
+            self.scope: str | None = None
+
+        async def complete(
+            self,
+            *,
+            system: str,
+            user: str,
+            json_schema: type[BaseModel] | None = None,
+            temperature: float = 0.0,
+            budget_scope: str | None = None,
+        ) -> str:
+            del system, user, json_schema, temperature
+            self.scope = budget_scope
+            return "scoped"
+
+    provider = ScopedProvider()
+    client = FailoverLLMClient([provider])
+    assert await client.complete(system="s", user="u", budget_scope="tenant:graph") == "scoped"
+    assert provider.scope == "tenant:graph"
 
 
 async def test_failover_client_reports_all_provider_failures() -> None:
@@ -446,6 +533,14 @@ async def test_litellm_complete_uses_async_token_budget(
     )
     client = LiteLLMClient(model="gpt-4o-mini", max_output_tokens=5, budget=budget)
     assert await client.complete(system="s", user="u") == "ok"
+
+
+async def test_litellm_complete_uses_scoped_token_budget(
+    patched_litellm: dict[str, Any],
+) -> None:
+    budget = ScopedTokenBudget(lambda _scope: TokenBudget(max_total_tokens=10, max_input_tokens=10))
+    client = LiteLLMClient(model="gpt-4o-mini", max_output_tokens=5, budget=budget)
+    assert await client.complete(system="s", user="u", budget_scope="tenant-a:graph-a") == "ok"
 
 
 async def test_litellm_complete_enforces_shared_budget(

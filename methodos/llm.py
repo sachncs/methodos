@@ -22,7 +22,7 @@ import logging
 import math
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
@@ -83,6 +83,7 @@ class LLMClient(Protocol):
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
         """Return the assistant text for `system` + `user`."""
         ...  # pragma: no cover
@@ -106,6 +107,17 @@ class AsyncTokenBudget(Protocol):
 
     async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
         """Atomically reserve tokens and return estimated input tokens."""
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class ScopedAsyncTokenBudget(Protocol):
+    """Async budget capability that requires an explicit request scope."""
+
+    async def reserve_scoped_async(
+        self, *, scope: str, system: str, user: str, output_tokens: int
+    ) -> int:
+        """Atomically reserve tokens for `scope`."""
         ...  # pragma: no cover
 
 
@@ -150,6 +162,46 @@ class TokenBudget:
             )
         self.consumed_tokens += requested
         return input_tokens
+
+
+class ScopedTokenBudget:
+    """Route token reservations to one budget per validated scope.
+
+    The factory can return an in-process :class:`TokenBudget` or a durable
+    implementation such as :class:`SQLiteTokenBudget`. The latter makes the
+    scope shared across workers when the factory derives all budgets from the
+    same database. Scope is deliberately explicit so graph-level quotas cannot
+    accidentally fall back to a tenant-wide bucket.
+    """
+
+    def __init__(
+        self,
+        budget_factory: Callable[[str], TokenBudget | AsyncTokenBudget],
+    ) -> None:
+        """Initialize a lazy scoped budget factory."""
+        self._budget_factory = budget_factory
+        self._budgets: dict[str, TokenBudget | AsyncTokenBudget] = {}
+
+    def _budget_for(self, scope: str) -> TokenBudget | AsyncTokenBudget:
+        """Return the stable budget instance for a non-empty scope."""
+        if not scope or not scope.strip():
+            raise ValueError("scope must not be empty")
+        if scope not in self._budgets:
+            self._budgets[scope] = self._budget_factory(scope)
+        return self._budgets[scope]
+
+    async def reserve_scoped_async(
+        self, *, scope: str, system: str, user: str, output_tokens: int
+    ) -> int:
+        """Reserve from the budget selected by `scope`."""
+        budget = self._budget_for(scope)
+        if isinstance(budget, AsyncTokenBudget):
+            return await budget.reserve_async(
+                system=system,
+                user=user,
+                output_tokens=output_tokens,
+            )
+        return budget.reserve(system=system, user=user, output_tokens=output_tokens)
 
 
 class SQLiteTokenBudget(TokenBudget):
@@ -708,7 +760,7 @@ class LiteLLMClient:
         max_retry_backoff_seconds: float = 8.0,
         max_output_tokens: int = 2048,
         circuit_breaker: CircuitBreaker | AsyncCircuitBreaker | None = None,
-        budget: TokenBudget | AsyncTokenBudget | None = None,
+        budget: TokenBudget | AsyncTokenBudget | ScopedAsyncTokenBudget | None = None,
     ) -> None:
         """Initialize the LiteLLM-backed client.
 
@@ -724,7 +776,9 @@ class LiteLLMClient:
             circuit_breaker: optional upstream failure breaker; a new local
                 breaker is created when omitted.
             budget: optional shared token budget, suitable for tenant-scoped
-                accounting when injected by the application.
+                accounting when injected by the application. A
+                :class:`ScopedTokenBudget` requires `budget_scope` on every
+                request and is suitable for graph-scoped accounting.
         """
         if not model:
             raise ValueError("model must be a non-empty string")
@@ -758,6 +812,7 @@ class LiteLLMClient:
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
         """Send a chat-completion request and return the assistant text.
 
@@ -774,13 +829,25 @@ class LiteLLMClient:
             user: User prompt text.
             json_schema: Optional Pydantic model for structured output.
             temperature: Sampling temperature.
+            budget_scope: Required scope when using a scoped token budget.
 
         Returns:
             Assistant text (or JSON string if `json_schema` is set).
         """
         if self.budget is not None:
             try:
-                if isinstance(self.budget, AsyncTokenBudget):
+                if isinstance(self.budget, ScopedAsyncTokenBudget):
+                    if budget_scope is None:
+                        raise BudgetExceededError(
+                            "scoped LLM budget requires an explicit budget_scope"
+                        )
+                    await self.budget.reserve_scoped_async(
+                        scope=budget_scope,
+                        system=system,
+                        user=user,
+                        output_tokens=self.max_output_tokens,
+                    )
+                elif isinstance(self.budget, AsyncTokenBudget):
                     await self.budget.reserve_async(
                         system=system,
                         user=user,
@@ -910,20 +977,24 @@ class FailoverLLMClient:
         user: str,
         json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
         """Return the first successful response, failing only after all providers."""
         failures: list[LLMError] = []
+        request_options: dict[str, Any] = {
+            "system": system,
+            "user": user,
+            "json_schema": json_schema,
+            "temperature": temperature,
+        }
+        if budget_scope is not None:
+            request_options["budget_scope"] = budget_scope
         for index, provider in enumerate(self.providers):
             with llm_tracer.start_as_current_span("methodos.llm.failover") as span:
                 span.set_attribute("methodos.llm.provider_index", index)
                 span.set_attribute("methodos.llm.provider_type", type(provider).__name__)
                 try:
-                    return await provider.complete(
-                        system=system,
-                        user=user,
-                        json_schema=json_schema,
-                        temperature=temperature,
-                    )
+                    return await provider.complete(**request_options)
                 except LLMError as exc:
                     span.record_exception(exc)
                     failures.append(exc)
@@ -953,6 +1024,8 @@ __all__ = [
     "PostgresTokenBudget",
     "SQLiteCircuitBreaker",
     "SQLiteTokenBudget",
+    "ScopedAsyncTokenBudget",
+    "ScopedTokenBudget",
     "TokenBudget",
     "is_retryable_provider_error",
 ]

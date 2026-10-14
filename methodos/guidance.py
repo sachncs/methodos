@@ -101,6 +101,7 @@ async def generate_guidance(
     query: str,
     trajectory: Iterable[tuple[str, str]],
     window: int = 3,
+    budget_scope: str | None = None,
 ) -> str:
     """Compute guidance `g_t` for the current step (paper Eq. 2).
 
@@ -115,11 +116,19 @@ async def generate_guidance(
         f"# Original Query\n{query}\n\n# Recent Trajectory\n{trajectory_text}\n\n{graph_text}"
     )
 
-    response = await llm.complete(
-        system=GUIDANCE_SYSTEM_PROMPT,
-        user=user_prompt,
-        temperature=0.0,
-    )
+    if budget_scope is None:
+        response = await llm.complete(
+            system=GUIDANCE_SYSTEM_PROMPT,
+            user=user_prompt,
+            temperature=0.0,
+        )
+    else:
+        response = await llm.complete(
+            system=GUIDANCE_SYSTEM_PROMPT,
+            user=user_prompt,
+            temperature=0.0,
+            budget_scope=budget_scope,
+        )
     logger.debug("generated guidance: %d chars", len(response))
     return response
 
