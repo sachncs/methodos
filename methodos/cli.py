@@ -176,6 +176,24 @@ def verify_backup(
     asyncio.run(_run())
 
 
+@cli.command("restore-backup")
+def restore_backup(
+    source: Annotated[Path, typer.Argument(help="Verified SQLite backup path.")],
+    destination: Annotated[Path, typer.Argument(help="New SQLite database path to create.")],
+) -> None:
+    """Restore a verified SQLite backup without overwriting a destination."""
+
+    async def _run() -> None:
+        repo = build_repo_from_env()
+        if not isinstance(repo, BackupRepository):
+            typer.echo("The configured backend does not support local restores.", err=True)
+            raise typer.Exit(code=2)
+        await repo.restore_backup_to(source, destination)
+        typer.echo(f"restored verified backup to {destination}")
+
+    asyncio.run(_run())
+
+
 @cli.command()
 def evolve(
     graph_id: Annotated[str, typer.Option(help="Graph identifier to evolve.")] = "default",

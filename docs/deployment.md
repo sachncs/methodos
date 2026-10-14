@@ -153,6 +153,16 @@ methodos verify-backup /secure/backups/methodos-20261014090000.db
 
 For Postgres, use the managed provider's backup and restore verification.
 
+To restore a verified SQLite backup into a new database without overwriting an
+existing path:
+
+```bash
+methodos restore-backup /secure/backups/methodos-20261014090000.db /secure/recovery/methodos.db
+```
+
+The destination must not already exist. Point the application at the recovered
+database only after validating it and completing the appropriate cutover.
+
 ### Durable evolution queue
 
 The HTTP factory deliberately does not create a scheduler or worker implicitly.

@@ -256,6 +256,10 @@ class BackupRepository(Protocol):  # pragma: no cover - capability contract
         """Verify an existing backup's SQLite integrity and schema version."""
         ...  # pragma: no cover
 
+    async def restore_backup_to(self, source: Path, destination: Path) -> None:
+        """Restore a verified backup to a new database path without overwriting."""
+        ...  # pragma: no cover
+
 
 # ----------------------------------------------------------------------------
 # No-op VectorIndex
@@ -784,6 +788,55 @@ class SQLiteRepository:
 
         await asyncio.to_thread(verify)
         logger.info("verified SQLite backup at %s", path)
+
+    async def restore_backup_to(self, source: Path, destination: Path) -> None:
+        """Restore a verified backup to a new path without overwriting files.
+
+        The destination is created atomically only after the source and the
+        temporary restored database pass the same integrity and schema checks.
+        Existing destinations are rejected so recovery cannot silently destroy
+        an active or previously recovered database.
+        """
+        source_path = Path(source)
+        target = Path(destination)
+        if source_path.resolve() == target.resolve():
+            raise ValueError("restore destination must differ from the source backup")
+        if target.exists():
+            raise FileExistsError(f"restore destination already exists: {target}")
+
+        await self.verify_backup(source_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_path = tempfile.mkstemp(
+            prefix=f"{target.name}.", suffix=".tmp", dir=str(target.parent)
+        )
+        os.close(fd)
+
+        def restore() -> None:
+            try:
+                with (
+                    sqlite3.connect(source_path) as backup,
+                    sqlite3.connect(temporary_path) as restored,
+                ):
+                    backup.backup(restored)
+                    integrity = restored.execute("PRAGMA integrity_check").fetchone()[0]
+                    if integrity != "ok":  # pragma: no cover - defensive SQLite failure
+                        raise RuntimeError(
+                            f"restored SQLite database integrity check failed: {integrity}"
+                        )
+                # Hard-linking the completed temporary file makes publication
+                # atomic and fails safely if another process won the race.
+                os.link(temporary_path, target)
+            finally:
+                temporary = Path(temporary_path)
+                if temporary.exists():
+                    temporary.unlink()
+
+        try:
+            await asyncio.to_thread(restore)
+        except FileExistsError as exc:
+            raise FileExistsError(f"restore destination already exists: {target}") from exc
+        await self.verify_backup(target)
+        logger.info("restored verified SQLite backup %s to %s", source_path, target)
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         """Load and return the graph identified by `graph_id`.

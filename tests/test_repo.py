@@ -696,6 +696,42 @@ class TestSQLiteRepository:
         with pytest.raises(RuntimeError, match="missing required tables"):
             await repository.verify_backup(path)
 
+    async def test_restore_backup_to_creates_new_verified_database(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "source.db"
+        backup_path = tmp_path / "backup.db"
+        restored_path = tmp_path / "recovered" / "methodos.db"
+        repository = SQLiteRepository(db_path=source_path)
+        await repository.save_graph(make_graph("recovery-graph"))
+        await repository.backup_to(backup_path)
+
+        await repository.restore_backup_to(backup_path, restored_path)
+
+        restored = SQLiteRepository(db_path=restored_path)
+        assert (await restored.load_graph("recovery-graph")).id == "recovery-graph"
+
+    async def test_restore_backup_to_rejects_existing_destination(self, tmp_path: Path) -> None:
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+        backup_path = tmp_path / "backup.db"
+        destination = tmp_path / "destination.db"
+        await repository.backup_to(backup_path)
+        destination.write_bytes(b"keep me")
+
+        with pytest.raises(FileExistsError, match="already exists"):
+            await repository.restore_backup_to(backup_path, destination)
+        assert destination.read_bytes() == b"keep me"
+
+    async def test_restore_backup_to_rejects_invalid_source_without_destination(
+        self, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "invalid.db"
+        destination = tmp_path / "restored.db"
+        source.write_bytes(b"not sqlite")
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+
+        with pytest.raises(sqlite3.DatabaseError):
+            await repository.restore_backup_to(source, destination)
+        assert not destination.exists()
+
     async def test_unsupported_schema_version_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "future.db"
         with sqlite3.connect(db_path) as conn:

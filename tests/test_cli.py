@@ -273,6 +273,41 @@ class TestBackupCommand:
         assert result.exit_code == 2
         assert "does not support local backups" in (result.stdout or "") + (result.stderr or "")
 
+    def test_restores_backup_without_overwriting(
+        self,
+        runner: CliRunner,
+        seeded_sqlite_repo: SQLiteRepository,
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "backup.db"
+        destination = tmp_path / "restored.db"
+        asyncio.run(seeded_sqlite_repo.backup_to(source))
+
+        result = runner.invoke(
+            cli,
+            ["restore-backup", str(source), str(destination)],
+            env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "sqlite"},
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert destination.exists()
+        assert "restored verified backup" in result.stdout
+
+    def test_restore_rejects_non_sqlite_backend(
+        self,
+        runner: CliRunner,
+        seeded_filesystem_repo: FilesystemRepository,
+        tmp_path: Path,
+    ) -> None:
+        result = runner.invoke(
+            cli,
+            ["restore-backup", str(tmp_path / "backup.db"), str(tmp_path / "restored.db")],
+            env={"PGRAPH_HOME": os.environ["PGRAPH_HOME"], "PGRAPH_BACKEND": "filesystem"},
+        )
+        assert result.exit_code == 2
+        assert "does not support local restores" in (result.stdout or "") + (result.stderr or "")
+
 
 # ----------------------------------------------------------------------------
 # eval

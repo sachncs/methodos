@@ -144,7 +144,8 @@ system production-ready.
     recovery runbook remain open.
 13. Filesystem JSON graph/trajectory corruption now raises a stable error and
     preserves the bad record under `corrupt/`; SQLite corruption is classified
-    but still requires operator recovery from a verified backup.
+    and now supports a non-overwriting `restore-backup` workflow that verifies
+    the source and published destination.
 
 ### LLM and evolution
 
@@ -229,13 +230,13 @@ system production-ready.
 
 ### Phase 3 — durable data layer
 
-- Done: forward-only migrations, revision-safe CAS, SQLite backup creation and
-  verification, snapshot restore, filesystem corruption quarantine, and
+- Done: forward-only migrations, revision-safe CAS, SQLite backup creation,
+  verification and non-overwriting restore, snapshot restore, filesystem
+  corruption quarantine, and
   SQLite/Postgres integration paths.
 - Remaining: expand cross-process contention tests, run scheduled SQLite
-  restore drills, document retention/RPO/RTO, validate managed-Postgres
-  restore procedures, and add operator recovery automation for SQLite
-  corruption.
+  restore drills, document retention/RPO/RTO, and validate managed-Postgres
+  restore procedures.
 
 ### Phase 4 — dependable intelligence
 
