@@ -37,6 +37,7 @@ class EvolutionJob:
     updated_at: float
     attempt_count: int
     lease_expires_at: float | None
+    tenant_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +77,7 @@ class EvolutionJobStore(Protocol):
         graph_id: str,
         k_rounds: int,
         idempotency_key: str | None,
+        tenant_id: str | None = None,
     ) -> EvolutionJob:
         """Create a job or return the existing job for an idempotency key."""
         ...  # pragma: no cover
@@ -154,7 +156,8 @@ class SQLiteEvolutionJobStore:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
-                    lease_expires_at REAL
+                    lease_expires_at REAL,
+                    tenant_id TEXT
                 )
                 """
             )
@@ -167,12 +170,14 @@ class SQLiteEvolutionJobStore:
                 )
             if "lease_expires_at" not in columns:
                 connection.execute("ALTER TABLE evolution_jobs ADD COLUMN lease_expires_at REAL")
+            if "tenant_id" not in columns:
+                connection.execute("ALTER TABLE evolution_jobs ADD COLUMN tenant_id TEXT")
 
     @staticmethod
-    def _fingerprint(graph_id: str, k_rounds: int) -> str:
+    def _fingerprint(graph_id: str, k_rounds: int, tenant_id: str | None = None) -> str:
         """Create a stable hash for the request fields protected by a key."""
         payload = json.dumps(
-            {"graph_id": graph_id, "k_rounds": k_rounds},
+            {"graph_id": graph_id, "k_rounds": k_rounds, "tenant_id": tenant_id},
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -189,21 +194,27 @@ class SQLiteEvolutionJobStore:
         graph_id: str,
         k_rounds: int,
         idempotency_key: str | None,
+        tenant_id: str | None = None,
     ) -> EvolutionJob:
         """Create a durable job, atomically deduplicating a supplied key."""
         if not graph_id or k_rounds <= 0:
             raise ValueError("graph_id must be non-empty and k_rounds must be positive")
-        fingerprint = self._fingerprint(graph_id, k_rounds)
+        fingerprint = self._fingerprint(graph_id, k_rounds, tenant_id)
+        storage_idempotency_key = (
+            f"{tenant_id}:{idempotency_key}"
+            if tenant_id is not None and idempotency_key
+            else idempotency_key
+        )
 
         def create() -> EvolutionJob:
             now = time.time()
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
-                    if idempotency_key is not None:
+                    if storage_idempotency_key is not None:
                         row = connection.execute(
                             "SELECT * FROM evolution_jobs WHERE idempotency_key = ?",
-                            (idempotency_key,),
+                            (storage_idempotency_key,),
                         ).fetchone()
                         if row is not None:
                             if row["request_fingerprint"] != fingerprint:
@@ -217,8 +228,18 @@ class SQLiteEvolutionJobStore:
                         "INSERT INTO evolution_jobs "
                         "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
                         "request_fingerprint, created_at, updated_at, attempt_count, "
-                        "lease_expires_at) VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?, 0, NULL)",
-                        (job_id, graph_id, k_rounds, idempotency_key, fingerprint, now, now),
+                        "lease_expires_at, tenant_id) "
+                        "VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?, 0, NULL, ?)",
+                        (
+                            job_id,
+                            graph_id,
+                            k_rounds,
+                            storage_idempotency_key,
+                            fingerprint,
+                            now,
+                            now,
+                            tenant_id,
+                        ),
                     )
                     row = connection.execute(
                         "SELECT * FROM evolution_jobs WHERE job_id = ?", (job_id,)
@@ -405,7 +426,8 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                         created_at DOUBLE PRECISION NOT NULL,
                         updated_at DOUBLE PRECISION NOT NULL,
                         attempt_count INTEGER NOT NULL DEFAULT 0,
-                        lease_expires_at DOUBLE PRECISION
+                        lease_expires_at DOUBLE PRECISION,
+                        tenant_id TEXT
                     )
                     """
                 )
@@ -416,6 +438,10 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                 await connection.execute(
                     "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
                     "lease_expires_at DOUBLE PRECISION"
+                )
+                await connection.execute(
+                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
+                    "tenant_id TEXT"
                 )
         except Exception:
             await self.close()
@@ -444,19 +470,25 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         graph_id: str,
         k_rounds: int,
         idempotency_key: str | None,
+        tenant_id: str | None = None,
     ) -> EvolutionJob:
         """Create a job or atomically return the keyed existing job."""
         if not graph_id or k_rounds <= 0:
             raise ValueError("graph_id must be non-empty and k_rounds must be positive")
-        fingerprint = SQLiteEvolutionJobStore._fingerprint(graph_id, k_rounds)
+        fingerprint = SQLiteEvolutionJobStore._fingerprint(graph_id, k_rounds, tenant_id)
+        storage_idempotency_key = (
+            f"{tenant_id}:{idempotency_key}"
+            if tenant_id is not None and idempotency_key
+            else idempotency_key
+        )
         pool = await self._get_pool()
         now = time.time()
         async with pool.acquire() as connection, connection.transaction():
-            if idempotency_key is not None:
+            if storage_idempotency_key is not None:
                 row = await connection.fetchrow(
                     "SELECT * FROM methodos_evolution_jobs "
                     "WHERE idempotency_key = $1 FOR UPDATE",
-                    idempotency_key,
+                    storage_idempotency_key,
                 )
                 if row is not None:
                     if row["request_fingerprint"] != fingerprint:
@@ -468,14 +500,16 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             row = await connection.fetchrow(
                 "INSERT INTO methodos_evolution_jobs "
                 "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
-                "request_fingerprint, created_at, updated_at, attempt_count, lease_expires_at) "
-                "VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6, 0, NULL) RETURNING *",
+                "request_fingerprint, created_at, updated_at, attempt_count, lease_expires_at, "
+                "tenant_id) VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6, 0, NULL, $7) "
+                "RETURNING *",
                 job_id,
                 graph_id,
                 k_rounds,
-                idempotency_key,
+                storage_idempotency_key,
                 fingerprint,
                 now,
+                tenant_id,
             )
             assert row is not None
             return self._record(row)
@@ -685,6 +719,24 @@ class StoreBackedEvolutionRunner:
         )
         return job.job_id
 
+    async def start_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+    ) -> str:
+        """Persist a job with durable tenant ownership metadata."""
+        del request_id
+        job = await self.store.create_or_get(
+            graph_id=graph_id,
+            k_rounds=k_rounds,
+            idempotency_key=None,
+            tenant_id=tenant_id,
+        )
+        return job.job_id
+
     async def start_idempotent(
         self,
         *,
@@ -702,12 +754,40 @@ class StoreBackedEvolutionRunner:
         )
         return job.job_id
 
+    async def start_idempotent_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+        idempotency_key: str,
+    ) -> str:
+        """Persist or deduplicate a tenant-owned evolution request."""
+        del request_id
+        job = await self.store.create_or_get(
+            graph_id=graph_id,
+            k_rounds=k_rounds,
+            idempotency_key=idempotency_key,
+            tenant_id=tenant_id,
+        )
+        return job.job_id
+
     async def status(self, job_id: str) -> Any:
         """Adapt a durable record to the service's public status DTO."""
         from methodos.service import EvolutionJobStatus
 
         job = await self.store.get(job_id)
         if job is None:
+            return None
+        return EvolutionJobStatus(job_id=job.job_id, status=job.status, detail=job.detail)
+
+    async def status_for_tenant(self, *, tenant_id: str, job_id: str) -> Any:
+        """Return status only when the durable job belongs to `tenant_id`."""
+        from methodos.service import EvolutionJobStatus
+
+        job = await self.store.get(job_id)
+        if job is None or job.tenant_id != tenant_id:
             return None
         return EvolutionJobStatus(job_id=job.job_id, status=job.status, detail=job.detail)
 

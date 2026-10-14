@@ -81,8 +81,10 @@ system production-ready.
   Prometheus metrics, and the worker has a cancellable supervised loop with
   heartbeat/error state that survives transient storage failures.
 - The evolution API verifies graph ownership before queueing work and maps
-  idempotency-key reuse conflicts to a stable HTTP 409 response; tenant-scoped
-  job-status authorization for external runners remains open.
+  idempotency-key reuse conflicts to a stable HTTP 409 response. Durable
+  SQLite/Postgres runners now bind jobs and idempotency keys to tenants and
+  hide status from other tenants; external runners must implement the same
+  capability before tenant mode accepts them.
 
 ## Open issues
 
@@ -92,8 +94,8 @@ system production-ready.
    a queued job contract, supports authenticated status polling, and exposes a
    fail-closed `Idempotency-Key` capability for runners that guarantee
    deduplication; the default app still returns 501 without a durable runner,
-   and production scheduler ownership, tenant-scoped job-status authorization,
-   and alert-threshold tuning remain open;
+   and production scheduler ownership, external-runner tenant capability, and
+   alert-threshold tuning remain open;
    starter queue and worker alerts are now versioned.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain

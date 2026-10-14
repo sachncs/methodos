@@ -23,7 +23,7 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
 
 import structlog
@@ -171,6 +171,43 @@ class IdempotentEvolutionRunner(EvolutionRunner, Protocol):
         idempotency_key: str,
     ) -> str:
         """Return the same job id for repeated keys with the same request."""
+        ...
+
+
+@runtime_checkable
+class TenantScopedEvolutionRunner(EvolutionRunner, Protocol):
+    """Runner capability that durably binds jobs and status to a tenant."""
+
+    async def start_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+    ) -> str:
+        """Queue a job owned by `tenant_id`."""
+        ...
+
+    async def start_idempotent_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+        idempotency_key: str,
+    ) -> str:
+        """Queue or deduplicate a tenant-owned job."""
+        ...
+
+    async def status_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        job_id: str,
+    ) -> EvolutionJobStatus | None:
+        """Return status only when the job belongs to `tenant_id`."""
         ...
 
 
@@ -802,7 +839,19 @@ def create_app(
         require_role(http_request, "operator")
         if evolution_runner is None:
             raise HTTPException(status_code=501, detail="evolution runner is not configured")
-        status = await evolution_runner.status(job_id)
+        tenant_id = request_tenant(http_request)
+        if tenant_keys:
+            if not isinstance(evolution_runner, TenantScopedEvolutionRunner):
+                raise HTTPException(
+                    status_code=501,
+                    detail="configured evolution runner does not support tenant-scoped status",
+                )
+            status = await evolution_runner.status_for_tenant(
+                tenant_id=tenant_id,
+                job_id=job_id,
+            )
+        else:
+            status = await evolution_runner.status(job_id)
         if status is None:
             raise HTTPException(status_code=404, detail="evolution job not found")
         return status
@@ -834,28 +883,54 @@ def create_app(
                 ),
             )
         request_id = getattr(http_request.state, "request_id", "unknown")
+        tenant_id = request_tenant(http_request)
         idempotency_key = validate_idempotency_key(
             http_request.headers.get("idempotency-key")
         )
         try:
+            tenant_runner: TenantScopedEvolutionRunner | None = None
+            if tenant_keys and not isinstance(evolution_runner, TenantScopedEvolutionRunner):
+                raise HTTPException(
+                    status_code=501,
+                    detail="configured evolution runner does not support tenant-scoped jobs",
+                )
+            if tenant_keys:
+                tenant_runner = cast(TenantScopedEvolutionRunner, evolution_runner)
             if idempotency_key is not None:
-                if not isinstance(evolution_runner, IdempotentEvolutionRunner):
+                if tenant_runner is not None:
+                    job_id = await tenant_runner.start_idempotent_for_tenant(
+                        tenant_id=tenant_id,
+                        graph_id=graph_id,
+                        k_rounds=request.k_rounds,
+                        request_id=request_id,
+                        idempotency_key=idempotency_key,
+                    )
+                elif not isinstance(evolution_runner, IdempotentEvolutionRunner):
                     raise HTTPException(
                         status_code=501,
                         detail="configured evolution runner does not support idempotency",
                     )
-                job_id = await evolution_runner.start_idempotent(
-                    graph_id=graph_id,
-                    k_rounds=request.k_rounds,
-                    request_id=request_id,
-                    idempotency_key=idempotency_key,
-                )
+                else:
+                    job_id = await evolution_runner.start_idempotent(
+                        graph_id=graph_id,
+                        k_rounds=request.k_rounds,
+                        request_id=request_id,
+                        idempotency_key=idempotency_key,
+                    )
             else:
-                job_id = await evolution_runner.start(
-                    graph_id=graph_id,
-                    k_rounds=request.k_rounds,
-                    request_id=request_id,
-                )
+                if tenant_runner is not None:
+                    job_id = await tenant_runner.start_for_tenant(
+                        tenant_id=tenant_id,
+                        graph_id=graph_id,
+                        k_rounds=request.k_rounds,
+                        request_id=request_id,
+                    )
+                else:
+                    job_id = await evolution_runner.start(
+                        graph_id=graph_id,
+                        k_rounds=request.k_rounds,
+                        request_id=request_id,
+                    )
         except JobIdempotencyConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return EvolveResponse(detail="evolution queued", job_id=job_id, status="queued")
@@ -879,6 +954,7 @@ __all__ = [
     "HealthResponse",
     "IdempotentEvolutionRunner",
     "ReadinessResponse",
+    "TenantScopedEvolutionRunner",
     "app",
     "create_app",
 ]

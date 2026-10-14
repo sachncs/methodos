@@ -58,6 +58,29 @@ class TestSQLiteEvolutionJobStore:
         )
         assert second == first
 
+    async def test_tenant_ownership_survives_restart_and_scopes_keys(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        first = await store.create_or_get(
+            graph_id="graph-1",
+            k_rounds=3,
+            idempotency_key="retry-1",
+            tenant_id="alpha",
+        )
+        second = await store.create_or_get(
+            graph_id="graph-1",
+            k_rounds=3,
+            idempotency_key="retry-1",
+            tenant_id="beta",
+        )
+        assert first.tenant_id == "alpha"
+        assert second.tenant_id == "beta"
+        assert first.job_id != second.job_id
+
+        reopened = SQLiteEvolutionJobStore(store.database_path)
+        assert await reopened.get(first.job_id) == first
+
     async def test_reusing_key_for_different_request_fails(
         self,
         store: SQLiteEvolutionJobStore,

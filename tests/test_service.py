@@ -641,6 +641,58 @@ class TestEvolveEndpoint:
         assert response.status_code == 409
         assert response.json()["detail"] == "idempotency key was used for a different request"
 
+    def test_tenant_scoped_runner_hides_job_status_from_other_tenants(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TENANT_KEYS", "alpha:key-alpha,beta:key-beta")
+        monkeypatch.setenv(
+            "METHODOS_API_KEY_ROLES",
+            "key-alpha=operator,key-beta=operator",
+        )
+        repo = SQLiteRepository(db_path=tmp_path / "tenant-service.db")
+        jobs = SQLiteEvolutionJobStore(tmp_path / "tenant-jobs.db")
+        app = create_app(
+            repo=repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=StoreBackedEvolutionRunner(jobs),
+        )
+        alpha_headers = {"X-API-Key": "key-alpha"}
+        beta_headers = {"X-API-Key": "key-beta"}
+        with TestClient(app) as runner_client:
+            created = runner_client.post(
+                "/v1/graphs",
+                headers=alpha_headers,
+                json={"id": "g1"},
+            )
+            assert created.status_code == 201
+            queued = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers=alpha_headers,
+                json={"k_rounds": 2},
+            )
+            assert queued.status_code == 202
+            job_id = queued.json()["job_id"]
+            assert runner_client.get(
+                f"/v1/evolution/jobs/{job_id}", headers=alpha_headers
+            ).status_code == 200
+            assert runner_client.get(
+                f"/v1/evolution/jobs/{job_id}", headers=beta_headers
+            ).status_code == 404
+            retried = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers={**alpha_headers, "Idempotency-Key": "tenant-retry"},
+                json={"k_rounds": 2},
+            )
+            repeated = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers={**alpha_headers, "Idempotency-Key": "tenant-retry"},
+                json={"k_rounds": 2},
+            )
+            assert retried.status_code == repeated.status_code == 202
+            assert retried.json()["job_id"] == repeated.json()["job_id"]
+
     async def test_injected_runner_returns_accepted_job(
         self,
         seeded_repo: SQLiteRepository,
