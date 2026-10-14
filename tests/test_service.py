@@ -233,6 +233,42 @@ class TestHealth:
         )
         assert response_start["status"] == 413
 
+    async def test_stops_processing_when_client_disconnects_during_upload(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        scope: Scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/graphs",
+            "raw_path": b"/v1/graphs",
+            "query_string": b"",
+            "headers": [(b"host", b"test"), (b"content-type", b"application/json")],
+            "client": ("test", 1234),
+            "server": ("test", 80),
+        }
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            return {"type": "http.disconnect"}
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        async with app.router.lifespan_context(app):
+            await app(scope, cast(Receive, receive), cast(Send, send))
+
+        response_start = next(
+            message for message in sent if message["type"] == "http.response.start"
+        )
+        assert response_start["status"] == 499
+        response_body = next(message for message in sent if message["type"] == "http.response.body")
+        assert b"client_disconnected" in response_body["body"]
+
     def test_metrics_include_store_backed_evolution_queue(
         self,
         seeded_repo: SQLiteRepository,

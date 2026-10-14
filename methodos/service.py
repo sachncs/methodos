@@ -595,7 +595,17 @@ def create_app(
             message = await original_receive()
             if message["type"] == "http.disconnect":
                 request._receive = original_receive
-                break
+                disconnected_response: Response = JSONResponse(
+                    status_code=499,
+                    content=error_payload(
+                        request,
+                        "client disconnected before the request was received",
+                        "client_disconnected",
+                    ),
+                )
+                HTTP_REQUESTS.labels(request.method, "499").inc()
+                HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
+                return harden_response(disconnected_response, request_id)
             chunk = message.get("body", b"")
             if isinstance(chunk, bytes):
                 if len(body) + len(chunk) > max_body_bytes:
