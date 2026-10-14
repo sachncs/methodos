@@ -111,7 +111,8 @@ system production-ready.
   policy and provider-specific breaker tuning remain deployment concerns.
 - Runtime modes now fail closed for staging and production: startup requires
   API-key or tenant-key authentication and rejects the process-local filesystem
-  repository. Development and test remain explicitly permissive.
+  repository, and rejects credentials shorter than 16 characters. Development
+  and test remain explicitly permissive.
 
 ## Open issues
 

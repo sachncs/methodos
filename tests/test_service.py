@@ -100,6 +100,16 @@ class TestHealth:
                 "production",
                 repo=FilesystemRepository(root=tmp_path / "files"),
                 authenticated=True,
+                credentials=("x" * 16,),
+            )
+
+    def test_production_mode_rejects_weak_credentials(self, seeded_repo: SQLiteRepository) -> None:
+        with pytest.raises(ValueError, match="at least 16 characters"):
+            validate_runtime_mode(
+                "production",
+                repo=seeded_repo,
+                authenticated=True,
+                credentials=("short",),
             )
 
     @pytest.mark.parametrize("mode", ["development", "test", "staging", "production"])
@@ -107,7 +117,16 @@ class TestHealth:
         self, seeded_repo: SQLiteRepository, mode: str
     ) -> None:
         authenticated = mode in {"staging", "production"}
-        assert validate_runtime_mode(mode, repo=seeded_repo, authenticated=authenticated) == mode
+        credentials = ("x" * 16,) if authenticated else ()
+        assert (
+            validate_runtime_mode(
+                mode,
+                repo=seeded_repo,
+                authenticated=authenticated,
+                credentials=credentials,
+            )
+            == mode
+        )
 
     def test_runtime_mode_rejects_unknown_mode(self, seeded_repo: SQLiteRepository) -> None:
         with pytest.raises(ValueError, match="must be one of"):

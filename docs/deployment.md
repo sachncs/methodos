@@ -72,6 +72,8 @@ docker compose -f docker/compose.yml up methodos
       `/metrics` remain public for probes and scraping.
 - [ ] Set `METHODOS_ENV=production` (or `staging`) so startup rejects missing
       authentication and process-local filesystem persistence.
+- [ ] Use API and tenant keys with at least 16 characters; shared deployment
+      modes reject shorter credentials at startup.
 - [ ] For least privilege, set `METHODOS_API_KEY_ROLES` and assign readers,
       writers, and operators explicitly; unspecified keys retain the legacy
       writer role for backward compatibility.
