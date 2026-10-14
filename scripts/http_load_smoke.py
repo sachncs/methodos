@@ -27,6 +27,7 @@ async def run_check(
     requests: int,
     concurrency: int,
     timeout: float,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> int:
     """Issue requests and return a shell-friendly exit status."""
     if requests < 1 or concurrency < 1 or timeout <= 0:
@@ -39,7 +40,7 @@ async def run_check(
     latencies: list[float] = []
     failures: list[str] = []
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
 
         async def request_once() -> None:
             async with semaphore:
