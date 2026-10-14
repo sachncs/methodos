@@ -101,6 +101,7 @@ class TestHealth:
                 repo=FilesystemRepository(root=tmp_path / "files"),
                 authenticated=True,
                 credentials=("x" * 16,),
+                role_keys=frozenset({"x" * 16}),
             )
 
     def test_production_mode_rejects_weak_credentials(self, seeded_repo: SQLiteRepository) -> None:
@@ -112,18 +113,29 @@ class TestHealth:
                 credentials=("short",),
             )
 
+    def test_production_mode_requires_explicit_roles(self, seeded_repo: SQLiteRepository) -> None:
+        with pytest.raises(ValueError, match="explicit roles"):
+            validate_runtime_mode(
+                "production",
+                repo=seeded_repo,
+                authenticated=True,
+                credentials=("x" * 16,),
+            )
+
     @pytest.mark.parametrize("mode", ["development", "test", "staging", "production"])
     def test_runtime_mode_accepts_known_modes(
         self, seeded_repo: SQLiteRepository, mode: str
     ) -> None:
         authenticated = mode in {"staging", "production"}
         credentials = ("x" * 16,) if authenticated else ()
+        role_keys = frozenset(credentials)
         assert (
             validate_runtime_mode(
                 mode,
                 repo=seeded_repo,
                 authenticated=authenticated,
                 credentials=credentials,
+                role_keys=role_keys,
             )
             == mode
         )

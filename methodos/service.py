@@ -445,6 +445,7 @@ def validate_runtime_mode(
     repo: Repository,
     authenticated: bool,
     credentials: tuple[str, ...] = (),
+    role_keys: frozenset[str] = frozenset(),
 ) -> str:
     """Fail closed for deployment modes that are intended for shared hosts.
 
@@ -464,6 +465,10 @@ def validate_runtime_mode(
         if any(len(credential) < 16 for credential in credentials):
             raise ValueError(
                 f"METHODOS_ENV={normalized} requires API and tenant keys of at least 16 characters"
+            )
+        if set(role_keys) != set(credentials):
+            raise ValueError(
+                f"METHODOS_ENV={normalized} requires explicit roles for every configured API key"
             )
         if isinstance(repo, FilesystemRepository):
             raise ValueError(
@@ -542,6 +547,7 @@ def create_app(
         repo=backend_repo,
         authenticated=bool(configured_api_keys or tenant_keys),
         credentials=tuple(tenant_keys.values()) if tenant_keys else configured_api_keys,
+        role_keys=frozenset(api_key_roles),
     )
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:

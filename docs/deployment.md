@@ -79,7 +79,8 @@ docker compose -f docker/compose.yml up methodos
       modes reject shorter credentials at startup.
 - [ ] For least privilege, set `METHODOS_API_KEY_ROLES` and assign readers,
       writers, and operators explicitly; unspecified keys retain the legacy
-      writer role for backward compatibility.
+      writer role only in development/test. Staging/production reject missing
+      role assignments.
 - [ ] For multiple tenants, set `METHODOS_TENANT_KEYS` and send the matching
       `X-API-Key`; the server derives the tenant and rejects mismatched
       `X-Tenant-ID` headers. Do not use a shared `METHODOS_API_KEY` in this mode.
