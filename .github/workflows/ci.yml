@@ -29,10 +29,10 @@ jobs:
     env:
       METHODOS_POSTGRES_TEST_DSN: postgresql://methodos:methodos@localhost:5432/methodos
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.9.x"
 
@@ -49,7 +49,7 @@ jobs:
         run: uv run mypy methodos tests
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -98,7 +98,7 @@ jobs:
             validate --config=/etc/otelcol/config.yaml
 
       - name: Generate container SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.24.3
         with:
           image: methodos:ci
           artifact-name: methodos-sbom.spdx.json
@@ -114,7 +114,7 @@ jobs:
           exit-code: "1"
 
       - name: Upload container SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: methodos-sbom
           path: methodos-sbom.spdx.json
