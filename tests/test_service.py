@@ -122,6 +122,30 @@ class TestHealth:
                 credentials=("x" * 16,),
             )
 
+    def test_create_app_enforces_production_role_configuration(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        key = "production-key-1234"
+        monkeypatch.setenv("METHODOS_ENV", "production")
+        monkeypatch.setenv("METHODOS_API_KEYS", key)
+        monkeypatch.setenv("METHODOS_API_KEY_ROLES", f"{key}=reader")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+
+        with TestClient(app) as production_client:
+            assert production_client.get("/v1/graphs/g1").status_code == 401
+            assert (
+                production_client.get("/v1/graphs/g1", headers={"x-api-key": key}).status_code
+                == 200
+            )
+
+    def test_create_app_rejects_production_implicit_roles(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_ENV", "production")
+        monkeypatch.setenv("METHODOS_API_KEYS", "production-key-1234")
+        with pytest.raises(ValueError, match="explicit roles"):
+            create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+
     @pytest.mark.parametrize("mode", ["development", "test", "staging", "production"])
     def test_runtime_mode_accepts_known_modes(
         self, seeded_repo: SQLiteRepository, mode: str

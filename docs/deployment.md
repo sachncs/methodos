@@ -37,7 +37,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `GROK_API_KEY` | — | for Grok via litellm |
 | `METHODOS_API_KEY` | — | optional API key for non-public REST endpoints |
 | `METHODOS_API_KEYS` | — | comma-separated overlapping keys for zero-downtime key rotation; takes precedence over `METHODOS_API_KEY` |
-| `METHODOS_API_KEY_ROLES` | — | optional comma-separated `key=reader|writer|operator` role assignments; unspecified authenticated keys remain writers |
+| `METHODOS_API_KEY_ROLES` | — | comma-separated `key=reader|writer|operator` assignments; required for every key in staging/production |
 | `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres and SQLite use shared windows, filesystem remains per-process; `0` disables it |
