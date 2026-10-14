@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
@@ -484,6 +485,43 @@ class TestGetGuidance:
         data = response.json()
         assert "guidance" in data
         assert data["guidance"] == "guidance-text"
+
+    async def test_cancelled_asgi_request_cancels_provider_call(
+        self, seeded_repo: SQLiteRepository
+    ) -> None:
+        class HangingLLM:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.cancelled = asyncio.Event()
+
+            async def complete(self, **kwargs: object) -> str:
+                del kwargs
+                self.started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+                return "unreachable"
+
+        llm = HangingLLM()
+        app = create_app(repo=seeded_repo, llm=llm)
+        transport = httpx.ASGITransport(app=app)
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=transport, base_url="http://test") as http_client,
+        ):
+            request_task = asyncio.create_task(
+                http_client.post(
+                    "/v1/graphs/g1/guidance",
+                    json={"query": "cancel me"},
+                )
+            )
+            await asyncio.wait_for(llm.started.wait(), timeout=2.0)
+            request_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request_task
+        assert llm.cancelled.is_set()
 
     def test_missing_graph_returns_404(self, client: TestClient) -> None:
         response = client.post(
