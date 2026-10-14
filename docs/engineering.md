@@ -11,6 +11,8 @@ behavior visible.
 - `adapter.py` owns runtime orchestration around a host solver.
 - `llm.py` owns provider I/O, timeouts, bounded output, and retries.
 - `repo.py` owns durable persistence behind the `Repository` protocol.
+- `jobs.py` owns durable evolution-job records behind the `EvolutionJobStore`
+  protocol; queue and worker orchestration remains host-owned.
 - `service.py` owns HTTP DTOs, authentication, readiness, and transport errors.
 
 ## Polymorphism
