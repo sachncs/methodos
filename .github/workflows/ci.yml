@@ -105,6 +105,33 @@ jobs:
       - name: Validate production Compose configuration
         run: docker compose -f docker/compose.yml config --quiet
 
+      - name: Verify production Compose fails closed without credentials
+        run: |
+          docker tag methodos:ci methodos:0.1.0
+          set +e
+          METHODOS_ENV=production \
+            METHODOS_API_KEYS='' \
+            METHODOS_API_KEY_ROLES='' \
+            METHODOS_TENANT_KEYS='' \
+            docker compose -f docker/compose.yml run --rm --no-deps \
+              --entrypoint python methodos -c 'import methodos.service' \
+              >"${RUNNER_TEMP}/methodos-compose-startup.log" 2>&1
+          status=$?
+          set -e
+          cat "${RUNNER_TEMP}/methodos-compose-startup.log"
+          if [ "$status" -eq 0 ]; then
+            echo "production Compose unexpectedly started without credentials" >&2
+            exit 1
+          fi
+          grep -Eq "METHODOS_API_KEYS|authentication|production" \
+            "${RUNNER_TEMP}/methodos-compose-startup.log"
+          METHODOS_ENV=production \
+            METHODOS_API_KEYS=ci-production-key-0123456789 \
+            METHODOS_API_KEY_ROLES=ci-production-key-0123456789=reader \
+            METHODOS_TENANT_KEYS='' \
+            docker compose -f docker/compose.yml run --rm --no-deps \
+              --entrypoint python methodos -c 'import methodos.service'
+
       - name: Validate Prometheus configuration and alert rules
         run: |
           docker run --rm \

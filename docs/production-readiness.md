@@ -118,6 +118,9 @@ system production-ready.
 - The production Compose manifest now defaults to `METHODOS_ENV=production`
   and passes authentication/role configuration through without insecure
   development defaults.
+- CI executes the production Compose import path with empty credentials and
+  requires the expected startup failure, then verifies that a strong key with
+  an explicit role mapping starts successfully.
 
 ## Open issues
 
