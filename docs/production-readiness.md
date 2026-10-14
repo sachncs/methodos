@@ -151,7 +151,7 @@ system production-ready.
   deployment path.
 - The default Compose API binding is also host-loopback-only, so external
   traffic requires an intentional authenticated reverse-proxy or load-balancer
-  configuration.
+  configuration; CI asserts all four default host bindings remain loopback-only.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.

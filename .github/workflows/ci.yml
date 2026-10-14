@@ -122,7 +122,14 @@ jobs:
             --rounds 5
 
       - name: Validate production Compose configuration
-        run: docker compose -f docker/compose.yml config --quiet
+        run: |
+          docker compose -f docker/compose.yml config --quiet
+          compose_config="$(docker compose --profile observability -f docker/compose.yml config)"
+          host_local_bindings="$(printf '%s\n' "$compose_config" | grep -c 'host_ip: 127.0.0.1')"
+          if [ "$host_local_bindings" -lt 4 ]; then
+            echo "expected loopback bindings for API, Prometheus, and OTLP ports" >&2
+            exit 1
+          fi
 
       - name: Verify production Compose fails closed without credentials
         run: |
