@@ -20,8 +20,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import sqlite3
 import time
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import litellm
@@ -106,6 +108,87 @@ class TokenBudget:
                 f"{self.consumed_tokens + requested} > {self.max_total_tokens}"
             )
         self.consumed_tokens += requested
+        return input_tokens
+
+
+class SQLiteTokenBudget(TokenBudget):
+    """SQLite-backed cumulative token budget shared across local workers.
+
+    The reservation is committed in an ``IMMEDIATE`` SQLite transaction, so
+    separate processes cannot reserve the same remaining budget concurrently.
+    The class keeps the same synchronous ``reserve`` contract as
+    :class:`TokenBudget` and can be injected into ``LiteLLMClient``.
+    """
+
+    def __init__(
+        self,
+        *,
+        database_path: Path,
+        key: str,
+        max_total_tokens: int,
+        max_input_tokens: int,
+    ) -> None:
+        """Initialize a durable budget identified by `key`."""
+        super().__init__(
+            max_total_tokens=max_total_tokens,
+            max_input_tokens=max_input_tokens,
+        )
+        if not key:
+            raise ValueError("key must not be empty")
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.key = key
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open a contention-safe SQLite connection."""
+        connection = sqlite3.connect(self.database_path, isolation_level=None)
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        return connection
+
+    def _ensure_schema(self) -> None:
+        """Create the durable budget table if needed."""
+        with self._connect() as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS token_budgets ("
+                "key TEXT PRIMARY KEY, consumed_tokens INTEGER NOT NULL)"
+            )
+
+    def reserve(self, *, system: str, user: str, output_tokens: int) -> int:
+        """Atomically reserve tokens or raise `BudgetExceededError`."""
+        input_tokens = self.estimate_tokens(system) + self.estimate_tokens(user)
+        if input_tokens > self.max_input_tokens:
+            raise BudgetExceededError(
+                f"LLM input budget exceeded: {input_tokens} > {self.max_input_tokens}"
+            )
+        if output_tokens <= 0:
+            raise ValueError("output_tokens must be positive")
+        requested = input_tokens + output_tokens
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT consumed_tokens FROM token_budgets WHERE key = ?",
+                    (self.key,),
+                ).fetchone()
+                consumed = 0 if row is None else int(row[0])
+                total = consumed + requested
+                if total > self.max_total_tokens:
+                    raise BudgetExceededError(
+                        "LLM cumulative token budget exceeded: "
+                        f"{total} > {self.max_total_tokens}"
+                    )
+                connection.execute(
+                    "INSERT INTO token_budgets (key, consumed_tokens) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET consumed_tokens = excluded.consumed_tokens",
+                    (self.key, total),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self.consumed_tokens = total
         return input_tokens
 
 
@@ -438,6 +521,7 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "LiteLLMClient",
+    "SQLiteTokenBudget",
     "TokenBudget",
     "is_retryable_provider_error",
 ]

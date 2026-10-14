@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from methodos.llm import (
     LiteLLMClient,
     LLMClient,
     LLMError,
+    SQLiteTokenBudget,
     TokenBudget,
     is_retryable_provider_error,
 )
@@ -45,6 +47,84 @@ def test_token_budget_rejects_large_input() -> None:
     budget = TokenBudget(max_total_tokens=100, max_input_tokens=2)
     with pytest.raises(BudgetExceededError, match="input"):
         budget.reserve(system="123456789", user="u", output_tokens=1)
+
+
+def test_sqlite_token_budget_persists_and_scopes_keys(tmp_path: Path) -> None:
+    database = tmp_path / "token-budget.db"
+    first = SQLiteTokenBudget(
+        database_path=database,
+        key="tenant-a",
+        max_total_tokens=10,
+        max_input_tokens=10,
+    )
+    assert first.reserve(system="1234", user="1234", output_tokens=5) == 2
+
+    reopened = SQLiteTokenBudget(
+        database_path=database,
+        key="tenant-a",
+        max_total_tokens=10,
+        max_input_tokens=10,
+    )
+    with pytest.raises(BudgetExceededError, match="cumulative"):
+        reopened.reserve(system="1234", user="1234", output_tokens=5)
+
+    other_tenant = SQLiteTokenBudget(
+        database_path=database,
+        key="tenant-b",
+        max_total_tokens=10,
+        max_input_tokens=10,
+    )
+    assert other_tenant.reserve(system="1234", user="1234", output_tokens=5) == 2
+
+
+def test_sqlite_token_budget_validates_key_and_request(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="key must not be empty"):
+        SQLiteTokenBudget(
+            database_path=tmp_path / "invalid-key.db",
+            key="",
+            max_total_tokens=10,
+            max_input_tokens=10,
+        )
+    budget = SQLiteTokenBudget(
+        database_path=tmp_path / "invalid-request.db",
+        key="tenant-a",
+        max_total_tokens=10,
+        max_input_tokens=2,
+    )
+    with pytest.raises(BudgetExceededError, match="input"):
+        budget.reserve(system="123456789", user="u", output_tokens=1)
+    with pytest.raises(ValueError, match="output_tokens"):
+        budget.reserve(system="1", user="1", output_tokens=0)
+
+
+def test_sqlite_token_budget_concurrent_reservations_are_atomic(tmp_path: Path) -> None:
+    database = tmp_path / "concurrent-token-budget.db"
+    budgets = [
+        SQLiteTokenBudget(
+            database_path=database,
+            key="tenant-a",
+            max_total_tokens=10,
+            max_input_tokens=10,
+        )
+        for _ in range(8)
+    ]
+
+    async def reserve_all() -> list[object]:
+        return await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    budget.reserve,
+                    system="1234",
+                    user="1234",
+                    output_tokens=5,
+                )
+                for budget in budgets
+            ),
+            return_exceptions=True,
+        )
+
+    outcomes = asyncio.run(reserve_all())
+    assert sum(not isinstance(outcome, BudgetExceededError) for outcome in outcomes) == 1
 
 
 class StubClient:
