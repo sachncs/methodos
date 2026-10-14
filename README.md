@@ -186,7 +186,7 @@ python -m eval.hotpotqa.run --n 5
 
 # Docker
 docker build -t methodos:0.1.0 -f docker/Dockerfile .
-docker compose up methodos
+docker compose -f docker/compose.yml up methodos
 ```
 
 ## Engineering standards

@@ -74,6 +74,9 @@ jobs:
       - name: Build runtime container
         run: docker build --tag methodos:ci --file docker/Dockerfile .
 
+      - name: Validate production Compose configuration
+        run: docker compose -f docker/compose.yml config --quiet
+
       - name: Generate container SBOM
         uses: anchore/sbom-action@v0
         with:

@@ -58,7 +58,7 @@ methodos eval hotpotqa --n 200  # run paired HotpotQA eval
 uvicorn methodos.service:app --reload --host 127.0.0.1 --port 8000
 
 # Docker
-docker compose up methodos
+docker compose -f docker/compose.yml up methodos
 ```
 
 ### Production checklist
@@ -122,7 +122,7 @@ The `docker/compose.yml` defines a profile `observability` that starts
 OpenTelemetry Collector and Prometheus alongside the main service:
 
 ```bash
-docker compose --profile observability up
+docker compose -f docker/compose.yml --profile observability up
 ```
 
 This brings up:
