@@ -127,6 +127,18 @@ def test_sqlite_token_budget_concurrent_reservations_are_atomic(tmp_path: Path) 
     assert sum(not isinstance(outcome, BudgetExceededError) for outcome in outcomes) == 1
 
 
+def test_sqlite_token_budget_supports_async_reservation(tmp_path: Path) -> None:
+    budget = SQLiteTokenBudget(
+        database_path=tmp_path / "async-token-budget.db",
+        key="tenant-a",
+        max_total_tokens=10,
+        max_input_tokens=10,
+    )
+    assert asyncio.run(
+        budget.reserve_async(system="1234", user="1234", output_tokens=5)
+    ) == 2
+
+
 class StubClient:
     """Small protocol-compatible provider double."""
 

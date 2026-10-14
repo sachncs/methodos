@@ -68,6 +68,15 @@ class BudgetExceededError(LLMError):
     """Raised before a request would exceed its configured token budget."""
 
 
+@runtime_checkable
+class AsyncTokenBudget(Protocol):
+    """Async reservation capability for durable budget implementations."""
+
+    async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
+        """Atomically reserve tokens and return estimated input tokens."""
+        ...
+
+
 class TokenBudget:
     """Shared, in-process token budget that can be injected per tenant.
 
@@ -191,6 +200,115 @@ class SQLiteTokenBudget(TokenBudget):
         self.consumed_tokens = total
         return input_tokens
 
+    async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
+        """Reserve without blocking the event loop on SQLite I/O."""
+        return await asyncio.to_thread(
+            self.reserve,
+            system=system,
+            user=user,
+            output_tokens=output_tokens,
+        )
+
+
+def _load_asyncpg() -> Any:  # pragma: no cover - optional dependency
+    """Load asyncpg only when the Postgres budget is selected."""
+    try:
+        import asyncpg
+    except ImportError as exc:
+        raise RuntimeError(
+            "asyncpg is not installed; install methodos[postgres] to enable Postgres budgets"
+        ) from exc
+    return asyncpg
+
+
+class PostgresTokenBudget:  # pragma: no cover - exercised by optional integration tests
+    """Postgres-backed token budget for horizontally scaled workers."""
+
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        key: str,
+        max_total_tokens: int,
+        max_input_tokens: int,
+        min_size: int = 1,
+        max_size: int = 10,
+    ) -> None:
+        """Configure a lazy pooled budget store."""
+        if not dsn.strip():
+            raise ValueError("dsn must not be empty")
+        if not key:
+            raise ValueError("key must not be empty")
+        if max_total_tokens <= 0:
+            raise ValueError("max_total_tokens must be positive")
+        if max_input_tokens <= 0:
+            raise ValueError("max_input_tokens must be positive")
+        if min_size < 1 or max_size < min_size:
+            raise ValueError("pool sizes must satisfy 1 <= min_size <= max_size")
+        self.dsn = dsn
+        self.key = key
+        self.max_total_tokens = max_total_tokens
+        self.max_input_tokens = max_input_tokens
+        self.min_size = min_size
+        self.max_size = max_size
+        self.consumed_tokens = 0
+        self._pool: Any | None = None
+
+    async def _get_pool(self) -> Any:
+        """Open the pool and initialize the budget table once."""
+        if self._pool is None:
+            asyncpg = _load_asyncpg()
+            self._pool = await asyncpg.create_pool(
+                dsn=self.dsn,
+                min_size=self.min_size,
+                max_size=self.max_size,
+            )
+            try:
+                async with self._pool.acquire() as connection:
+                    await connection.execute(
+                        "CREATE TABLE IF NOT EXISTS methodos_token_budgets ("
+                        "key TEXT PRIMARY KEY, consumed_tokens BIGINT NOT NULL)"
+                    )
+            except Exception:
+                await self.close()
+                raise
+        return self._pool
+
+    async def close(self) -> None:
+        """Close the optional connection pool."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+
+    async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
+        """Atomically reserve a Postgres-backed token budget."""
+        input_tokens = TokenBudget.estimate_tokens(system) + TokenBudget.estimate_tokens(user)
+        if input_tokens > self.max_input_tokens:
+            raise BudgetExceededError(
+                f"LLM input budget exceeded: {input_tokens} > {self.max_input_tokens}"
+            )
+        if output_tokens <= 0:
+            raise ValueError("output_tokens must be positive")
+        requested = input_tokens + output_tokens
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "INSERT INTO methodos_token_budgets (key, consumed_tokens) "
+                "VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET "
+                "consumed_tokens = methodos_token_budgets.consumed_tokens + $2 "
+                "WHERE methodos_token_budgets.consumed_tokens + $2 <= $3 "
+                "RETURNING consumed_tokens",
+                self.key,
+                requested,
+                self.max_total_tokens,
+            )
+        if row is None:
+            raise BudgetExceededError(
+                "LLM cumulative token budget exceeded for Postgres-backed budget"
+            )
+        self.consumed_tokens = int(row["consumed_tokens"])
+        return input_tokens
+
 
 def is_retryable_provider_error(exc: Exception) -> bool:
     """Return whether a provider failure is safe to retry."""
@@ -289,7 +407,7 @@ class LiteLLMClient:
         max_retry_backoff_seconds: float = 8.0,
         max_output_tokens: int = 2048,
         circuit_breaker: CircuitBreaker | None = None,
-        budget: TokenBudget | None = None,
+        budget: TokenBudget | AsyncTokenBudget | None = None,
     ) -> None:
         """Initialize the LiteLLM-backed client.
 
@@ -363,11 +481,18 @@ class LiteLLMClient:
         """
         if self.budget is not None:
             try:
-                self.budget.reserve(
-                    system=system,
-                    user=user,
-                    output_tokens=self.max_output_tokens,
-                )
+                if isinstance(self.budget, AsyncTokenBudget):
+                    await self.budget.reserve_async(
+                        system=system,
+                        user=user,
+                        output_tokens=self.max_output_tokens,
+                    )
+                else:
+                    self.budget.reserve(
+                        system=system,
+                        user=user,
+                        output_tokens=self.max_output_tokens,
+                    )
             except BudgetExceededError:
                 LLM_ATTEMPTS.labels(self.model, "budget_rejected").inc()
                 raise
@@ -514,6 +639,7 @@ class FailoverLLMClient:
 
 __all__ = [
     "LLM_ATTEMPTS",
+    "AsyncTokenBudget",
     "BudgetExceededError",
     "CircuitBreaker",
     "CircuitOpenError",
@@ -521,6 +647,7 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "LiteLLMClient",
+    "PostgresTokenBudget",
     "SQLiteTokenBudget",
     "TokenBudget",
     "is_retryable_provider_error",

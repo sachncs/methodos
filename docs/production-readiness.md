@@ -87,9 +87,9 @@ system production-ready.
   capability before tenant mode accepts them.
 - SQLite now uses an atomic WAL-backed rate-limit window shared by all local
   service processes; filesystem deployments remain process-local by design.
-- `SQLiteTokenBudget` provides an injectable, atomic durable token budget for
-  local multi-process deployments; provider-specific cost pricing, Postgres
-  token accounting, and graph-level quotas remain open.
+- `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
+  atomic durable token budgets for local and horizontally scaled deployments;
+  provider-specific cost pricing and graph-level quotas remain open.
 
 ## Open issues
 
@@ -146,8 +146,9 @@ system production-ready.
     shared-state breaker/failover policy across workers remains open.
 16. Injectable per-client/tenant token budgets now enforce estimated input and
     cumulative request limits before dispatch; SQLite-backed durable accounting
-    is available for local multi-process deployments, while provider-specific
-    cost pricing, Postgres accounting, and graph-level quotas remain open.
+    and Postgres-backed accounting are available for local and horizontally
+    scaled deployments, while provider-specific cost pricing and graph-level
+    quotas remain open.
 17. Evolution round decisions are now durably auditable across supported
     repositories; human approval, identity, and promotion policy are still
     open.
@@ -224,10 +225,9 @@ system production-ready.
 ### Phase 4 — dependable intelligence
 
 - Classify provider errors, add circuit breakers and fallback providers.
-- Enforce token/cost budgets and cancellation propagation; the in-process and
-  SQLite-backed token-budget implementations are now available, with shared
-  Postgres accounting and provider-price policy still requiring deployment
-  decisions.
+- Enforce token/cost budgets and cancellation propagation; in-process,
+  SQLite-backed, and Postgres-backed token-budget implementations are now
+  available, with provider-price policy still requiring deployment decisions.
 - Add auditable evolution proposals, approvals, snapshots, rollback, and
   release promotion.
 
