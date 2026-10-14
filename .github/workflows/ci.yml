@@ -46,7 +46,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check
-        run: uv run mypy methodos tests
+        run: uv run mypy methodos tests scripts
 
       - name: Setup Node
         uses: actions/setup-node@v7.1.0
