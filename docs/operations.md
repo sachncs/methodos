@@ -91,7 +91,7 @@ its dashboard status; retain the drill evidence with the release.
   uv run python scripts/http_load_smoke.py --requests 1000 --concurrency 25
   ```
 
-  Record throughput, p95 latency, failure count, and the deployment revision;
+  Record throughput, p95/p99 latency, failure count, and the deployment revision;
   use a dedicated load environment for sustained or destructive tests.
 - Run a restore drill at least once per release or according to the service's
   recovery policy. For SQLite, the repository-level drill is:

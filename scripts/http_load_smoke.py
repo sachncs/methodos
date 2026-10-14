@@ -29,6 +29,12 @@ async def run_check(
     timeout: float,
 ) -> int:
     """Issue requests and return a shell-friendly exit status."""
+    if requests < 1 or concurrency < 1 or timeout <= 0:
+        raise ValueError("requests and concurrency must be positive; timeout must be positive")
+    if requests > 100_000:
+        raise ValueError("requests must not exceed 100000")
+    concurrency = min(concurrency, requests)
+    started_all = time.perf_counter()
     semaphore = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     failures: list[str] = []
@@ -50,8 +56,14 @@ async def run_check(
         await asyncio.gather(*(request_once() for _ in range(requests)))
 
     succeeded = requests - len(failures)
+    elapsed_all = time.perf_counter() - started_all
     p95 = percentile(latencies, 0.95) if latencies else float("nan")
-    print(f"requests={requests} succeeded={succeeded} failed={len(failures)} p95_seconds={p95:.4f}")
+    p99 = percentile(latencies, 0.99) if latencies else float("nan")
+    throughput = succeeded / elapsed_all if elapsed_all > 0 else 0.0
+    print(
+        f"requests={requests} succeeded={succeeded} failed={len(failures)} "
+        f"throughput_per_second={throughput:.2f} p95_seconds={p95:.4f} p99_seconds={p99:.4f}"
+    )
     for failure in failures[:5]:
         print(f"failure: {failure}", file=sys.stderr)
     return 1 if failures else 0
@@ -61,12 +73,14 @@ def parse_args() -> argparse.Namespace:
     """Parse and validate command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8000/health")
-    parser.add_argument("--requests", type=int, default=100)
-    parser.add_argument("--concurrency", type=int, default=10)
+    parser.add_argument("--requests", type=int, default=1000)
+    parser.add_argument("--concurrency", type=int, default=25)
     parser.add_argument("--timeout", type=float, default=5.0)
     args = parser.parse_args()
-    if args.requests < 1 or args.concurrency < 1 or args.timeout <= 0:
-        parser.error("requests and concurrency must be positive; timeout must be positive")
+    if args.requests < 1 or args.requests > 100_000:
+        parser.error("requests must be between 1 and 100000")
+    if args.concurrency < 1 or args.timeout <= 0:
+        parser.error("concurrency and timeout must be positive")
     return args
 
 
