@@ -3,9 +3,23 @@
 from __future__ import annotations
 
 import tomllib
+from importlib import import_module
 from pathlib import Path
 
 import methodos
+
+PUBLIC_MODULES = (
+    "methodos.adapter",
+    "methodos.evolution",
+    "methodos.graph",
+    "methodos.guidance",
+    "methodos.jobs",
+    "methodos.llm",
+    "methodos.migrations",
+    "methodos.repo",
+    "methodos.schema",
+    "methodos.service",
+)
 
 
 def test_version_is_string() -> None:
@@ -43,3 +57,11 @@ def test_console_script_targets_typer_application() -> None:
     with project.open("rb") as stream:
         config = tomllib.load(stream)
     assert config["project"]["scripts"]["methodos"] == "methodos.cli:cli"
+
+
+def test_declared_public_exports_resolve() -> None:
+    """Prevent a documented public symbol from becoming an import-time ghost."""
+    for module_name in PUBLIC_MODULES:
+        module = import_module(module_name)
+        for symbol in module.__all__:
+            assert hasattr(module, symbol), f"{module_name}.{symbol} is not defined"
