@@ -620,6 +620,18 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 """
 
+SQLITE_REQUIRED_TABLES = frozenset(
+    {
+        "schema_meta",
+        "graphs",
+        "trajectories",
+        "snapshots",
+        "rejection_memory",
+        "evolution_events",
+        "rate_limits",
+    }
+)
+
 
 class SQLiteRepository:
     """SQLite-backed Repository with WAL + FK + indices. Production default."""
@@ -757,6 +769,17 @@ class SQLiteRepository:
                     version = None if row is None else row[0]
                     raise RuntimeError(
                         f"unsupported backup schema version {version}; expected {SCHEMA_VERSION}"
+                    )
+                tables = {
+                    table_row[0]
+                    for table_row in database.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+                missing = sorted(SQLITE_REQUIRED_TABLES - tables)
+                if missing:
+                    raise RuntimeError(
+                        "SQLite backup is missing required tables: " + ", ".join(missing)
                     )
 
         await asyncio.to_thread(verify)

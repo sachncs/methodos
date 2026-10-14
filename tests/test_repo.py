@@ -691,6 +691,15 @@ class TestSQLiteRepository:
         with pytest.raises(RuntimeError, match="unsupported backup schema version"):
             await repository.verify_backup(path)
 
+    async def test_verify_backup_rejects_incomplete_schema(self, tmp_path: Path) -> None:
+        path = tmp_path / "incomplete.db"
+        with sqlite3.connect(path) as database:
+            database.execute("CREATE TABLE schema_meta (version INTEGER PRIMARY KEY)")
+            database.execute("INSERT INTO schema_meta (version) VALUES (1)")
+        repository = SQLiteRepository(db_path=tmp_path / "source.db")
+        with pytest.raises(RuntimeError, match="missing required tables"):
+            await repository.verify_backup(path)
+
     async def test_unsupported_schema_version_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "future.db"
         with sqlite3.connect(db_path) as conn:
