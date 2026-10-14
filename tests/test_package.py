@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
+from pathlib import Path
+
 import methodos
 
 
@@ -32,3 +35,11 @@ def test_readme_primary_api_symbols_are_root_exports() -> None:
         namespace,
     )
     assert all(name in namespace for name in ("AgentState", "LiteLLMClient", "PGAdapter", "Solver"))
+
+
+def test_console_script_targets_typer_application() -> None:
+    """The installed executable must invoke Typer, not its callback function."""
+    project = Path(__file__).parents[1] / "pyproject.toml"
+    with project.open("rb") as stream:
+        config = tomllib.load(stream)
+    assert config["project"]["scripts"]["methodos"] == "methodos.cli:cli"
