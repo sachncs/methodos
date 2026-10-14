@@ -92,9 +92,10 @@ system production-ready.
   service processes; filesystem deployments remain process-local by design.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
   atomic durable token budgets for local and horizontally scaled deployments;
-  `ScopedTokenBudget` adds explicit graph-capable scope routing; provider-
-  specific cost pricing and production wiring remain open. Durable active-job
-  quotas can be configured per tenant and per graph.
+  `ScopedTokenBudget` adds explicit graph-capable scope routing, and the
+  service wires durable scoped budgets from paired deployment settings.
+  Provider-specific cost pricing remains open; durable active-job quotas can be
+  configured per tenant and per graph.
 - `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
   shared async breaker state with an atomic half-open probe lease; gateway
   policy and provider-specific breaker tuning remain deployment concerns.
@@ -162,8 +163,8 @@ system production-ready.
     cumulative request limits before dispatch. `ScopedTokenBudget` adds an
     explicit graph-capable scope routed through the polymorphic LLM contract;
     SQLite-backed durable accounting and Postgres-backed accounting remain
-    available, while provider-specific cost pricing and production wiring for
-    scoped budgets remain open.
+    available; paired deployment settings now wire scoped budgets into the
+    default service LLM, while provider-specific cost pricing remains open.
 17. Evolution round decisions are now durably auditable across supported
     repositories; human approval, identity, and promotion policy are still
     open.
@@ -227,8 +228,8 @@ system production-ready.
   tenant-aware jobs, active-job admission quotas, idempotency, and queued
   evolution status polling.
 - Remaining: integrate an external identity provider, manage key/role
-  lifecycle, configure scoped graph-level token budgets for each production
-  LLM deployment, and make production scheduler
+  lifecycle, configure provider pricing for scoped graph-level token budgets,
+  and make production scheduler
   ownership explicit for each deployment.
 
 ### Phase 3 — durable data layer

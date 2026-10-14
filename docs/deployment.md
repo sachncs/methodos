@@ -41,6 +41,8 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres and SQLite use shared windows, filesystem remains per-process; `0` disables it |
 | `METHODOS_MAX_BODY_BYTES` | `1048576` | maximum declared HTTP request body size; oversized requests return `413` |
+| `METHODOS_TOKEN_BUDGET_TOTAL` | — | optional cumulative LLM token ceiling per `tenant:graph` scope; must be paired with input ceiling |
+| `METHODOS_TOKEN_BUDGET_INPUT` | — | optional per-request estimated input-token ceiling per `tenant:graph` scope; must be paired with total ceiling |
 
 ## CLI
 
@@ -73,6 +75,9 @@ docker compose -f docker/compose.yml up methodos
 - [ ] For multiple tenants, set `METHODOS_TENANT_KEYS` and send the matching
       `X-API-Key`; the server derives the tenant and rejects mismatched
       `X-Tenant-ID` headers. Do not use a shared `METHODOS_API_KEY` in this mode.
+- [ ] For durable graph-scoped LLM quotas, set both token budget variables. Use
+      SQLite for a single service process group or Postgres for horizontally
+      scaled deployments; filesystem mode rejects this configuration.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
 - [ ] For multiple service replicas, install `methodos[postgres]`, set

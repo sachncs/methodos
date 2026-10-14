@@ -21,7 +21,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict, deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
@@ -45,14 +45,22 @@ from methodos.jobs import (
     JobIdempotencyConflictError,
     JobQuotaExceededError,
 )
-from methodos.llm import LiteLLMClient, LLMClient
+from methodos.llm import (
+    LiteLLMClient,
+    LLMClient,
+    PostgresTokenBudget,
+    ScopedTokenBudget,
+    SQLiteTokenBudget,
+)
 from methodos.repo import (
     AtomicRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
+    PostgresRepository,
     RateLimitRepository,
     Repository,
     SnapshotRepository,
+    SQLiteRepository,
     VersionedRepository,
     build_repository,
 )
@@ -310,6 +318,64 @@ def parse_api_key_roles(raw: str) -> dict[str, frozenset[str]]:
     return roles_by_key
 
 
+def _optional_positive_int(name: str) -> int | None:
+    """Parse an optional positive integer environment setting."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _build_scoped_budget(repo: Repository) -> ScopedTokenBudget | None:
+    """Build durable graph-scoped budgets from explicit deployment settings."""
+    total = _optional_positive_int("METHODOS_TOKEN_BUDGET_TOTAL")
+    maximum_input = _optional_positive_int("METHODOS_TOKEN_BUDGET_INPUT")
+    if total is None and maximum_input is None:
+        return None
+    if total is None or maximum_input is None:
+        raise ValueError(
+            "METHODOS_TOKEN_BUDGET_TOTAL and METHODOS_TOKEN_BUDGET_INPUT must be set together"
+        )
+
+    factory: Callable[[str], SQLiteTokenBudget | PostgresTokenBudget]
+    if isinstance(repo, SQLiteRepository):
+
+        def sqlite_factory(scope: str) -> SQLiteTokenBudget:
+            return SQLiteTokenBudget(
+                database_path=repo.db_path,
+                key=f"llm:{scope}",
+                max_total_tokens=total,
+                max_input_tokens=maximum_input,
+            )
+
+        factory = sqlite_factory
+
+    elif isinstance(repo, PostgresRepository):
+
+        def postgres_factory(scope: str) -> PostgresTokenBudget:
+            return PostgresTokenBudget(
+                dsn=repo.dsn,
+                key=f"llm:{scope}",
+                max_total_tokens=total,
+                max_input_tokens=maximum_input,
+            )
+
+        factory = postgres_factory
+
+    else:
+        raise ValueError(
+            "durable token budgets require PGRAPH_BACKEND=sqlite or postgres; "
+            "filesystem does not provide shared quota enforcement"
+        )
+    return ScopedTokenBudget(factory)
+
+
 # ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
@@ -334,11 +400,13 @@ def create_app(
             through `/metrics`.
     """
     backend_repo: Repository = repo if repo is not None else build_repository()
+    scoped_budget = _build_scoped_budget(backend_repo) if llm is None else None
     backend_llm: LLMClient = (
         llm
         if llm is not None
         else LiteLLMClient(
             model="gpt-4o-mini",
+            budget=scoped_budget,
         )
     )
     configured_api_keys = tuple(

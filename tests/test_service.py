@@ -19,7 +19,7 @@ from methodos.jobs import (
     SQLiteEvolutionJobStore,
     StoreBackedEvolutionRunner,
 )
-from methodos.llm import LLMClient
+from methodos.llm import LiteLLMClient, LLMClient, ScopedTokenBudget
 from methodos.repo import (
     FilesystemRepository,
     Repository,
@@ -79,6 +79,57 @@ def client(seeded_repo: SQLiteRepository) -> Iterator[TestClient]:
 
 
 class TestHealth:
+    def test_configures_durable_scoped_budget(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+
+        app = create_app(repo=seeded_repo)
+
+        with TestClient(app):
+            assert isinstance(app.state.llm, LiteLLMClient)
+            assert isinstance(app.state.llm.budget, ScopedTokenBudget)
+            assert (
+                asyncio.run(
+                    app.state.llm.budget.reserve_scoped_async(
+                        scope="default:g1", system="1234", user="1234", output_tokens=5
+                    )
+                )
+                == 2
+            )
+
+    @pytest.mark.parametrize("value", ["not-an-int", "0", "-1"])
+    def test_rejects_invalid_token_budget_values(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", value)
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            create_app(repo=seeded_repo)
+
+    def test_rejects_partial_token_budget_configuration(
+        self, seeded_repo: SQLiteRepository, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.delenv("METHODOS_TOKEN_BUDGET_INPUT", raising=False)
+
+        with pytest.raises(ValueError, match="must be set together"):
+            create_app(repo=seeded_repo)
+
+    def test_rejects_durable_budget_for_filesystem(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_TOTAL", "100")
+        monkeypatch.setenv("METHODOS_TOKEN_BUDGET_INPUT", "40")
+
+        with pytest.raises(ValueError, match="require PGRAPH_BACKEND=sqlite or postgres"):
+            create_app(repo=FilesystemRepository(root=tmp_path / "files"))
+
     def test_parse_api_key_roles(self) -> None:
         assert parse_api_key_roles("read=reader,ops=operator|writer") == {
             "read": frozenset({"reader"}),
