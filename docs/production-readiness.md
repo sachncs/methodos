@@ -83,8 +83,9 @@ system production-ready.
   `PostgresEvolutionJobStore` provides the same contract for horizontal
   deployments. `EvolutionJobWorker` now atomically claims jobs and records
   success, failure, and cancellation around an injected executor; persisted
-  leases, bounded retries, and expired-lease recovery prevent abandoned jobs
-  from remaining stuck indefinitely. Queue counts are exposed through
+  fenced lease tokens, heartbeat renewal, bounded retries, and expired-lease
+  recovery prevent abandoned jobs from remaining stuck indefinitely or being
+  finalized by a stale worker. Queue counts are exposed through
   Prometheus metrics, and the worker has a cancellable supervised loop with
   heartbeat/error state that survives transient storage failures.
 - The evolution API verifies graph ownership before queueing work and maps
@@ -115,7 +116,8 @@ system production-ready.
    deduplication; the default app still returns 501 without a durable runner,
    and production scheduler ownership, external-runner tenant capability, and
    alert-threshold tuning remain open;
-   starter queue and worker alerts are now versioned.
+   starter queue and worker alerts are now versioned; scheduler ownership and
+   lease duration remain deployment-tuning responsibilities.
 2. Distributed rate limiting and durable active-job quotas are implemented for
    Postgres and SQLite backends; token-cost quotas and shared limiting for
    filesystem deployments remain open.

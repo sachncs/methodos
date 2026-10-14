@@ -37,6 +37,7 @@ class EvolutionJob:
     updated_at: float
     attempt_count: int
     lease_expires_at: float | None
+    lease_token: str | None
     tenant_id: str | None = None
 
 
@@ -71,6 +72,10 @@ class JobNotFoundError(FileNotFoundError):
     """Raised when updating a job that does not exist."""
 
 
+class JobLeaseLostError(RuntimeError):
+    """Raised when a worker no longer owns the job lease."""
+
+
 @runtime_checkable
 class EvolutionJobStore(Protocol):
     """Persistence port for queue runners."""
@@ -102,8 +107,15 @@ class EvolutionJobStore(Protocol):
         *,
         status: str,
         detail: str | None = None,
+        lease_token: str | None = None,
     ) -> EvolutionJob:
         """Update status atomically and return the new record."""
+        ...  # pragma: no cover
+
+    async def renew_lease(
+        self, job_id: str, lease_token: str, *, lease_seconds: float
+    ) -> EvolutionJob:
+        """Extend an owned running-job lease or raise `JobLeaseLostError`."""
         ...  # pragma: no cover
 
     async def counts(self) -> EvolutionJobCounts:
@@ -163,6 +175,7 @@ class SQLiteEvolutionJobStore:
                     updated_at REAL NOT NULL,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
                     lease_expires_at REAL,
+                    lease_token TEXT,
                     tenant_id TEXT
                 )
                 """
@@ -176,6 +189,8 @@ class SQLiteEvolutionJobStore:
                 )
             if "lease_expires_at" not in columns:
                 connection.execute("ALTER TABLE evolution_jobs ADD COLUMN lease_expires_at REAL")
+            if "lease_token" not in columns:
+                connection.execute("ALTER TABLE evolution_jobs ADD COLUMN lease_token TEXT")
             if "tenant_id" not in columns:
                 connection.execute("ALTER TABLE evolution_jobs ADD COLUMN tenant_id TEXT")
 
@@ -259,8 +274,8 @@ class SQLiteEvolutionJobStore:
                         "INSERT INTO evolution_jobs "
                         "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
                         "request_fingerprint, created_at, updated_at, attempt_count, "
-                        "lease_expires_at, tenant_id) "
-                        "VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?, 0, NULL, ?)",
+                        "lease_expires_at, lease_token, tenant_id) "
+                        "VALUES (?, ?, ?, 'queued', NULL, ?, ?, ?, ?, 0, NULL, NULL, ?)",
                         (
                             job_id,
                             graph_id,
@@ -321,6 +336,7 @@ class SQLiteEvolutionJobStore:
         *,
         status: str,
         detail: str | None = None,
+        lease_token: str | None = None,
     ) -> EvolutionJob:
         """Persist a state transition and return the resulting job."""
         if status not in JOB_STATUSES:
@@ -331,13 +347,22 @@ class SQLiteEvolutionJobStore:
                 now = time.time()
                 connection.execute("BEGIN IMMEDIATE")
                 try:
-                    cursor = connection.execute(
-                        "UPDATE evolution_jobs SET status = ?, detail = ?, updated_at = ?, "
-                        "lease_expires_at = NULL "
-                        "WHERE job_id = ?",
-                        (status, detail, now, job_id),
-                    )
+                    if lease_token is None:
+                        cursor = connection.execute(
+                            "UPDATE evolution_jobs SET status = ?, detail = ?, updated_at = ?, "
+                            "lease_expires_at = NULL, lease_token = NULL WHERE job_id = ?",
+                            (status, detail, now, job_id),
+                        )
+                    else:
+                        cursor = connection.execute(
+                            "UPDATE evolution_jobs SET status = ?, detail = ?, updated_at = ?, "
+                            "lease_expires_at = NULL, lease_token = NULL "
+                            "WHERE job_id = ? AND status = 'running' AND lease_token = ?",
+                            (status, detail, now, job_id, lease_token),
+                        )
                     if cursor.rowcount != 1:
+                        if lease_token is not None:
+                            raise JobLeaseLostError(f"lease lost for evolution job {job_id!r}")
                         raise JobNotFoundError(f"evolution job {job_id!r} not found")
                     row = connection.execute(
                         "SELECT * FROM evolution_jobs WHERE job_id = ?", (job_id,)
@@ -350,6 +375,32 @@ class SQLiteEvolutionJobStore:
                     raise
 
         return await asyncio.to_thread(write)
+
+    async def renew_lease(
+        self, job_id: str, lease_token: str, *, lease_seconds: float
+    ) -> EvolutionJob:
+        """Extend a running lease only for its current owner."""
+        if not lease_token or lease_seconds <= 0:
+            raise ValueError("lease_token must be non-empty and lease_seconds must be positive")
+
+        def renew() -> EvolutionJob:
+            with self._connect() as connection:
+                now = time.time()
+                cursor = connection.execute(
+                    "UPDATE evolution_jobs SET updated_at = ?, lease_expires_at = ? "
+                    "WHERE job_id = ? AND status = 'running' AND lease_token = ? "
+                    "AND lease_expires_at > ?",
+                    (now, now + lease_seconds, job_id, lease_token, now),
+                )
+                if cursor.rowcount != 1:
+                    raise JobLeaseLostError(f"lease lost for evolution job {job_id!r}")
+                row = connection.execute(
+                    "SELECT * FROM evolution_jobs WHERE job_id = ?", (job_id,)
+                ).fetchone()
+                assert row is not None
+                return self._record(row)
+
+        return await asyncio.to_thread(renew)
 
     async def claim_next(self, *, lease_seconds: float = 300.0) -> EvolutionJob | None:
         """Atomically transition the oldest queued job to `running`."""
@@ -367,11 +418,12 @@ class SQLiteEvolutionJobStore:
                     if row is None:
                         connection.commit()
                         return None
+                    lease_token = str(uuid.uuid4())
                     connection.execute(
                         "UPDATE evolution_jobs SET status = 'running', updated_at = ?, "
-                        "attempt_count = attempt_count + 1, lease_expires_at = ? "
+                        "attempt_count = attempt_count + 1, lease_expires_at = ?, lease_token = ? "
                         "WHERE job_id = ? AND status = 'queued'",
-                        (time.time(), time.time() + lease_seconds, row["job_id"]),
+                        (time.time(), time.time() + lease_seconds, lease_token, row["job_id"]),
                     )
                     claimed = connection.execute(
                         "SELECT * FROM evolution_jobs WHERE job_id = ?", (row["job_id"],)
@@ -397,7 +449,7 @@ class SQLiteEvolutionJobStore:
                     "THEN 'failed' ELSE 'queued' END, detail = CASE WHEN attempt_count >= ? "
                     "THEN 'worker lease expired; retry limit reached' "
                     "ELSE 'worker lease expired; retrying' END, updated_at = ?, "
-                    "lease_expires_at = NULL WHERE status = 'running' "
+                    "lease_expires_at = NULL, lease_token = NULL WHERE status = 'running' "
                     "AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?",
                     (max_attempts, max_attempts, time.time(), time.time()),
                 )
@@ -457,6 +509,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                         updated_at DOUBLE PRECISION NOT NULL,
                         attempt_count INTEGER NOT NULL DEFAULT 0,
                         lease_expires_at DOUBLE PRECISION,
+                        lease_token TEXT,
                         tenant_id TEXT
                     )
                     """
@@ -468,6 +521,9 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                 await connection.execute(
                     "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
                     "lease_expires_at DOUBLE PRECISION"
+                )
+                await connection.execute(
+                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS lease_token TEXT"
                 )
                 await connection.execute(
                     "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT"
@@ -564,7 +620,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                 "INSERT INTO methodos_evolution_jobs "
                 "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
                 "request_fingerprint, created_at, updated_at, attempt_count, lease_expires_at, "
-                "tenant_id) VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6, 0, NULL, $7) "
+                "lease_token, tenant_id) VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6, 0, NULL, NULL, $7) "
                 "RETURNING *",
                 job_id,
                 graph_id,
@@ -614,12 +670,14 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             )
             if row is None:
                 return None
+            lease_token = str(uuid.uuid4())
             updated = await connection.fetchrow(
                 "UPDATE methodos_evolution_jobs SET status = 'running', updated_at = $1, "
-                "attempt_count = attempt_count + 1, lease_expires_at = $2 "
-                "WHERE job_id = $3 AND status = 'queued' RETURNING *",
+                "attempt_count = attempt_count + 1, lease_expires_at = $2, lease_token = $3 "
+                "WHERE job_id = $4 AND status = 'queued' RETURNING *",
                 time.time(),
                 time.time() + lease_seconds,
+                lease_token,
                 row["job_id"],
             )
             assert updated is not None
@@ -636,7 +694,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                 "THEN 'failed' ELSE 'queued' END, detail = CASE WHEN attempt_count >= $1 "
                 "THEN 'worker lease expired; retry limit reached' "
                 "ELSE 'worker lease expired; retrying' END, updated_at = $2, "
-                "lease_expires_at = NULL WHERE status = 'running' "
+                "lease_expires_at = NULL, lease_token = NULL WHERE status = 'running' "
                 "AND lease_expires_at IS NOT NULL AND lease_expires_at <= $2",
                 max_attempts,
                 time.time(),
@@ -649,22 +707,60 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         *,
         status: str,
         detail: str | None = None,
+        lease_token: str | None = None,
     ) -> EvolutionJob:
         """Persist a state transition and return the resulting job."""
         if status not in JOB_STATUSES:
             raise ValueError(f"unsupported evolution job status: {status}")
         pool = await self._get_pool()
         async with pool.acquire() as connection:
+            if lease_token is None:
+                row = await connection.fetchrow(
+                    "UPDATE methodos_evolution_jobs SET status = $1, detail = $2, "
+                    "updated_at = $3, lease_expires_at = NULL, lease_token = NULL "
+                    "WHERE job_id = $4 RETURNING *",
+                    status,
+                    detail,
+                    time.time(),
+                    job_id,
+                )
+            else:
+                row = await connection.fetchrow(
+                    "UPDATE methodos_evolution_jobs SET status = $1, detail = $2, "
+                    "updated_at = $3, lease_expires_at = NULL, lease_token = NULL "
+                    "WHERE job_id = $4 AND status = 'running' AND lease_token = $5 RETURNING *",
+                    status,
+                    detail,
+                    time.time(),
+                    job_id,
+                    lease_token,
+                )
+        if row is None:
+            if lease_token is not None:
+                raise JobLeaseLostError(f"lease lost for evolution job {job_id!r}")
+            raise JobNotFoundError(f"evolution job {job_id!r} not found")
+        return self._record(row)
+
+    async def renew_lease(
+        self, job_id: str, lease_token: str, *, lease_seconds: float
+    ) -> EvolutionJob:
+        """Extend a running lease only for its current owner."""
+        if not lease_token or lease_seconds <= 0:
+            raise ValueError("lease_token must be non-empty and lease_seconds must be positive")
+        pool = await self._get_pool()
+        now = time.time()
+        async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "UPDATE methodos_evolution_jobs SET status = $1, detail = $2, "
-                "updated_at = $3, lease_expires_at = NULL WHERE job_id = $4 RETURNING *",
-                status,
-                detail,
-                time.time(),
+                "UPDATE methodos_evolution_jobs SET updated_at = $1, lease_expires_at = $2 "
+                "WHERE job_id = $3 AND status = 'running' AND lease_token = $4 "
+                "AND lease_expires_at > $1 RETURNING *",
+                now,
+                now + lease_seconds,
                 job_id,
+                lease_token,
             )
         if row is None:
-            raise JobNotFoundError(f"evolution job {job_id!r} not found")
+            raise JobLeaseLostError(f"lease lost for evolution job {job_id!r}")
         return self._record(row)
 
 
@@ -711,6 +807,42 @@ class EvolutionJobWorker:
             last_error=self._last_error,
         )
 
+    async def _renew_until_complete(self, job: EvolutionJob) -> None:
+        """Renew one owned lease until execution finishes or ownership is lost."""
+        if not isinstance(self.store, EvolutionJobLeaseStore) or not job.lease_token:
+            return
+        interval = max(0.01, min(1.0, self.lease_seconds / 3))
+        while True:
+            await asyncio.sleep(interval)
+            await self.store.renew_lease(
+                job.job_id,
+                job.lease_token,
+                lease_seconds=self.lease_seconds,
+            )
+
+    async def _execute_with_lease(self, job: EvolutionJob) -> None:
+        """Execute a job while fencing and renewing its durable lease."""
+        if not isinstance(self.store, EvolutionJobLeaseStore) or not job.lease_token:
+            await self.executor.execute(job)
+            return
+        execution_task = asyncio.create_task(self.executor.execute(job))
+        renewal_task = asyncio.create_task(self._renew_until_complete(job))
+        try:
+            done, _ = await asyncio.wait(
+                {execution_task, renewal_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if renewal_task in done:
+                renewal_task.result()
+                raise JobLeaseLostError(f"lease lost for evolution job {job.job_id!r}")
+            await execution_task
+        finally:
+            if not execution_task.done():
+                execution_task.cancel()
+            if not renewal_task.done():
+                renewal_task.cancel()
+            await asyncio.gather(execution_task, renewal_task, return_exceptions=True)
+
     async def run_once(self) -> bool:
         """Claim and execute one job; return `False` when the queue is empty."""
         if isinstance(self.store, EvolutionJobLeaseStore):
@@ -719,21 +851,39 @@ class EvolutionJobWorker:
         if job is None:
             return False
         try:
-            await self.executor.execute(job)
+            await self._execute_with_lease(job)
         except asyncio.CancelledError:
-            await self.store.update(job.job_id, status="cancelled", detail="worker cancelled")
+            await self.store.update(
+                job.job_id,
+                status="cancelled",
+                detail="worker cancelled",
+                lease_token=job.lease_token,
+            )
+            raise
+        except JobLeaseLostError:
             raise
         except Exception:
             if job.attempt_count < self.max_attempts:
                 await self.store.update(
-                    job.job_id, status="queued", detail="evolution retry scheduled"
+                    job.job_id,
+                    status="queued",
+                    detail="evolution retry scheduled",
+                    lease_token=job.lease_token,
                 )
             else:
                 await self.store.update(
-                    job.job_id, status="failed", detail="evolution execution failed"
+                    job.job_id,
+                    status="failed",
+                    detail="evolution execution failed",
+                    lease_token=job.lease_token,
                 )
             return True
-        await self.store.update(job.job_id, status="succeeded", detail="evolution completed")
+        await self.store.update(
+            job.job_id,
+            status="succeeded",
+            detail="evolution completed",
+            lease_token=job.lease_token,
+        )
         return True
 
     async def run_forever(

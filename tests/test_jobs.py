@@ -12,6 +12,7 @@ from methodos.jobs import (
     EvolutionJob,
     EvolutionJobWorker,
     JobIdempotencyConflictError,
+    JobLeaseLostError,
     JobNotFoundError,
     JobQuotaExceededError,
     SQLiteEvolutionJobStore,
@@ -36,6 +37,7 @@ class TestSQLiteEvolutionJobStore:
             idempotency_key="retry-1",
         )
         assert created.status == "queued"
+        assert created.lease_token is None
         counts = await store.counts()
         assert counts.queued == 1
         assert counts.running == counts.failed == 0
@@ -176,6 +178,84 @@ class TestSQLiteEvolutionJobStore:
         completed = await store.get(job.job_id)
         assert completed is not None
         assert completed.status == "succeeded"
+
+    async def test_worker_renews_long_running_lease(self, store: SQLiteEvolutionJobStore) -> None:
+        job = await store.create_or_get(graph_id="graph-lease", k_rounds=2, idempotency_key=None)
+
+        class SlowExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                assert claimed.lease_token is not None
+                await asyncio.sleep(0.2)
+
+        worker = EvolutionJobWorker(store, SlowExecutor(), lease_seconds=0.05)
+        assert await worker.run_once()
+        completed = await store.get(job.job_id)
+        assert completed is not None
+        assert completed.status == "succeeded"
+
+    async def test_renew_lease_rejects_stale_owner(self, store: SQLiteEvolutionJobStore) -> None:
+        job = await store.create_or_get(graph_id="graph-stale", k_rounds=1, idempotency_key=None)
+        claimed = await store.claim_next(lease_seconds=0.05)
+        assert claimed is not None
+        assert claimed.lease_token is not None
+        await asyncio.sleep(0.06)
+        await store.recover_expired(max_attempts=3)
+        with pytest.raises(JobLeaseLostError):
+            await store.renew_lease(job.job_id, claimed.lease_token, lease_seconds=1)
+
+    async def test_lease_operations_validate_ownership_inputs(
+        self, store: SQLiteEvolutionJobStore
+    ) -> None:
+        job = await store.create_or_get(graph_id="graph-inputs", k_rounds=1, idempotency_key=None)
+        claimed = await store.claim_next(lease_seconds=1)
+        assert claimed is not None
+        assert claimed.lease_token is not None
+        with pytest.raises(ValueError):
+            await store.renew_lease(job.job_id, "", lease_seconds=1)
+        with pytest.raises(ValueError):
+            await store.renew_lease(job.job_id, claimed.lease_token, lease_seconds=0)
+        await store.update(job.job_id, status="queued", detail="requeued")
+        with pytest.raises(JobLeaseLostError):
+            await store.update(
+                job.job_id,
+                status="succeeded",
+                lease_token=claimed.lease_token,
+            )
+
+    async def test_worker_executes_without_a_claimed_lease(
+        self, store: SQLiteEvolutionJobStore
+    ) -> None:
+        job = await store.create_or_get(graph_id="graph-direct", k_rounds=1, idempotency_key=None)
+        executed: list[str] = []
+
+        class Executor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                executed.append(claimed.job_id)
+
+        worker = EvolutionJobWorker(store, Executor())
+        await worker._execute_with_lease(job)
+        assert executed == [job.job_id]
+
+    async def test_worker_stops_when_lease_is_lost(self, store: SQLiteEvolutionJobStore) -> None:
+        await store.create_or_get(graph_id="graph-lost", k_rounds=1, idempotency_key=None)
+
+        class LosingStore(SQLiteEvolutionJobStore):
+            async def renew_lease(
+                self, job_id: str, lease_token: str, *, lease_seconds: float
+            ) -> EvolutionJob:
+                del job_id, lease_token, lease_seconds
+                raise JobLeaseLostError("simulated lease loss")
+
+        losing_store = LosingStore(store.database_path)
+
+        class SlowExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                await asyncio.sleep(1)
+
+        worker = EvolutionJobWorker(losing_store, SlowExecutor(), lease_seconds=0.03)
+        with pytest.raises(JobLeaseLostError):
+            await worker.run_once()
 
     async def test_concurrent_claimers_never_claim_the_same_job(
         self,
