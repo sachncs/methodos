@@ -25,6 +25,10 @@ test("navigation and accessibility landmarks remain available on mobile", async 
   await expect(page.getByRole("banner")).toBeVisible();
   await expect(page.getByRole("main")).toBeVisible();
   await expect(page.getByRole("contentinfo")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Skip to content" })).toHaveAttribute(
+    "href",
+    "#main-content",
+  );
   await expect(page.locator('a[href="#architecture"]')).toHaveAttribute(
     "href",
     "#architecture",
