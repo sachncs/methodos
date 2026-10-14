@@ -43,6 +43,15 @@ claim to execute queued jobs.
 
 - Load the Prometheus rule file and verify alert expressions after every
   metrics-name change.
+- Run the bounded local HTTP load smoke check before release and after major
+  service changes:
+
+  ```bash
+  uv run python scripts/http_load_smoke.py --requests 1000 --concurrency 25
+  ```
+
+  Record throughput, p95 latency, failure count, and the deployment revision;
+  use a dedicated load environment for sustained or destructive tests.
 - Run a restore drill at least once per release or according to the service's
   recovery policy.
 - Keep API keys, provider credentials, signing identity, and telemetry export
