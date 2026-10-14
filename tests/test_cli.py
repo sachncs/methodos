@@ -100,7 +100,6 @@ class TestInitCommand:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        pass
         monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
         graph_path = tmp_path / "input.json"
         graph_path.write_text(
@@ -147,7 +146,6 @@ class TestInspectCommand:
         runner: CliRunner,
         seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
-        pass
         result = runner.invoke(
             cli,
             ["inspect", "--graph-id", "g"],
@@ -164,7 +162,6 @@ class TestInspectCommand:
         runner: CliRunner,
         seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
-        pass
         result = runner.invoke(
             cli,
             ["inspect", "--graph-id", "nope"],
@@ -184,7 +181,6 @@ class TestReplayCommand:
         runner: CliRunner,
         seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
-        pass
         result = runner.invoke(
             cli,
             ["replay", "--graph-id", "g"],
@@ -199,7 +195,6 @@ class TestReplayCommand:
         runner: CliRunner,
         seeded_filesystem_repo: FilesystemRepository,
     ) -> None:
-        pass
         result = runner.invoke(
             cli,
             ["replay", "--graph-id", "g", "--split", "val"],
@@ -396,9 +391,48 @@ class TestEvolveCommand:
             env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
             catch_exceptions=False,
         )
-        # Command loads tasks then prints a usage message; exits 0.
+        # Command validates and loads tasks, then prints the SDK handoff.
         assert result.exit_code == 0
+        assert "loaded 1 train and 1 validation tasks" in result.stdout
         assert "Python SDK" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("train_content", "val_content", "expected"),
+        [
+            ("{not-json}\n", '{"query": "v1"}\n', "invalid JSON"),
+            ('{"query": 42}\n', '{"query": "v1"}\n', "string query"),
+            ("\n", '{"query": "v1"}\n', "at least one"),
+        ],
+    )
+    def test_rejects_invalid_or_empty_task_files(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        train_content: str,
+        val_content: str,
+        expected: str,
+    ) -> None:
+        monkeypatch.setenv("PGRAPH_HOME", str(tmp_path))
+        train = tmp_path / "train.jsonl"
+        train.write_text(train_content)
+        val = tmp_path / "val.jsonl"
+        val.write_text(val_content)
+        result = runner.invoke(
+            cli,
+            [
+                "evolve",
+                "--graph-id",
+                "missing",
+                "--train-path",
+                str(train),
+                "--val-path",
+                str(val),
+            ],
+            env={"PGRAPH_HOME": str(tmp_path), "PGRAPH_BACKEND": "filesystem"},
+        )
+        assert result.exit_code == 2
+        assert expected in (result.stdout or "") + (result.stderr or "")
 
 
 # ----------------------------------------------------------------------------

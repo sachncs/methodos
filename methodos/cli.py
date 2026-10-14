@@ -225,21 +225,45 @@ def evolve(
         raise typer.Exit(code=2)
 
     def _load_tasks(path: Path) -> list[Task]:
+        """Load non-empty JSONL task records with actionable errors."""
         tasks: list[Task] = []
-        for line in path.read_text().splitlines():
+        try:
+            lines = path.read_text().splitlines()
+        except OSError as exc:
+            raise ValueError(f"cannot read task file {path}: {exc}") from exc
+        for line_number, line in enumerate(lines, start=1):
             stripped = line.strip()
             if not stripped:
                 continue
-            record = json.loads(stripped)
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid JSON in {path} at line {line_number}") from exc
+            if not isinstance(record, dict) or not isinstance(record.get("query"), str):
+                raise ValueError(
+                    f"task record in {path} at line {line_number} must contain a string query"
+                )
             tasks.append(Task(query=record["query"], expected=record.get("expected")))
         return tasks
+
+    try:
+        train_tasks = _load_tasks(train_path)
+        val_tasks = _load_tasks(val_path)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    if not train_tasks or not val_tasks:
+        typer.echo("Both task files must contain at least one non-empty JSONL record.", err=True)
+        raise typer.Exit(code=2)
 
     async def _run() -> None:
         repo = build_repo_from_env()
         graph = await repo.load_graph(graph_id)
         typer.echo(
             f"graph loaded: {len(graph.nodes)} nodes, "
-            f"{len(graph.edges)} edges. Use the Python SDK for real "
+            f"{len(graph.edges)} edges; loaded {len(train_tasks)} train and "
+            f"{len(val_tasks)} validation tasks for {k_rounds} rounds with {model!r}. "
+            "Use the Python SDK for real "
             f"evolution; this command demonstrates the wiring."
         )
 
