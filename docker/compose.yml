@@ -43,8 +43,8 @@ services:
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - "127.0.0.1:4317:4317"   # OTLP gRPC, host-local only
+      - "127.0.0.1:4318:4318"   # OTLP HTTP, host-local only
     restart: unless-stopped
 
   prometheus:
@@ -55,7 +55,7 @@ services:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - ./prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"   # metrics UI, host-local only
     restart: unless-stopped
 
 volumes:

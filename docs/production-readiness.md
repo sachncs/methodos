@@ -142,6 +142,9 @@ system production-ready.
   30-second shutdown window, and a 256-process limit in addition to its
   non-root, read-only filesystem, capability-drop, and constrained-tmpfs
   hardening.
+- Optional Prometheus and OTLP Compose ports are host-loopback-only by default;
+  external telemetry exposure still requires an explicitly authenticated
+  deployment path.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.

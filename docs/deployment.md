@@ -104,6 +104,9 @@ and do not expose the port beyond the local host.
       filesystem, writable `/data` volume only, dropped Linux capabilities,
       `no-new-privileges`, a constrained `/tmp` tmpfs, an init process, a
       30-second graceful shutdown window, and a 256-process limit.
+- [ ] Keep the optional observability profile's Prometheus and OTLP host ports
+      bound to loopback, or replace them with an authenticated internal
+      network/export path before exposing them outside the host.
 - [ ] For multiple service replicas, install `methodos[postgres]`, set
       `PGRAPH_BACKEND=postgres` and `PGRAPH_POSTGRES_DSN`, and run the database
       with managed backups, TLS, pooling limits, and migration review.
