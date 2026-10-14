@@ -15,7 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 JOB_STATUSES = frozenset({"queued", "running", "succeeded", "failed", "cancelled"})
 
@@ -222,11 +222,163 @@ class SQLiteEvolutionJobStore:
         return await asyncio.to_thread(write)
 
 
+def _load_asyncpg() -> Any:  # pragma: no cover - covered by optional integration tests
+    """Load the optional Postgres driver only when this store is used."""
+    try:
+        import asyncpg
+    except ImportError as exc:  # pragma: no cover - depends on optional install
+        raise RuntimeError(
+            "asyncpg is not installed; install methodos[postgres] to enable Postgres"
+        ) from exc
+    return asyncpg
+
+
+class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional integration tests
+    """Postgres-backed job store for horizontally scaled queue runners."""
+
+    def __init__(self, *, dsn: str, min_size: int = 1, max_size: int = 10) -> None:
+        """Configure a pool without opening a network connection."""
+        if not dsn.strip():
+            raise ValueError("dsn must not be empty")
+        if min_size < 1 or max_size < min_size:
+            raise ValueError("pool sizes must satisfy 1 <= min_size <= max_size")
+        self.dsn = dsn
+        self.min_size = min_size
+        self.max_size = max_size
+        self._pool: Any | None = None
+
+    async def initialize(self) -> None:
+        """Open the pool and create the idempotent job schema."""
+        if self._pool is not None:
+            return
+        asyncpg = _load_asyncpg()
+        self._pool = await asyncpg.create_pool(
+            dsn=self.dsn,
+            min_size=self.min_size,
+            max_size=self.max_size,
+        )
+        try:
+            async with self._pool.acquire() as connection:
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS methodos_evolution_jobs (
+                        job_id TEXT PRIMARY KEY,
+                        graph_id TEXT NOT NULL,
+                        k_rounds INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        detail TEXT,
+                        idempotency_key TEXT UNIQUE,
+                        request_fingerprint TEXT NOT NULL,
+                        created_at DOUBLE PRECISION NOT NULL,
+                        updated_at DOUBLE PRECISION NOT NULL
+                    )
+                    """
+                )
+        except Exception:
+            await self.close()
+            raise
+
+    async def close(self) -> None:
+        """Close the pool if it is open."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+
+    async def _get_pool(self) -> Any:
+        """Return an initialized pool."""
+        await self.initialize()
+        assert self._pool is not None
+        return self._pool
+
+    @staticmethod
+    def _record(row: Any) -> EvolutionJob:
+        """Convert an asyncpg record into the shared immutable model."""
+        return EvolutionJob(**dict(row))
+
+    async def create_or_get(
+        self,
+        *,
+        graph_id: str,
+        k_rounds: int,
+        idempotency_key: str | None,
+    ) -> EvolutionJob:
+        """Create a job or atomically return the keyed existing job."""
+        if not graph_id or k_rounds <= 0:
+            raise ValueError("graph_id must be non-empty and k_rounds must be positive")
+        fingerprint = SQLiteEvolutionJobStore._fingerprint(graph_id, k_rounds)
+        pool = await self._get_pool()
+        now = time.time()
+        async with pool.acquire() as connection, connection.transaction():
+            if idempotency_key is not None:
+                row = await connection.fetchrow(
+                    "SELECT * FROM methodos_evolution_jobs "
+                    "WHERE idempotency_key = $1 FOR UPDATE",
+                    idempotency_key,
+                )
+                if row is not None:
+                    if row["request_fingerprint"] != fingerprint:
+                        raise JobIdempotencyConflictError(
+                            "idempotency key was used for a different request"
+                        )
+                    return self._record(row)
+            job_id = str(uuid.uuid4())
+            row = await connection.fetchrow(
+                "INSERT INTO methodos_evolution_jobs "
+                "(job_id, graph_id, k_rounds, status, detail, idempotency_key, "
+                "request_fingerprint, created_at, updated_at) "
+                "VALUES ($1, $2, $3, 'queued', NULL, $4, $5, $6, $6) RETURNING *",
+                job_id,
+                graph_id,
+                k_rounds,
+                idempotency_key,
+                fingerprint,
+                now,
+            )
+            assert row is not None
+            return self._record(row)
+
+    async def get(self, job_id: str) -> EvolutionJob | None:
+        """Return a job by id, or `None` when it is unknown."""
+        if not job_id:
+            raise ValueError("job_id must be non-empty")
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT * FROM methodos_evolution_jobs WHERE job_id = $1", job_id
+            )
+        return None if row is None else self._record(row)
+
+    async def update(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        detail: str | None = None,
+    ) -> EvolutionJob:
+        """Persist a state transition and return the resulting job."""
+        if status not in JOB_STATUSES:
+            raise ValueError(f"unsupported evolution job status: {status}")
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "UPDATE methodos_evolution_jobs SET status = $1, detail = $2, "
+                "updated_at = $3 WHERE job_id = $4 RETURNING *",
+                status,
+                detail,
+                time.time(),
+                job_id,
+            )
+        if row is None:
+            raise JobNotFoundError(f"evolution job {job_id!r} not found")
+        return self._record(row)
+
+
 __all__ = [
     "JOB_STATUSES",
     "EvolutionJob",
     "EvolutionJobStore",
     "JobIdempotencyConflictError",
     "JobNotFoundError",
+    "PostgresEvolutionJobStore",
     "SQLiteEvolutionJobStore",
 ]

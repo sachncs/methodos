@@ -66,8 +66,9 @@ system production-ready.
   migration runner; future schema versions still require a reviewed migration
   and corresponding data-model compatibility tests.
 - `SQLiteEvolutionJobStore` now persists queued-job state across process
-  restarts and atomically deduplicates idempotency keys; a host-owned worker
-  still needs to execute jobs and Postgres-backed job storage remains open.
+  restarts and atomically deduplicates idempotency keys; the optional
+  `PostgresEvolutionJobStore` provides the same contract for horizontal
+  deployments. A host-owned worker still needs to execute jobs.
 
 ## Open issues
 
@@ -77,7 +78,7 @@ system production-ready.
    a queued job contract, supports authenticated status polling, and exposes a
    fail-closed `Idempotency-Key` capability for runners that guarantee
    deduplication; the default app still returns 501 without a durable runner,
-   and host-worker execution plus distributed job persistence remain open.
+   and host-worker execution remain open.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.

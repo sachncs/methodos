@@ -7,6 +7,10 @@ from uuid import uuid4
 
 import pytest
 
+from methodos.jobs import (
+    JobIdempotencyConflictError,
+    PostgresEvolutionJobStore,
+)
 from methodos.repo import (
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
@@ -77,3 +81,41 @@ async def test_postgres_repository_round_trip_and_cas() -> None:
                 await conn.execute("DELETE FROM methodos_graphs WHERE id = $1", graph_id)
                 await conn.execute("DELETE FROM methodos_rate_limits WHERE key = $1", rate_key)
         await repo.close()
+
+
+@pytest.mark.asyncio
+async def test_postgres_evolution_job_store_is_durable_and_idempotent() -> None:
+    """Exercise shared job state used by horizontally scaled workers."""
+    assert POSTGRES_DSN is not None
+    store = PostgresEvolutionJobStore(dsn=POSTGRES_DSN)
+    key = f"job-key-{uuid4().hex}"
+    created = None
+    try:
+        await store.initialize()
+        created = await store.create_or_get(
+            graph_id=f"job-graph-{uuid4().hex}",
+            k_rounds=2,
+            idempotency_key=key,
+        )
+        repeated = await store.create_or_get(
+            graph_id=created.graph_id,
+            k_rounds=created.k_rounds,
+            idempotency_key=key,
+        )
+        assert repeated == created
+        with pytest.raises(JobIdempotencyConflictError):
+            await store.create_or_get(
+                graph_id=created.graph_id,
+                k_rounds=3,
+                idempotency_key=key,
+            )
+        updated = await store.update(created.job_id, status="running", detail="worker claimed")
+        assert (await store.get(created.job_id)) == updated
+    finally:
+        if created is not None and store._pool is not None:
+            async with store._pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM methodos_evolution_jobs WHERE job_id = $1",
+                    created.job_id,
+                )
+        await store.close()
