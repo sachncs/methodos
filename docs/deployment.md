@@ -102,7 +102,8 @@ and do not expose the port beyond the local host.
       database lives here).
 - [ ] Preserve the Compose runtime hardening: non-root user, read-only root
       filesystem, writable `/data` volume only, dropped Linux capabilities,
-      `no-new-privileges`, and a constrained `/tmp` tmpfs.
+      `no-new-privileges`, a constrained `/tmp` tmpfs, an init process, a
+      30-second graceful shutdown window, and a 256-process limit.
 - [ ] For multiple service replicas, install `methodos[postgres]`, set
       `PGRAPH_BACKEND=postgres` and `PGRAPH_POSTGRES_DSN`, and run the database
       with managed backups, TLS, pooling limits, and migration review.

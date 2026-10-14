@@ -17,6 +17,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - methodos-data:/data
+    init: true
+    stop_grace_period: 30s
+    pids_limit: 256
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev

@@ -138,6 +138,10 @@ system production-ready.
 - The runtime Docker image also defaults to `METHODOS_ENV=production`; CI
   asserts that a direct image launch fails without credentials and then
   exercises the protected image path with explicit credentials.
+- The primary Compose service now runs with an init process, a bounded
+  30-second shutdown window, and a 256-process limit in addition to its
+  non-root, read-only filesystem, capability-drop, and constrained-tmpfs
+  hardening.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.
