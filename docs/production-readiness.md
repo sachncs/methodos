@@ -171,8 +171,9 @@ system production-ready.
    preserves task cancellation, covered by a direct cancellation test. The
    service stops parsing an upload after `http.disconnect`, bounds each body
    read with `METHODOS_BODY_READ_TIMEOUT_SECONDS`, and returns bounded `499`
-   or `408` envelopes in ASGI tests; reverse-proxy disconnect propagation and
-   timeout policy remain deployment-specific.
+   or `408` envelopes for immediate and partial-body disconnects in ASGI tests;
+   reverse-proxy disconnect propagation and timeout policy remain
+   deployment-specific.
 7. Error responses use a documented envelope with stable codes and request IDs.
    The service rejects oversized declared and streamed request bodies with a
    bounded `413` response; reverse-proxy limits remain an additional perimeter
@@ -315,6 +316,6 @@ system production-ready.
   SLOs, alert rules, starter Grafana dashboard, Prometheus and Collector syntax validation, runbook,
   fault-injection tests, and container signing/attestation.
 - Remaining: assign dashboard/paging ownership, define retention and
-  error-budget policy, run long-duration load/soak/chaos tests, add full HTTP
-  disconnect tests, enable credentialed live-provider suites, and independently
-  verify release signatures.
+  error-budget policy, run long-duration load/soak/chaos tests, exercise
+  reverse-proxy disconnect behavior, enable credentialed live-provider suites,
+  and independently verify release signatures.
