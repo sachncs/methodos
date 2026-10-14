@@ -126,8 +126,9 @@ system production-ready.
    preserves task cancellation, covered by a direct cancellation test; full
    ASGI/HTTP disconnect testing remains open.
 7. Error responses use a documented envelope with stable codes and request IDs.
-   The service also rejects oversized declared request bodies with a bounded
-   `413` response; reverse-proxy limits remain required for streamed bodies.
+   The service rejects oversized declared and streamed request bodies with a
+   bounded `413` response; reverse-proxy limits remain an additional perimeter
+   control.
 
 ### Persistence and data integrity
 

@@ -11,6 +11,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
+from starlette.types import Message, Receive, Scope, Send
 
 from methodos.jobs import (
     EvolutionJob,
@@ -174,6 +175,63 @@ class TestHealth:
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["x-frame-options"] == "DENY"
         assert response.headers["referrer-policy"] == "no-referrer"
+
+    def test_rejects_invalid_declared_body_length(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_MAX_BODY_BYTES", "10")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as size_client:
+            response = size_client.post(
+                "/v1/graphs",
+                headers={"content-length": "not-a-number"},
+                json={"id": "g2"},
+            )
+        assert response.status_code == 413
+        assert response.json()["code"] == "request_too_large"
+
+    async def test_rejects_oversized_streamed_body(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_MAX_BODY_BYTES", "10")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+
+        scope: Scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/graphs",
+            "raw_path": b"/v1/graphs",
+            "query_string": b"",
+            "headers": [(b"host", b"test"), (b"content-type", b"application/json")],
+            "client": ("test", 1234),
+            "server": ("test", 80),
+        }
+        messages: list[Message] = [
+            {"type": "http.request", "body": b'{"id":', "more_body": True},
+            {"type": "http.request", "body": b'"body-that-is-too-large"}', "more_body": False},
+        ]
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            return messages.pop(0)
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        async with app.router.lifespan_context(app):
+            await app(scope, cast(Receive, receive), cast(Send, send))
+
+        response_start = next(
+            message for message in sent if message["type"] == "http.response.start"
+        )
+        assert response_start["status"] == 413
 
     def test_metrics_include_store_backed_evolution_queue(
         self,

@@ -36,6 +36,7 @@ from opentelemetry import trace
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import RequestResponseEndpoint
+from starlette.types import Message
 
 from methodos.graph import match_node, neighborhood
 from methodos.guidance import generate_guidance
@@ -73,6 +74,8 @@ repository_tracer = trace.get_tracer("methodos.repository")
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+
+
 HTTP_REQUESTS = Counter(
     "methodos_http_requests_total",
     "Total HTTP requests handled by methodos.",
@@ -570,6 +573,7 @@ def create_app(
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
         started_at = time.perf_counter()
+        original_receive = request._receive
         content_length = request.headers.get("content-length")
         if content_length is not None:
             try:
@@ -586,6 +590,34 @@ def create_app(
                 HTTP_REQUESTS.labels(request.method, "413").inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
                 return harden_response(oversized_response, request_id)
+        body = bytearray()
+        while True:
+            message = await original_receive()
+            if message["type"] == "http.disconnect":
+                request._receive = original_receive
+                break
+            chunk = message.get("body", b"")
+            if isinstance(chunk, bytes):
+                if len(body) + len(chunk) > max_body_bytes:
+                    oversized_response = JSONResponse(
+                        status_code=413,
+                        content=error_payload(
+                            request, "request body is too large", "request_too_large"
+                        ),
+                    )
+                    HTTP_REQUESTS.labels(request.method, "413").inc()
+                    HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
+                    return harden_response(oversized_response, request_id)
+                body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        async def replay_body() -> Message:
+            """Replay the bounded body once to downstream request parsing."""
+            request._receive = original_receive
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        request._receive = replay_body
         public_path = request.url.path in {
             "/health",
             "/ready",
@@ -642,8 +674,7 @@ def create_app(
             span.set_attribute("http.request.method", request.method)
             span.set_attribute("url.path", request.url.path)
             span.set_attribute("methodos.request_id", request_id)
-            response = await call_next(request)
-            span.set_attribute("http.response.status_code", response.status_code)
+        response = await call_next(request)
         HTTP_REQUESTS.labels(request.method, str(response.status_code)).inc()
         duration = time.perf_counter() - started_at
         HTTP_LATENCY.labels(request.method).observe(duration)
