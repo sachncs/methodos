@@ -748,10 +748,12 @@ class TestConcurrentHttpResilience:
                 headers={
                     "origin": "https://console.example",
                     "access-control-request-method": "GET",
+                    "access-control-request-headers": "if-match",
                 },
             )
             assert response.status_code == 200
             assert response.headers["access-control-allow-origin"] == "https://console.example"
+            assert "if-match" in response.headers["access-control-allow-headers"]
 
     def test_invalid_cors_origin_fails_fast(self) -> None:
         with pytest.raises(ValueError, match="invalid CORS origin"):

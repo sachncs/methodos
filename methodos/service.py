@@ -697,6 +697,7 @@ def create_app(
             allow_methods=["GET", "POST", "PUT"],
             allow_headers=[
                 "content-type",
+                "if-match",
                 "idempotency-key",
                 "x-api-key",
                 "x-request-id",
