@@ -204,9 +204,10 @@ system production-ready.
     cover basic contention, concurrent job claiming, and a parallel HTTP smoke
     test plus deterministic worker fault injection; sustained load, soak,
     chaos, file-corruption, and broader cancellation tests remain open.
-24. CI scans the Docker image; tagged releases now publish, attest, and
-    keylessly sign the immutable GHCR image digest. Registry retention and
-    independent signature verification remain operational controls.
+24. CI scans the Docker image; tagged releases now publish, attest, keylessly
+   sign, and verify the immutable GHCR image digest against the exact release
+   workflow identity. Registry retention and independent operator verification
+   remain operational controls.
 
 ### Delivery and governance
 
