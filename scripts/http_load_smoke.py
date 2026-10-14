@@ -57,6 +57,8 @@ async def run_check(
                         failures.append(f"HTTP {response.status_code}: {response.text[:120]}")
                 except httpx.HTTPError as exc:
                     failures.append(f"{type(exc).__name__}: {exc}")
+                except Exception as exc:
+                    failures.append(f"{type(exc).__name__}: {exc}")
 
         for _ in range(rounds):
             await asyncio.gather(*(request_once() for _ in range(requests)))

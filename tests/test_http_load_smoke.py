@@ -63,6 +63,29 @@ def test_run_check_returns_failure_for_non_200(capsys: pytest.CaptureFixture[str
     assert "HTTP 503" in captured.err
 
 
+def test_run_check_counts_unexpected_transport_failures(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        raise RuntimeError("transport exploded")
+
+    result = asyncio.run(
+        run_check(
+            url="https://example.test/health",
+            requests=2,
+            concurrency=1,
+            timeout=1,
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert result == 1
+    captured = capsys.readouterr()
+    assert "failed=2" in captured.out
+    assert "RuntimeError: transport exploded" in captured.err
+
+
 @pytest.mark.parametrize(
     ("requests", "concurrency", "timeout", "rounds"),
     [
