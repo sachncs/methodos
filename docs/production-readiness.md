@@ -169,8 +169,9 @@ system production-ready.
     correlated with the request ID; exporter and retention policy remain
     deployment responsibilities.
 21. HTTP, repository-boundary, and LLM spans are instrumented; low-cardinality
-    LLM attempt outcome counters are exported through `/metrics`. Collector
-    configuration validation remains open.
+    LLM attempt outcome counters are exported through `/metrics`. Prometheus
+    configuration and alert-rule syntax are now validated in CI; collector
+    deployment and exporter compatibility remain operational responsibilities.
 22. Baseline SLOs, starter alert thresholds, and an incident runbook are now
     versioned in `docs/operations.md` and `docker/prometheus-rules.yml`;
     dashboards, paging ownership, retention, and error-budget policy remain

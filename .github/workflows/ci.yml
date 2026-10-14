@@ -77,6 +77,19 @@ jobs:
       - name: Validate production Compose configuration
         run: docker compose -f docker/compose.yml config --quiet
 
+      - name: Validate Prometheus configuration and alert rules
+        run: |
+          docker run --rm \
+            --volume "${{ github.workspace }}/docker:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus:v2.54.1 \
+            check config /etc/prometheus/prometheus.yaml
+          docker run --rm \
+            --volume "${{ github.workspace }}/docker:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus:v2.54.1 \
+            check rules /etc/prometheus/prometheus-rules.yml
+
       - name: Generate container SBOM
         uses: anchore/sbom-action@v0
         with:
