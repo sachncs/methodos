@@ -71,9 +71,7 @@ def test_migration_runner_applies_ordered_sqlite_upgrades() -> None:
         connection.execute("INSERT INTO schema_meta (version) VALUES (1)")
         connection.execute("CREATE TABLE data (value TEXT)")
         runner.apply_sqlite(connection, 1)
-        assert "revision" in {
-            row[1] for row in connection.execute("PRAGMA table_info(data)")
-        }
+        assert "revision" in {row[1] for row in connection.execute("PRAGMA table_info(data)")}
 
 
 async def test_migration_runner_applies_asyncpg_statements() -> None:
@@ -395,6 +393,7 @@ class TestFilesystemRepository:
         with pytest.raises(GraphRevisionConflictError):
             await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
 
+
 # ----------------------------------------------------------------------------
 # SQLiteRepository
 # ----------------------------------------------------------------------------
@@ -449,9 +448,7 @@ class TestSQLiteRepository:
         graph = make_graph("concurrent")
         await repository.save_graph(graph)
 
-        readers = await asyncio.gather(
-            *(repository.load_graph("concurrent") for _ in range(32))
-        )
+        readers = await asyncio.gather(*(repository.load_graph("concurrent") for _ in range(32)))
         assert all(reader.id == "concurrent" for reader in readers)
 
         outcomes = await asyncio.gather(
@@ -489,8 +486,7 @@ class TestSQLiteRepository:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         with sqlite3.connect(tmp_path / "test.db") as connection:
             connection.execute(
-                "INSERT INTO graphs (id, schema_version, body, updated_at) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO graphs (id, schema_version, body, updated_at) VALUES (?, ?, ?, ?)",
                 ("bad", 1, "{not-json", 0.0),
             )
         with pytest.raises(CorruptRecordError, match="corrupt SQLite"):

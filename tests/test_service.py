@@ -170,10 +170,7 @@ class TestConcurrentHttpResilience:
         app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
         with TestClient(app) as concurrent_client:
             responses = await asyncio.gather(
-                *(
-                    asyncio.to_thread(concurrent_client.get, "/v1/graphs/g1")
-                    for _ in range(24)
-                )
+                *(asyncio.to_thread(concurrent_client.get, "/v1/graphs/g1") for _ in range(24))
             )
         assert all(response.status_code == 200 for response in responses)
         request_ids = {response.headers["x-request-id"] for response in responses}
@@ -215,9 +212,12 @@ class TestConcurrentHttpResilience:
         app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
         with TestClient(app) as protected_client:
             assert protected_client.get("/v1/graphs/g1").status_code == 401
-            assert protected_client.get(
-                "/v1/graphs/g1", headers={"x-api-key": "test-secret"}
-            ).status_code == 200
+            assert (
+                protected_client.get(
+                    "/v1/graphs/g1", headers={"x-api-key": "test-secret"}
+                ).status_code
+                == 200
+            )
             assert protected_client.get("/health").status_code == 200
 
     def test_overlapping_api_keys_support_rotation(
@@ -228,12 +228,18 @@ class TestConcurrentHttpResilience:
         monkeypatch.setenv("METHODOS_API_KEYS", "old-secret,new-secret")
         app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
         with TestClient(app) as protected_client:
-            assert protected_client.get(
-                "/v1/graphs/g1", headers={"x-api-key": "old-secret"}
-            ).status_code == 200
-            assert protected_client.get(
-                "/v1/graphs/g1", headers={"x-api-key": "new-secret"}
-            ).status_code == 200
+            assert (
+                protected_client.get(
+                    "/v1/graphs/g1", headers={"x-api-key": "old-secret"}
+                ).status_code
+                == 200
+            )
+            assert (
+                protected_client.get(
+                    "/v1/graphs/g1", headers={"x-api-key": "new-secret"}
+                ).status_code
+                == 200
+            )
 
     def test_explicit_roles_gate_mutations(
         self,
@@ -247,9 +253,12 @@ class TestConcurrentHttpResilience:
         )
         app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
         with TestClient(app) as protected_client:
-            assert protected_client.get(
-                "/v1/graphs/g1", headers={"x-api-key": "read-secret"}
-            ).status_code == 200
+            assert (
+                protected_client.get(
+                    "/v1/graphs/g1", headers={"x-api-key": "read-secret"}
+                ).status_code
+                == 200
+            )
             denied = protected_client.post(
                 "/v1/graphs", headers={"x-api-key": "read-secret"}, json={"id": "denied"}
             )
@@ -316,18 +325,20 @@ class TestConcurrentHttpResilience:
         with TestClient(app) as tenant_client:
             alpha_headers = {"x-api-key": "key-a", "x-tenant-id": "alpha"}
             beta_headers = {"x-api-key": "key-b", "x-tenant-id": "beta"}
-            assert tenant_client.post(
-                "/v1/graphs", headers=alpha_headers, json={"id": "shared"}
-            ).status_code == 201
-            assert tenant_client.get(
-                "/v1/graphs/shared", headers=alpha_headers
-            ).status_code == 200
-            assert tenant_client.get(
-                "/v1/graphs/shared", headers=beta_headers
-            ).status_code == 404
-            assert tenant_client.post(
-                "/v1/graphs", headers=beta_headers, json={"id": "shared"}
-            ).status_code == 201
+            assert (
+                tenant_client.post(
+                    "/v1/graphs", headers=alpha_headers, json={"id": "shared"}
+                ).status_code
+                == 201
+            )
+            assert tenant_client.get("/v1/graphs/shared", headers=alpha_headers).status_code == 200
+            assert tenant_client.get("/v1/graphs/shared", headers=beta_headers).status_code == 404
+            assert (
+                tenant_client.post(
+                    "/v1/graphs", headers=beta_headers, json={"id": "shared"}
+                ).status_code
+                == 201
+            )
 
     def test_tenant_key_cannot_claim_another_tenant(
         self,
@@ -644,7 +655,9 @@ class TestEvolveEndpoint:
                 idempotency_key: str,
             ) -> str:
                 del graph_id, k_rounds, request_id, idempotency_key
-                raise JobIdempotencyConflictError("idempotency key was used for a different request")
+                raise JobIdempotencyConflictError(
+                    "idempotency key was used for a different request"
+                )
 
         app = create_app(
             repo=seeded_repo,
@@ -693,12 +706,14 @@ class TestEvolveEndpoint:
             )
             assert queued.status_code == 202
             job_id = queued.json()["job_id"]
-            assert runner_client.get(
-                f"/v1/evolution/jobs/{job_id}", headers=alpha_headers
-            ).status_code == 200
-            assert runner_client.get(
-                f"/v1/evolution/jobs/{job_id}", headers=beta_headers
-            ).status_code == 404
+            assert (
+                runner_client.get(f"/v1/evolution/jobs/{job_id}", headers=alpha_headers).status_code
+                == 200
+            )
+            assert (
+                runner_client.get(f"/v1/evolution/jobs/{job_id}", headers=beta_headers).status_code
+                == 404
+            )
             retried = runner_client.post(
                 "/v1/graphs/g1/evolve",
                 headers={**alpha_headers, "Idempotency-Key": "tenant-retry"},
@@ -736,7 +751,10 @@ class TestEvolveEndpoint:
         )
         headers = {"X-API-Key": "key-alpha"}
         with TestClient(app) as runner_client:
-            assert runner_client.post("/v1/graphs", headers=headers, json={"id": "g1"}).status_code == 201
+            assert (
+                runner_client.post("/v1/graphs", headers=headers, json={"id": "g1"}).status_code
+                == 201
+            )
             queued = runner_client.post(
                 "/v1/graphs/g1/evolve",
                 headers=headers,

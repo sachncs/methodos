@@ -805,9 +805,7 @@ class SQLiteRepository:
                 try:
                     return ProceduralGraph.model_validate_json(row["body"])
                 except ValueError as exc:
-                    raise CorruptRecordError(
-                        f"corrupt SQLite graph record {graph_id!r}"
-                    ) from exc
+                    raise CorruptRecordError(f"corrupt SQLite graph record {graph_id!r}") from exc
 
     async def save_graph(self, graph: ProceduralGraph) -> None:
         """Upsert `graph`; uses UPDATE-then-INSERT so snapshot rows survive."""
@@ -853,9 +851,7 @@ class SQLiteRepository:
             await db.execute("PRAGMA busy_timeout = 5000")
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    "SELECT body FROM graphs WHERE id = ?", (graph.id,)
-                ) as cur:
+                async with db.execute("SELECT body FROM graphs WHERE id = ?", (graph.id,)) as cur:
                     row = await cur.fetchone()
                 if row is None:
                     raise FileNotFoundError(f"graph {graph.id!r} not found")
@@ -867,8 +863,7 @@ class SQLiteRepository:
                     )
                 updated = graph.model_copy(update={"revision": current.revision + 1})
                 await db.execute(
-                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? "
-                    "WHERE id = ?",
+                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? WHERE id = ?",
                     (
                         updated.schema_version,
                         updated.model_dump_json(),
@@ -892,8 +887,7 @@ class SQLiteRepository:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 await db.execute(
-                    "INSERT INTO graphs (id, schema_version, body, updated_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT INTO graphs (id, schema_version, body, updated_at) VALUES (?, ?, ?, ?)",
                     (graph.id, graph.schema_version, body, ts),
                 )
                 await db.commit()
@@ -940,15 +934,11 @@ class SQLiteRepository:
             await db.execute("PRAGMA busy_timeout = 5000")
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    "SELECT body FROM graphs WHERE id = ?", (graph_id,)
-                ) as cur:
+                async with db.execute("SELECT body FROM graphs WHERE id = ?", (graph_id,)) as cur:
                     current_row = await cur.fetchone()
                 if current_row is None:
                     raise FileNotFoundError(f"graph {graph_id!r} not found")
-                current_revision = ProceduralGraph.model_validate_json(
-                    current_row[0]
-                ).revision
+                current_revision = ProceduralGraph.model_validate_json(current_row[0]).revision
                 if expected_revision is not None and current_revision != expected_revision:
                     raise GraphRevisionConflictError(
                         f"graph {graph_id!r} revision changed from {expected_revision} "
@@ -960,16 +950,13 @@ class SQLiteRepository:
                 ) as cur:
                     snapshot_row = await cur.fetchone()
                 if snapshot_row is None:
-                    raise FileNotFoundError(
-                        f"snapshot {tag!r} not found for graph {graph_id!r}"
-                    )
+                    raise FileNotFoundError(f"snapshot {tag!r} not found for graph {graph_id!r}")
                 snapshot = ProceduralGraph.model_validate_json(snapshot_row[0])
                 restored = snapshot.model_copy(
                     update={"id": graph_id, "revision": current_revision + 1}
                 )
                 await db.execute(
-                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? "
-                    "WHERE id = ?",
+                    "UPDATE graphs SET schema_version = ?, body = ?, updated_at = ? WHERE id = ?",
                     (
                         restored.schema_version,
                         restored.model_dump_json(),
@@ -1209,17 +1196,21 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         """Upsert a graph and increment its revision atomically."""
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
-                current = await conn.fetchrow(
-                    "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
-                )
-                graph.revision = 0 if current is None else int(current["revision"]) + 1
-                await conn.execute(
-                    """INSERT INTO methodos_graphs (id, schema_version, revision, body, updated_at)
+            current = await conn.fetchrow(
+                "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
+            )
+            graph.revision = 0 if current is None else int(current["revision"]) + 1
+            await conn.execute(
+                """INSERT INTO methodos_graphs (id, schema_version, revision, body, updated_at)
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (id) DO UPDATE SET schema_version = EXCLUDED.schema_version,
                     revision = EXCLUDED.revision, body = EXCLUDED.body, updated_at = EXCLUDED.updated_at""",
-                    graph.id, graph.schema_version, graph.revision, graph.model_dump_json(), time.time(),
-                )
+                graph.id,
+                graph.schema_version,
+                graph.revision,
+                graph.model_dump_json(),
+                time.time(),
+            )
 
     async def save_graph_if_revision(
         self, graph: ProceduralGraph, expected_revision: int
@@ -1227,22 +1218,26 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         """Compare and swap a graph in one Postgres transaction."""
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
-                current = await conn.fetchrow(
-                    "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
+            current = await conn.fetchrow(
+                "SELECT revision FROM methodos_graphs WHERE id = $1 FOR UPDATE", graph.id
+            )
+            if current is None:
+                raise FileNotFoundError(f"graph {graph.id!r} not found")
+            revision = int(current["revision"])
+            if revision != expected_revision:
+                raise GraphRevisionConflictError(
+                    f"graph {graph.id!r} revision changed from {expected_revision} to {revision}"
                 )
-                if current is None:
-                    raise FileNotFoundError(f"graph {graph.id!r} not found")
-                revision = int(current["revision"])
-                if revision != expected_revision:
-                    raise GraphRevisionConflictError(
-                        f"graph {graph.id!r} revision changed from {expected_revision} to {revision}"
-                    )
-                updated = graph.model_copy(update={"revision": revision + 1})
-                await conn.execute(
-                    "UPDATE methodos_graphs SET schema_version = $1, revision = $2, body = $3, updated_at = $4 WHERE id = $5",
-                    updated.schema_version, updated.revision, updated.model_dump_json(), time.time(), graph.id,
-                )
-                return updated
+            updated = graph.model_copy(update={"revision": revision + 1})
+            await conn.execute(
+                "UPDATE methodos_graphs SET schema_version = $1, revision = $2, body = $3, updated_at = $4 WHERE id = $5",
+                updated.schema_version,
+                updated.revision,
+                updated.model_dump_json(),
+                time.time(),
+                graph.id,
+            )
+            return updated
 
     async def create_graph(self, graph: ProceduralGraph) -> None:
         """Create a graph atomically without replacing an existing graph."""
@@ -1251,7 +1246,11 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
             async with pool.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO methodos_graphs (id, schema_version, revision, body, updated_at) VALUES ($1, $2, $3, $4, $5)",
-                    graph.id, graph.schema_version, graph.revision, graph.model_dump_json(), time.time(),
+                    graph.id,
+                    graph.schema_version,
+                    graph.revision,
+                    graph.model_dump_json(),
+                    time.time(),
                 )
         except Exception as exc:
             if exc.__class__.__name__ == "UniqueViolationError":
@@ -1269,7 +1268,10 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
             await conn.execute(
                 """INSERT INTO methodos_snapshots (graph_id, tag, body, ts) VALUES ($1, $2, $3, $4)
                 ON CONFLICT (graph_id, tag) DO UPDATE SET body = EXCLUDED.body, ts = EXCLUDED.ts""",
-                graph_id, tag, body, time.time(),
+                graph_id,
+                tag,
+                body,
+                time.time(),
             )
 
     async def restore_snapshot(
@@ -1320,12 +1322,20 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         validate_storage_component(split, field="split")
         pool = await self._get_pool()
         body = json.dumps(
-            {"task_query": trajectory.task.query, "score": trajectory.score, "steps": [list(s) for s in trajectory.steps]}
+            {
+                "task_query": trajectory.task.query,
+                "score": trajectory.score,
+                "steps": [list(s) for s in trajectory.steps],
+            }
         )
         async with pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO methodos_trajectories (graph_id, split, score, body, ts) VALUES ($1, $2, $3, $4, $5)",
-                graph_id, split, trajectory.score, body, time.time(),
+                graph_id,
+                split,
+                trajectory.score,
+                body,
+                time.time(),
             )
 
     async def append_evolution_event(self, event: EvolutionEvent) -> None:
@@ -1372,7 +1382,8 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
         async with pool.acquire() as conn, conn.transaction():
             async for row in conn.cursor(
                 "SELECT body FROM methodos_trajectories WHERE graph_id = $1 AND split = $2 ORDER BY ts ASC",
-                graph_id, split,
+                graph_id,
+                split,
             ):
                 record = json.loads(row["body"])
                 yield Trajectory(

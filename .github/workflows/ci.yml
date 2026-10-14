@@ -45,6 +45,9 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Verify formatting
+        run: uv run ruff format --check methodos tests scripts
+
       - name: Type check
         run: uv run mypy methodos tests scripts
 

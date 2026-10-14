@@ -72,7 +72,9 @@ async def test_postgres_repository_round_trip_and_cas() -> None:
             "train",
             Trajectory(task=Task(query="question"), steps=(("answer", "done"),), score=1.0),
         )
-        trajectories = [trajectory async for trajectory in repo.read_trajectories(graph_id, "train")]
+        trajectories = [
+            trajectory async for trajectory in repo.read_trajectories(graph_id, "train")
+        ]
         assert len(trajectories) == 1
         assert trajectories[0].task.query == "question"
     finally:

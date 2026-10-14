@@ -273,8 +273,7 @@ class SQLiteEvolutionJobStore:
         def read_counts() -> EvolutionJobCounts:
             with self._connect() as connection:
                 rows = connection.execute(
-                    "SELECT status, COUNT(*) AS count FROM evolution_jobs "
-                    "GROUP BY status"
+                    "SELECT status, COUNT(*) AS count FROM evolution_jobs GROUP BY status"
                 ).fetchall()
             values = {str(row["status"]): int(row["count"]) for row in rows}
             return EvolutionJobCounts(
@@ -440,8 +439,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                     "lease_expires_at DOUBLE PRECISION"
                 )
                 await connection.execute(
-                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS "
-                    "tenant_id TEXT"
+                    "ALTER TABLE methodos_evolution_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT"
                 )
         except Exception:
             await self.close()
@@ -486,8 +484,7 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         async with pool.acquire() as connection, connection.transaction():
             if storage_idempotency_key is not None:
                 row = await connection.fetchrow(
-                    "SELECT * FROM methodos_evolution_jobs "
-                    "WHERE idempotency_key = $1 FOR UPDATE",
+                    "SELECT * FROM methodos_evolution_jobs WHERE idempotency_key = $1 FOR UPDATE",
                     storage_idempotency_key,
                 )
                 if row is not None:
@@ -662,9 +659,13 @@ class EvolutionJobWorker:
             raise
         except Exception:
             if job.attempt_count < self.max_attempts:
-                await self.store.update(job.job_id, status="queued", detail="evolution retry scheduled")
+                await self.store.update(
+                    job.job_id, status="queued", detail="evolution retry scheduled"
+                )
             else:
-                await self.store.update(job.job_id, status="failed", detail="evolution execution failed")
+                await self.store.update(
+                    job.job_id, status="failed", detail="evolution execution failed"
+                )
             return True
         await self.store.update(job.job_id, status="succeeded", detail="evolution completed")
         return True

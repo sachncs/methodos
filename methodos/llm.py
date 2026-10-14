@@ -39,6 +39,7 @@ LLM_ATTEMPTS = Counter(
     ["model", "outcome"],
 )
 
+
 def _litellm_error_class(name: str) -> type[BaseException]:
     """Return a LiteLLM exception class absent from its public stubs."""
     return cast(type[BaseException], getattr(litellm, name))
@@ -216,8 +217,7 @@ class SQLiteTokenBudget(TokenBudget):
                 total = consumed + requested
                 if total > self.max_total_tokens:
                     raise BudgetExceededError(
-                        "LLM cumulative token budget exceeded: "
-                        f"{total} > {self.max_total_tokens}"
+                        f"LLM cumulative token budget exceeded: {total} > {self.max_total_tokens}"
                     )
                 connection.execute(
                     "INSERT INTO token_budgets (key, consumed_tokens) VALUES (?, ?) "
@@ -473,6 +473,7 @@ class SQLiteCircuitBreaker:  # pragma: no cover - exercised by focused tests
 
     async def allow_request_async(self) -> bool:
         """Atomically allow one request or half-open recovery probe."""
+
         def allow() -> bool:
             now = time.time()
             with self._connect() as connection:
@@ -492,9 +493,8 @@ class SQLiteCircuitBreaker:  # pragma: no cover - exercised by focused tests
                         allowed = True
                     elif row[1] is None:
                         allowed = True
-                    elif (
-                        now - float(row[1]) < self.recovery_seconds
-                        or (row[2] is not None and now < float(row[2]))
+                    elif now - float(row[1]) < self.recovery_seconds or (
+                        row[2] is not None and now < float(row[2])
                     ):
                         allowed = False
                     else:
@@ -517,6 +517,7 @@ class SQLiteCircuitBreaker:  # pragma: no cover - exercised by focused tests
 
     async def record_failure_async(self) -> None:
         """Increment failures and open the circuit at the threshold."""
+
         def fail() -> None:
             now = time.time()
             with self._connect() as connection:
@@ -542,7 +543,9 @@ class SQLiteCircuitBreaker:  # pragma: no cover - exercised by focused tests
 
         await asyncio.to_thread(fail)
 
-    def _update(self, failure_count: int, opened_at: float | None, probe_until: float | None) -> None:
+    def _update(
+        self, failure_count: int, opened_at: float | None, probe_until: float | None
+    ) -> None:
         """Persist a reset state for the success path."""
         with self._connect() as connection:
             connection.execute(
@@ -734,9 +737,7 @@ class LiteLLMClient:
                 f"retry_backoff_seconds must be non-negative, got {retry_backoff_seconds}"
             )
         if max_retry_backoff_seconds < retry_backoff_seconds:
-            raise ValueError(
-                "max_retry_backoff_seconds must be >= retry_backoff_seconds"
-            )
+            raise ValueError("max_retry_backoff_seconds must be >= retry_backoff_seconds")
         if max_output_tokens <= 0:
             raise ValueError(f"max_output_tokens must be positive, got {max_output_tokens}")
         self.model = model
@@ -827,9 +828,7 @@ class LiteLLMClient:
                 allowed = self.circuit_breaker.allow_request()
             if not allowed:
                 LLM_ATTEMPTS.labels(self.model, "circuit_open").inc()
-                raise CircuitOpenError(
-                    f"LLM provider circuit is open for model {self.model}"
-                )
+                raise CircuitOpenError(f"LLM provider circuit is open for model {self.model}")
             LLM_ATTEMPTS.labels(self.model, "started").inc()
             try:
                 with llm_tracer.start_as_current_span("methodos.llm.attempt") as span:
@@ -866,9 +865,7 @@ class LiteLLMClient:
                     exc,
                 )
                 if not is_retryable_provider_error(exc):
-                    raise LLMError(
-                        f"non-retryable LLM call failure for {self.model}"
-                    ) from exc
+                    raise LLMError(f"non-retryable LLM call failure for {self.model}") from exc
                 if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
                     await self.circuit_breaker.record_failure_async()
                 else:
@@ -919,9 +916,7 @@ class FailoverLLMClient:
         for index, provider in enumerate(self.providers):
             with llm_tracer.start_as_current_span("methodos.llm.failover") as span:
                 span.set_attribute("methodos.llm.provider_index", index)
-                span.set_attribute(
-                    "methodos.llm.provider_type", type(provider).__name__
-                )
+                span.set_attribute("methodos.llm.provider_type", type(provider).__name__)
                 try:
                     return await provider.complete(
                         system=system,
@@ -937,9 +932,7 @@ class FailoverLLMClient:
                         index + 1,
                         len(self.providers),
                     )
-        error = LLMError(
-            f"all {len(self.providers)} LLM providers failed"
-        )
+        error = LLMError(f"all {len(self.providers)} LLM providers failed")
         for failure in failures:
             error.add_note(str(failure))
         raise error from failures[-1]

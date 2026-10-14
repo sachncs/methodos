@@ -341,9 +341,7 @@ def create_app(
         )
     )
     configured_api_keys = tuple(
-        key.strip()
-        for key in os.environ.get("METHODOS_API_KEYS", "").split(",")
-        if key.strip()
+        key.strip() for key in os.environ.get("METHODOS_API_KEYS", "").split(",") if key.strip()
     )
     if not configured_api_keys:
         legacy_api_key = os.environ.get("METHODOS_API_KEY", "").strip()
@@ -376,9 +374,7 @@ def create_app(
     if max_body_bytes <= 0:
         raise ValueError("METHODOS_MAX_BODY_BYTES must be positive")
     request_windows: defaultdict[str, deque[float]] = defaultdict(deque)
-    shared_rate_limiter = (
-        backend_repo if isinstance(backend_repo, RateLimitRepository) else None
-    )
+    shared_rate_limiter = backend_repo if isinstance(backend_repo, RateLimitRepository) else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -511,7 +507,9 @@ def create_app(
             if declared_length < 0 or declared_length > max_body_bytes:
                 oversized_response: Response = JSONResponse(
                     status_code=413,
-                    content=error_payload(request, "request body is too large", "request_too_large"),
+                    content=error_payload(
+                        request, "request body is too large", "request_too_large"
+                    ),
                 )
                 HTTP_REQUESTS.labels(request.method, "413").inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
@@ -562,9 +560,7 @@ def create_app(
                 auth_response = JSONResponse(
                     status_code=exc.status_code,
                     content=error_payload(request, exc.detail, code),
-                    headers={"www-authenticate": "ApiKey"}
-                    if exc.status_code == 401
-                    else {},
+                    headers={"www-authenticate": "ApiKey"} if exc.status_code == 401 else {},
                 )
                 HTTP_REQUESTS.labels(request.method, str(exc.status_code)).inc()
                 HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
@@ -620,18 +616,14 @@ def create_app(
         digest = hashlib.sha256(f"{tenant_id}:{graph_id}".encode()).hexdigest()
         return digest
 
-    async def load_scoped_graph(
-        repo: Repository, tenant_id: str, graph_id: str
-    ) -> ProceduralGraph:
+    async def load_scoped_graph(repo: Repository, tenant_id: str, graph_id: str) -> ProceduralGraph:
         """Load a graph from the authenticated tenant namespace."""
         with repository_tracer.start_as_current_span("methodos.repository.load_graph") as span:
             span.set_attribute("methodos.repository.backend", type(repo).__name__)
             stored = await repo.load_graph(storage_graph_id(tenant_id, graph_id))
         return stored.model_copy(update={"id": graph_id})
 
-    async def create_scoped_graph(
-        repo: Repository, tenant_id: str, graph: ProceduralGraph
-    ) -> None:
+    async def create_scoped_graph(repo: Repository, tenant_id: str, graph: ProceduralGraph) -> None:
         """Persist a graph under the authenticated tenant namespace."""
         stored = graph.model_copy(update={"id": storage_graph_id(tenant_id, graph.id)})
         with repository_tracer.start_as_current_span("methodos.repository.create_graph") as span:
@@ -655,8 +647,11 @@ def create_app(
             raise HTTPException(status_code=401, detail="missing or invalid API key")
         if configured_api_keys:
             matched_key = next(
-                (configured_key for configured_key in configured_api_keys
-                 if secrets.compare_digest(supplied_key, configured_key)),
+                (
+                    configured_key
+                    for configured_key in configured_api_keys
+                    if secrets.compare_digest(supplied_key, configured_key)
+                ),
                 None,
             )
             if matched_key is None:
@@ -802,11 +797,15 @@ def create_app(
         try:
             expected_revision = int(if_match.strip('"'))
         except ValueError:
-            raise HTTPException(status_code=400, detail="If-Match must be an integer revision") from None
+            raise HTTPException(
+                status_code=400, detail="If-Match must be an integer revision"
+            ) from None
         if expected_revision < 0:
             raise HTTPException(status_code=400, detail="If-Match must be non-negative")
         if not isinstance(repo, VersionedRepository):
-            raise HTTPException(status_code=501, detail="repository does not support versioned updates")
+            raise HTTPException(
+                status_code=501, detail="repository does not support versioned updates"
+            )
         try:
             stored_graph = graph.model_copy(
                 update={"id": storage_graph_id(request_tenant(http_request), graph_id)}
@@ -838,7 +837,9 @@ def create_app(
         try:
             expected_revision = int(if_match.strip('"'))
         except ValueError:
-            raise HTTPException(status_code=400, detail="If-Match must be an integer revision") from None
+            raise HTTPException(
+                status_code=400, detail="If-Match must be an integer revision"
+            ) from None
         if expected_revision < 0:
             raise HTTPException(status_code=400, detail="If-Match must be non-negative")
         if not isinstance(repo, SnapshotRepository):
@@ -912,9 +913,7 @@ def create_app(
             )
         request_id = getattr(http_request.state, "request_id", "unknown")
         tenant_id = request_tenant(http_request)
-        idempotency_key = validate_idempotency_key(
-            http_request.headers.get("idempotency-key")
-        )
+        idempotency_key = validate_idempotency_key(http_request.headers.get("idempotency-key"))
         try:
             tenant_runner: TenantScopedEvolutionRunner | None = None
             if tenant_keys and not isinstance(evolution_runner, TenantScopedEvolutionRunner):

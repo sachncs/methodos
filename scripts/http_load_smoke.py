@@ -34,6 +34,7 @@ async def run_check(
     failures: list[str] = []
 
     async with httpx.AsyncClient(timeout=timeout) as client:
+
         async def request_once() -> None:
             async with semaphore:
                 started = time.perf_counter()
@@ -50,10 +51,7 @@ async def run_check(
 
     succeeded = requests - len(failures)
     p95 = percentile(latencies, 0.95) if latencies else float("nan")
-    print(
-        f"requests={requests} succeeded={succeeded} failed={len(failures)} "
-        f"p95_seconds={p95:.4f}"
-    )
+    print(f"requests={requests} succeeded={succeeded} failed={len(failures)} p95_seconds={p95:.4f}")
     for failure in failures[:5]:
         print(f"failure: {failure}", file=sys.stderr)
     return 1 if failures else 0

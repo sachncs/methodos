@@ -249,8 +249,7 @@ def eval(
         from eval.hotpotqa.run import run_eval
     except ModuleNotFoundError as exc:
         typer.echo(
-            "The eval command requires the optional dependencies; "
-            "install methodos[eval].",
+            "The eval command requires the optional dependencies; install methodos[eval].",
             err=True,
         )
         raise typer.Exit(code=2) from exc

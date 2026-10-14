@@ -138,9 +138,7 @@ def test_sqlite_token_budget_supports_async_reservation(tmp_path: Path) -> None:
         max_total_tokens=10,
         max_input_tokens=10,
     )
-    assert asyncio.run(
-        budget.reserve_async(system="1234", user="1234", output_tokens=5)
-    ) == 2
+    assert asyncio.run(budget.reserve_async(system="1234", user="1234", output_tokens=5)) == 2
 
 
 class StubClient:
