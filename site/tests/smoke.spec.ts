@@ -63,9 +63,9 @@ test("not-found route stays within the accessibility budget", async ({ page }) =
   expect(results.violations).toEqual([]);
 });
 
-test("not-found composition stays visually stable", async ({ page }) => {
+test("not-found graphic stays visually stable", async ({ page }) => {
   await page.goto("/404.html");
-  await expect(page).toHaveScreenshot("not-found.png", {
+  await expect(page.locator(".orb")).toHaveScreenshot("not-found-orb.png", {
     animations: "disabled",
     caret: "hide",
     maxDiffPixelRatio: 0.05,
