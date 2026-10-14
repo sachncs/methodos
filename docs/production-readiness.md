@@ -98,6 +98,9 @@ system production-ready.
   hide status from other tenants; configurable active-job quotas reject work
   atomically with HTTP 429 before a tenant or graph can overload the queue. External
   runners must implement the same capability before tenant mode accepts them.
+- Worker liveness heartbeats now continue during long-running execution for
+  both leased and host-owned non-leased executors, and cancellation cleans up
+  execution and heartbeat tasks together.
 - SQLite now uses an atomic WAL-backed rate-limit window shared by all local
   service processes; filesystem deployments remain process-local by design.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,

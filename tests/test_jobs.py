@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -235,6 +236,24 @@ class TestSQLiteEvolutionJobStore:
         worker = EvolutionJobWorker(store, Executor())
         await worker._execute_with_lease(job)
         assert executed == [job.job_id]
+
+    async def test_worker_refreshes_heartbeat_during_nonleased_execution(
+        self, store: SQLiteEvolutionJobStore
+    ) -> None:
+        job = await store.create_or_get(graph_id="graph-heartbeat", k_rounds=1, idempotency_key=None)
+
+        class SlowExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                await asyncio.sleep(0.05)
+
+        worker = EvolutionJobWorker(store, SlowExecutor())
+        execution = asyncio.create_task(worker._execute_with_lease(job))
+        await asyncio.sleep(0.01)
+        heartbeat = worker.health().last_heartbeat
+        await execution
+        assert heartbeat is not None
+        assert time.time() - heartbeat < 1.0
 
     async def test_worker_stops_when_lease_is_lost(self, store: SQLiteEvolutionJobStore) -> None:
         await store.create_or_get(graph_id="graph-lost", k_rounds=1, idempotency_key=None)

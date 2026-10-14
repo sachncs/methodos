@@ -813,17 +813,38 @@ class EvolutionJobWorker:
             return
         interval = max(0.01, min(1.0, self.lease_seconds / 3))
         while True:
+            self._last_heartbeat = time.time()
             await asyncio.sleep(interval)
+            self._last_heartbeat = time.time()
             await self.store.renew_lease(
                 job.job_id,
                 job.lease_token,
                 lease_seconds=self.lease_seconds,
             )
 
+    async def _heartbeat_until_complete(self) -> None:
+        """Refresh worker liveness while a non-leased executor is running."""
+        while True:
+            self._last_heartbeat = time.time()
+            await asyncio.sleep(1.0)
+
     async def _execute_with_lease(self, job: EvolutionJob) -> None:
         """Execute a job while fencing and renewing its durable lease."""
         if not isinstance(self.store, EvolutionJobLeaseStore) or not job.lease_token:
-            await self.executor.execute(job)
+            execution_task = asyncio.create_task(self.executor.execute(job))
+            heartbeat_task = asyncio.create_task(self._heartbeat_until_complete())
+            try:
+                await execution_task
+            finally:
+                if not execution_task.done():
+                    execution_task.cancel()
+                if not heartbeat_task.done():
+                    heartbeat_task.cancel()
+                await asyncio.gather(
+                    execution_task,
+                    heartbeat_task,
+                    return_exceptions=True,
+                )
             return
         execution_task = asyncio.create_task(self.executor.execute(job))
         renewal_task = asyncio.create_task(self._renew_until_complete(job))
