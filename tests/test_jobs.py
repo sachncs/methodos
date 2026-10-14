@@ -240,7 +240,9 @@ class TestSQLiteEvolutionJobStore:
     async def test_worker_refreshes_heartbeat_during_nonleased_execution(
         self, store: SQLiteEvolutionJobStore
     ) -> None:
-        job = await store.create_or_get(graph_id="graph-heartbeat", k_rounds=1, idempotency_key=None)
+        job = await store.create_or_get(
+            graph_id="graph-heartbeat", k_rounds=1, idempotency_key=None
+        )
 
         class SlowExecutor:
             async def execute(self, claimed: EvolutionJob) -> None:
