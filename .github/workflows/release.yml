@@ -26,6 +26,11 @@ jobs:
       - name: Verify Python package
         run: uv sync --frozen --all-extras && uv run pytest --cov=methodos --cov-fail-under=95
 
+      - name: Verify tag matches package version
+        run: |
+          package_version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "$GITHUB_REF_NAME" = "v$package_version"
+
       - name: Build Python artifacts
         run: uv build --out-dir release-artifacts
 

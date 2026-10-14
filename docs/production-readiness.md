@@ -35,6 +35,8 @@ system production-ready.
   runs desktop/mobile browser smoke tests.
 - Tagged releases publish the runtime image to GHCR with BuildKit SBOM and
   provenance attestations, then sign the immutable digest with keyless Cosign.
+- Dependabot tracks Python, site, and GitHub Actions dependencies weekly, and
+  tagged releases verify the Git tag matches the Python package version.
 - Tagged releases are validated and published by `.github/workflows/release.yml`.
 - An optional pooled Postgres repository supports horizontal service replicas;
   its startup schema is idempotent and lifecycle-managed by FastAPI.
@@ -134,8 +136,9 @@ system production-ready.
 
 ### Delivery and governance
 
-25. Release tags are validated and published automatically; dependency or
-    version-number bump automation is not yet enforced.
+25. Release tags are validated and published automatically; Dependabot now
+    tracks Python, npm, and GitHub Actions updates. Merges still require
+    human review of dependency changes.
 26. Changelog and compatibility policy are documented in `CHANGELOG.md` and
     `docs/compatibility.md`; migration tooling for future schema versions is
     still open.
