@@ -86,6 +86,11 @@ HTTP_LATENCY = Histogram(
     "HTTP request duration in seconds.",
     ["method"],
 )
+AUTH_FAILURES = Counter(
+    "methodos_auth_failures_total",
+    "Authentication and authorization failures by stable reason.",
+    ["reason"],
+)
 EVOLUTION_JOBS = Gauge(
     "methodos_evolution_jobs",
     "Evolution jobs by queue state.",
@@ -526,6 +531,8 @@ def create_app(
             501: "not_implemented",
             503: "unavailable",
         }.get(exc.status_code, "request_failed")
+        if exc.status_code in {401, 403}:
+            AUTH_FAILURES.labels(code).inc()
         headers = dict(exc.headers or {})
         return JSONResponse(
             status_code=exc.status_code,
@@ -691,6 +698,7 @@ def create_app(
                 tenant_id, _ = tenant_auth(request)
             except HTTPException as exc:
                 code = "forbidden" if exc.status_code == 403 else "unauthorized"
+                AUTH_FAILURES.labels(code).inc()
                 auth_response = JSONResponse(
                     status_code=exc.status_code,
                     content=error_payload(request, exc.detail, code),

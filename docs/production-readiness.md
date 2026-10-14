@@ -25,6 +25,9 @@ system production-ready.
   starting.
 - `/health`, `/ready`, and `/metrics` are available; request IDs, security
   headers, request counters, and latency histograms are emitted.
+- Authentication and authorization failures emit a low-cardinality counter
+  split only by `unauthorized` and `forbidden`; credentials, tenant IDs, and
+  request identifiers are never metric labels.
 - Optional API-key authentication and explicit CORS origins are supported.
 - Optional bounded per-process request limiting returns 429 with `Retry-After`.
 - Engineering boundaries and structural polymorphism are documented in

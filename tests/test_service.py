@@ -420,6 +420,8 @@ class TestConcurrentHttpResilience:
                 "/v1/graphs", headers={"x-api-key": "read-secret"}, json={"id": "denied"}
             )
             assert denied.status_code == 403
+            metrics = protected_client.get("/metrics")
+            assert 'methodos_auth_failures_total{reason="forbidden"}' in metrics.text
             created = protected_client.post(
                 "/v1/graphs",
                 headers={"x-api-key": "write-secret"},

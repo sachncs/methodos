@@ -46,6 +46,16 @@
       ],
       "title": "Evolution queue",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "sum by (reason) (rate(methodos_auth_failures_total[$__rate_interval]))", "legendFormat": "{{reason}}"}],
+      "title": "Authentication failures",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 39,
