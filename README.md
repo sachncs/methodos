@@ -161,6 +161,7 @@ docs/
 - [Evaluation](docs/evaluation.md) — HotpotQA harness + extending to other benchmarks
 - [Paper mapping](docs/paper-mapping.md) — paper sections → code locations
 - [Engineering principles](docs/engineering.md) — boundaries, polymorphism, and reliability rules
+- [Testing](docs/testing.md) — local quality gate and integration test matrix
 - [Production-readiness audit](docs/production-readiness.md) — issue inventory and remediation plan
 
 ## Development
