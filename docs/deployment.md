@@ -100,7 +100,7 @@ docker compose -f docker/compose.yml up methodos
 | POST | `/v1/graphs` | `{id, from_graph_id?}` | `ProceduralGraph` (201) |
 | PUT | `/v1/graphs/{id}` | `ProceduralGraph` + `If-Match` revision | updated graph or 409 |
 | POST | `/v1/graphs/{id}/guidance` | `{query, trajectory?, window?, guidance_hops?}` | `{guidance}` |
-| POST | `/v1/graphs/{id}/evolve` | `{k_rounds}` + optional `Idempotency-Key` | 202 queued / 501 without runner or idempotency capability |
+| POST | `/v1/graphs/{id}/evolve` | `{k_rounds}` + optional `Idempotency-Key` | 202 queued / 429 quota exceeded / 501 without runner or idempotency capability |
 | GET | `/v1/evolution/jobs/{job_id}` | — | job status / 404 / 501 |
 | POST | `/v1/graphs/{id}/rollback/{tag}` | `If-Match` | 200 / 404 / 409 |
 
@@ -152,6 +152,35 @@ methodos verify-backup /secure/backups/methodos-20261014090000.db
 ```
 
 For Postgres, use the managed provider's backup and restore verification.
+
+### Durable evolution queue
+
+The HTTP factory deliberately does not create a scheduler or worker implicitly.
+Production hosts should construct a durable runner and supervise its worker
+process explicitly. The store-backed runner can reject overload atomically per
+tenant and per graph:
+
+```python
+from methodos.jobs import (
+    EvolutionJobWorker,
+    SQLiteEvolutionJobStore,
+    StoreBackedEvolutionRunner,
+)
+from methodos.service import create_app
+
+jobs = SQLiteEvolutionJobStore("/data/evolution-jobs.db")
+runner = StoreBackedEvolutionRunner(
+    jobs,
+    max_active_jobs=16,
+    max_active_jobs_per_graph=2,
+)
+app = create_app(evolution_runner=runner)
+```
+
+Use `PostgresEvolutionJobStore` for horizontally scaled deployments. Run an
+`EvolutionJobWorker` with the same store in a separately supervised worker
+process and inject an environment-specific `EvolutionJobExecutor`; the API
+process should not execute LLM work inline.
 
 ## Migration (planned for v2)
 
