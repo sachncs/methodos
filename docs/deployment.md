@@ -99,7 +99,7 @@ docker compose up methodos
 | POST | `/v1/graphs` | `{id, from_graph_id?}` | `ProceduralGraph` (201) |
 | PUT | `/v1/graphs/{id}` | `ProceduralGraph` + `If-Match` revision | updated graph or 409 |
 | POST | `/v1/graphs/{id}/guidance` | `{query, trajectory?, window?, guidance_hops?}` | `{guidance}` |
-| POST | `/v1/graphs/{id}/evolve` | — | 501 (reserved; use SDK) |
+| POST | `/v1/graphs/{id}/evolve` | `{k_rounds}` | 202 queued / 501 without runner |
 | POST | `/v1/graphs/{id}/rollback/{tag}` | `If-Match` | 200 / 404 / 409 |
 
 ### Example: request guidance

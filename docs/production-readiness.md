@@ -70,8 +70,9 @@ system production-ready.
 
 ### Runtime and API
 
-1. The REST evolution endpoint still returns 501 because a remote host Solver
-   contract has not been designed.
+1. REST evolution now accepts an injected host-owned `EvolutionRunner` and
+   returns a queued job contract; the default app still returns 501 without a
+   durable runner, and job status/idempotency/persistence remain open.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.

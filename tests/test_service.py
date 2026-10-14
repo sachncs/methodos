@@ -491,6 +491,31 @@ class TestEvolveEndpoint:
         body = response.json()
         assert "Python SDK" in body["detail"]
 
+    async def test_injected_runner_returns_accepted_job(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        class Runner:
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                assert graph_id == "g1"
+                assert k_rounds == 5
+                assert request_id
+                return "job-1"
+
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=Runner(),
+        )
+        with TestClient(app) as runner_client:
+            response = runner_client.post("/v1/graphs/g1/evolve", json={"k_rounds": 5})
+        assert response.status_code == 202
+        assert response.json() == {
+            "detail": "evolution queued",
+            "job_id": "job-1",
+            "status": "queued",
+        }
+
 
 class TestRollbackEndpoint:
     async def test_rolls_back_with_revision_guard(

@@ -23,6 +23,7 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 import structlog
@@ -101,9 +102,9 @@ class GuidanceResponse(BaseModel):
 class EvolveRequest(BaseModel):
     """Request body for `POST /v1/graphs/{graph_id}/evolve`.
 
-    Evolution requires a host Solver, which cannot be supplied over HTTP
-    (the solver is application-specific). This endpoint is reserved for
-    future expansion and currently returns 501; use the Python SDK.
+    Evolution is queued through an injected host-owned EvolutionRunner. The
+    default app has no runner and fails closed; production hosts must provide
+    a durable job implementation.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -111,10 +112,21 @@ class EvolveRequest(BaseModel):
 
 
 class EvolveResponse(BaseModel):
-    """Response body for the evolution endpoint (reserved)."""
+    """Response body for an accepted or unavailable evolution request."""
 
     model_config = ConfigDict(extra="forbid")
     detail: str
+    job_id: str | None = None
+    status: str | None = None
+
+
+@runtime_checkable
+class EvolutionRunner(Protocol):
+    """Host-owned job launcher for asynchronous evolution."""
+
+    async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+        """Queue evolution and return a stable job identifier."""
+        ...
 
 
 class HealthResponse(BaseModel):
@@ -214,6 +226,7 @@ def create_app(
     *,
     repo: Repository | None = None,
     llm: LLMClient | None = None,
+    evolution_runner: EvolutionRunner | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to the given (or default-built) backend.
 
@@ -222,6 +235,7 @@ def create_app(
             which selects based on environment variables.
         llm: LLMClient implementation. Defaults to LiteLLMClient with
             model `gpt-4o-mini` (override via `OPENAI_API_KEY` env var).
+        evolution_runner: optional host-owned evolution job launcher.
     """
     backend_repo: Repository = repo if repo is not None else build_repository()
     backend_llm: LLMClient = (
@@ -704,7 +718,7 @@ def create_app(
     @app.post(
         "/v1/graphs/{graph_id}/evolve",
         response_model=EvolveResponse,
-        status_code=501,
+        status_code=202,
     )
     async def evolve_graph(
         graph_id: str,
@@ -714,15 +728,21 @@ def create_app(
     ) -> EvolveResponse:
         validate_graph_id(graph_id)
         require_role(http_request, "operator")
-        # Evolution requires a host Solver; supply one via the Python SDK.
-        del graph_id, request, repo
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Evolution requires a host Solver; use the Python SDK "
-                "(methodos.evolution.EvolutionEngine)."
-            ),
+        del repo
+        if evolution_runner is None:
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    "Evolution requires an injected host EvolutionRunner; "
+                    "use the Python SDK or configure a job runner."
+                ),
+            )
+        job_id = await evolution_runner.start(
+            graph_id=graph_id,
+            k_rounds=request.k_rounds,
+            request_id=getattr(http_request.state, "request_id", "unknown"),
         )
+        return EvolveResponse(detail="evolution queued", job_id=job_id, status="queued")
 
     return app
 
@@ -733,6 +753,7 @@ app = create_app()
 
 __all__ = [
     "ErrorResponse",
+    "EvolutionRunner",
     "EvolveRequest",
     "EvolveResponse",
     "GraphCreateRequest",
