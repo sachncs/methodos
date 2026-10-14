@@ -126,7 +126,7 @@ See `docs/paper-mapping.md` for section-by-section mapping to the paper.
 ## Architecture
 
 ```
-src/methodos/
+methodos/
 ├── schema.py        Pydantic v2 data models + Edit discriminated union
 ├── graph.py         Pure functions: match, neighborhood, validate, apply_edits
 ├── llm.py           LLMClient Protocol + LiteLLMClient (litellm)
