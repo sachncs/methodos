@@ -102,6 +102,21 @@ def test_sqlite_token_budget_validates_key_and_request(tmp_path: Path) -> None:
         budget.reserve(system="1", user="1", output_tokens=0)
 
 
+def test_retry_after_accepts_http_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    error = RuntimeError("rate limited")
+    error.headers = {"Retry-After": "Thu, 01 Jan 1970 00:00:10 GMT"}  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 0.0)
+
+    assert llm_module._retry_after_seconds(error) == 10.0
+
+
+def test_retry_after_rejects_malformed_http_date() -> None:
+    error = RuntimeError("rate limited")
+    error.headers = {"Retry-After": "not-a-date"}  # type: ignore[attr-defined]
+
+    assert llm_module._retry_after_seconds(error) is None
+
+
 def test_sqlite_token_budget_concurrent_reservations_are_atomic(tmp_path: Path) -> None:
     database = tmp_path / "concurrent-token-budget.db"
     budgets = [

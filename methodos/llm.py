@@ -18,6 +18,7 @@ Engineering notes:
 from __future__ import annotations
 
 import asyncio
+import email.utils
 import logging
 import math
 import sqlite3
@@ -421,7 +422,7 @@ def is_retryable_provider_error(exc: Exception) -> bool:
 
 
 def _retry_after_seconds(exc: Exception) -> float | None:
-    """Read a numeric upstream retry hint from common exception shapes."""
+    """Read an upstream numeric or HTTP-date retry hint from an exception."""
     headers = getattr(exc, "headers", None)
     if not isinstance(headers, Mapping):
         response = getattr(exc, "response", None)
@@ -437,7 +438,11 @@ def _retry_after_seconds(exc: Exception) -> float | None:
     try:
         value = float(raw_value)
     except (TypeError, ValueError):
-        return None
+        try:
+            retry_at = email.utils.parsedate_to_datetime(str(raw_value))
+            value = retry_at.timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return None
     return value if math.isfinite(value) and value >= 0 else None
 
 

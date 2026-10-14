@@ -170,7 +170,7 @@ system production-ready.
 14. Provider retry classification now maps LiteLLM's transient connection,
     throttling, gateway, and server exception classes separately from
     permanent client/auth/request classes, then falls back to status codes;
-   numeric `Retry-After` hints are honored within the configured maximum
+   numeric and HTTP-date `Retry-After` hints are honored within the configured maximum
    backoff; provider-specific policy tuning remains open. An ordered failover
    client provides an application-level fallback strategy.
 15. Local and optional shared SQLite/Postgres circuit breakers now protect
