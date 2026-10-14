@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from methodos.adapter import AgentState, GuidanceCache
 from methodos.llm import LLMClient
-from methodos.repo import Trajectory
+from methodos.repo import EvolutionEvent, Trajectory
 from methodos.schema import (
     Attribute,
     Edge,
@@ -124,6 +124,7 @@ class InMemoryRepository:
         self.graphs: dict[str, ProceduralGraph] = {}
         self.trajectories: list[tuple[str, str, Trajectory]] = []
         self.snapshots: list[tuple[str, str, ProceduralGraph]] = []
+        self.evolution_events: list[EvolutionEvent] = []
 
     async def load_graph(self, graph_id: str) -> ProceduralGraph:
         if graph_id not in self.graphs:
@@ -144,6 +145,14 @@ class InMemoryRepository:
         for gid, sp, traj in self.trajectories:
             if gid == graph_id and sp == split:
                 yield traj
+
+    async def append_evolution_event(self, event: EvolutionEvent) -> None:
+        self.evolution_events.append(event)
+
+    async def read_evolution_events(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        for event in self.evolution_events:
+            if event.graph_id == graph_id:
+                yield event
 
 
 class SilentVectorIndex:

@@ -15,6 +15,7 @@ from methodos.migrations import Migration, MigrationError, MigrationRunner
 from methodos.repo import (
     BackupRepository,
     CorruptRecordError,
+    EvolutionEvent,
     FilesystemRepository,
     GraphAlreadyExistsError,
     GraphRevisionConflictError,
@@ -308,6 +309,13 @@ class TestFilesystemRepository:
         assert trajectories[1].task.query == "q2"
         assert trajectories[1].score == 0.5
 
+    async def test_evolution_events_round_trip(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        event = EvolutionEvent("g", 1, "accepted", 0.5, 1.0, 2, 1.0)
+        await repo.append_evolution_event(event)
+        events = [item async for item in repo.read_evolution_events("g")]
+        assert events == [event]
+
     async def test_corrupt_trajectory_log_is_quarantined(self, tmp_path: Path) -> None:
         repo = FilesystemRepository(root=tmp_path)
         await repo.save_graph(make_graph("g"))
@@ -530,6 +538,14 @@ class TestSQLiteRepository:
         trajectories = [t async for t in repo.read_trajectories("g", "train")]
         assert len(trajectories) == 2
         assert [t.task.query for t in trajectories] == ["q1", "q2"]
+
+    async def test_evolution_events_round_trip(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+        event = EvolutionEvent("g", 1, "rejected_score", 1.0, 0.5, 1, 1.0)
+        await repo.append_evolution_event(event)
+        events = [item async for item in repo.read_evolution_events("g")]
+        assert events == [event]
 
     async def test_trajectories_ordered_by_timestamp(
         self,

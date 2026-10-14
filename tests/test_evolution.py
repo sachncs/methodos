@@ -734,6 +734,64 @@ class TestEvolutionEngineRun:
         result = await engine.run(graph)
         loaded = await repo.load_graph(result.id)
         assert loaded.id == result.id
+        assert len(repo.evolution_events) == 1
+        assert repo.evolution_events[0].outcome == "accepted"
+
+    async def test_persists_rejected_score_event(self) -> None:
+        class ScoreRejectingEngine(EvolutionEngine):
+            async def score_validation(self, graph: ProceduralGraph) -> float:
+                return 0.0 if "verify" in graph.nodes else 1.0
+
+        llm = ScriptedRoundLLM(
+            lambda i, user: (
+                json.dumps(
+                    [
+                        {"kind": "add_node", "node": {"id": "verify"}},
+                        {
+                            "kind": "add_edge",
+                            "edge": {
+                                "src": "search",
+                                "dst": "verify",
+                                "relation": "leads_to",
+                                "attribute": {
+                                    "condition": "check",
+                                    "guidance": "verify",
+                                    "pitfalls": "skip",
+                                },
+                            },
+                        },
+                        {
+                            "kind": "add_edge",
+                            "edge": {
+                                "src": "verify",
+                                "dst": "answer",
+                                "relation": "leads_to",
+                                "attribute": {
+                                    "condition": "checked",
+                                    "guidance": "answer",
+                                    "pitfalls": "skip",
+                                },
+                            },
+                        },
+                    ]
+                )
+                if "Propose a JSON array of edits." in user
+                else ""
+            )
+        )
+        repo = InMemoryRepository()
+        engine = ScoreRejectingEngine(
+            llm=llm,
+            repo=repo,
+            train_tasks=[Task(query="t")],
+            val_tasks=[Task(query="v")],
+            solver=StaticSolver(action="FINISH"),
+            k_rounds=1,
+        )
+
+        await engine.run(make_sample_graph())
+
+        assert repo.evolution_events[0].outcome == "rejected_score"
 
 
 class TestRefinerSystemPrompt:

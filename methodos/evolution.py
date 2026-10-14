@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections import deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -32,7 +33,7 @@ from methodos.adapter import PGAdapter, Solver
 from methodos.graph import apply_edits
 from methodos.graph import validate as graph_validate
 from methodos.llm import LLMClient
-from methodos.repo import Repository, Task, Trajectory
+from methodos.repo import EvolutionAuditRepository, EvolutionEvent, Repository, Task, Trajectory
 from methodos.schema import (
     Edit,
     EditAddEdge,
@@ -393,6 +394,7 @@ class EvolutionEngine:
         logger.info("initial validation score: %.3f", current_score)
 
         for round_idx in range(1, self.rounds + 1):
+            previous_score = current_score
             traces = await self.collect_diagnostic_traces(current)
             edits = await propose_edits(
                 llm=self.llm,
@@ -408,6 +410,14 @@ class EvolutionEngine:
             )
             if candidate is None:
                 self.rejection.add(edits, current_score)
+                await self._record_event(
+                    graph.id,
+                    round_idx,
+                    "rejected_structural",
+                    previous_score,
+                    None,
+                    len(edits),
+                )
                 logger.info("round %d: rejected (structural)", round_idx)
                 continue
 
@@ -415,6 +425,14 @@ class EvolutionEngine:
             if candidate_score >= current_score:
                 current = candidate
                 current_score = candidate_score
+                await self._record_event(
+                    graph.id,
+                    round_idx,
+                    "accepted",
+                    previous_score,
+                    candidate_score,
+                    len(edits),
+                )
                 logger.info(
                     "round %d: accepted (val_score=%.3f)",
                     round_idx,
@@ -422,6 +440,14 @@ class EvolutionEngine:
                 )
             else:
                 self.rejection.add(edits, candidate_score)
+                await self._record_event(
+                    graph.id,
+                    round_idx,
+                    "rejected_score",
+                    previous_score,
+                    candidate_score,
+                    len(edits),
+                )
                 logger.info(
                     "round %d: rejected (val_score=%.3f < %.3f)",
                     round_idx,
@@ -431,6 +457,29 @@ class EvolutionEngine:
 
         await self.repo.save_graph(current)
         return current
+
+    async def _record_event(
+        self,
+        graph_id: str,
+        round_index: int,
+        outcome: str,
+        current_score: float,
+        candidate_score: float | None,
+        edit_count: int,
+    ) -> None:
+        """Persist a round decision when the repository supports audit events."""
+        if isinstance(self.repo, EvolutionAuditRepository):
+            await self.repo.append_evolution_event(
+                EvolutionEvent(
+                    graph_id=graph_id,
+                    round_index=round_index,
+                    outcome=outcome,
+                    current_score=current_score,
+                    candidate_score=candidate_score,
+                    edit_count=edit_count,
+                    created_at=time.time(),
+                )
+            )
 
     async def collect_diagnostic_traces(self, graph: ProceduralGraph) -> list[Trajectory]:
         """Run the agent on each training task; collect trajectories."""

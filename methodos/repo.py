@@ -87,6 +87,19 @@ class Trajectory:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class EvolutionEvent:
+    """One durable decision made during an evolution run."""
+
+    graph_id: str
+    round_index: int
+    outcome: str
+    current_score: float
+    candidate_score: float | None
+    edit_count: int
+    created_at: float
+
+
 # ----------------------------------------------------------------------------
 # Protocol definitions
 # ----------------------------------------------------------------------------
@@ -192,6 +205,19 @@ class SnapshotRepository(Protocol):
         expected_revision: int | None = None,
     ) -> ProceduralGraph:
         """Restore a snapshot as a new graph revision."""
+        ...  # pragma: no cover
+
+
+@runtime_checkable
+class EvolutionAuditRepository(Protocol):
+    """Optional capability for durable evolution decision history."""
+
+    async def append_evolution_event(self, event: EvolutionEvent) -> None:
+        """Append one immutable evolution decision."""
+        ...  # pragma: no cover
+
+    def read_evolution_events(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Yield evolution decisions oldest first."""
         ...  # pragma: no cover
 
 
@@ -456,6 +482,37 @@ class FilesystemRepository:
         async with aiofiles.open(path, "a", encoding="utf-8") as f:
             await f.write(record + "\n")
 
+    async def append_evolution_event(self, event: EvolutionEvent) -> None:
+        """Append an immutable evolution decision to a JSONL audit log."""
+        path = self.graph_dir(event.graph_id) / "evolution-events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "round_index": event.round_index,
+            "outcome": event.outcome,
+            "current_score": event.current_score,
+            "candidate_score": event.candidate_score,
+            "edit_count": event.edit_count,
+            "created_at": event.created_at,
+        }
+        async with aiofiles.open(path, "a", encoding="utf-8") as f:
+            await f.write(json.dumps(record) + "\n")
+
+    def read_evolution_events(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Return an async iterator over evolution decisions."""
+        return self.read_evolution_events_impl(graph_id)
+
+    async def read_evolution_events_impl(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Yield evolution decisions oldest first."""
+        path = self.graph_dir(graph_id) / "evolution-events.jsonl"
+        if not path.exists():
+            return
+        async with aiofiles.open(path, encoding="utf-8") as f:
+            async for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                yield EvolutionEvent(graph_id=graph_id, **record)
+
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Return an async iterator over trajectories."""
         return self.read_trajectories_impl(graph_id, split)
@@ -540,6 +597,20 @@ CREATE TABLE IF NOT EXISTS rejection_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_rejection_graph_ts
     ON rejection_memory(graph_id, ts);
+
+CREATE TABLE IF NOT EXISTS evolution_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    graph_id TEXT NOT NULL,
+    round_index INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    current_score REAL NOT NULL,
+    candidate_score REAL,
+    edit_count INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_evolution_events_graph_round
+    ON evolution_events(graph_id, round_index, created_at);
 """
 
 
@@ -854,6 +925,44 @@ class SQLiteRepository:
             )
             await db.commit()
 
+    async def append_evolution_event(self, event: EvolutionEvent) -> None:
+        """Append an immutable evolution decision transactionally."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute(
+                "INSERT INTO evolution_events "
+                "(graph_id, round_index, outcome, current_score, candidate_score, "
+                "edit_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event.graph_id,
+                    event.round_index,
+                    event.outcome,
+                    event.current_score,
+                    event.candidate_score,
+                    event.edit_count,
+                    event.created_at,
+                ),
+            )
+            await db.commit()
+
+    def read_evolution_events(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Return an async iterator over evolution decisions."""
+        return self.read_evolution_events_impl(graph_id)
+
+    async def read_evolution_events_impl(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Yield evolution decisions oldest first."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT round_index, outcome, current_score, candidate_score, "
+                "edit_count, created_at FROM evolution_events "
+                "WHERE graph_id = ? ORDER BY id ASC",
+                (graph_id,),
+            ) as cursor:
+                async for row in cursor:
+                    yield EvolutionEvent(graph_id=graph_id, **dict(row))
+
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Return an async iterator over trajectories."""
         return self.read_trajectories_impl(graph_id, split)
@@ -906,6 +1015,18 @@ CREATE TABLE IF NOT EXISTS methodos_snapshots (
     ts DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (graph_id, tag)
 );
+CREATE TABLE IF NOT EXISTS methodos_evolution_events (
+    id BIGSERIAL PRIMARY KEY,
+    graph_id TEXT NOT NULL REFERENCES methodos_graphs(id) ON DELETE CASCADE,
+    round_index INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    current_score DOUBLE PRECISION NOT NULL,
+    candidate_score DOUBLE PRECISION,
+    edit_count INTEGER NOT NULL,
+    created_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_methodos_evolution_events_graph_round
+    ON methodos_evolution_events(graph_id, round_index, created_at);
 CREATE TABLE IF NOT EXISTS methodos_rate_limits (
     key TEXT PRIMARY KEY,
     window_started DOUBLE PRECISION NOT NULL,
@@ -1127,6 +1248,39 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
                 graph_id, split, trajectory.score, body, time.time(),
             )
 
+    async def append_evolution_event(self, event: EvolutionEvent) -> None:
+        """Append an immutable evolution decision."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO methodos_evolution_events "
+                "(graph_id, round_index, outcome, current_score, candidate_score, "
+                "edit_count, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                event.graph_id,
+                event.round_index,
+                event.outcome,
+                event.current_score,
+                event.candidate_score,
+                event.edit_count,
+                event.created_at,
+            )
+
+    def read_evolution_events(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Return an async iterator over evolution decisions."""
+        return self.read_evolution_events_impl(graph_id)
+
+    async def read_evolution_events_impl(self, graph_id: str) -> AsyncIterator[EvolutionEvent]:
+        """Yield evolution decisions oldest first."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            async for row in conn.cursor(
+                "SELECT round_index, outcome, current_score, candidate_score, "
+                "edit_count, created_at FROM methodos_evolution_events "
+                "WHERE graph_id = $1 ORDER BY id ASC",
+                graph_id,
+            ):
+                yield EvolutionEvent(graph_id=graph_id, **dict(row))
+
     def read_trajectories(self, graph_id: str, split: str) -> AsyncIterator[Trajectory]:
         """Return an async iterator over trajectories."""
         return self.read_trajectories_impl(graph_id, split)
@@ -1284,6 +1438,8 @@ def build_repository() -> Repository:
 __all__ = [
     "AtomicRepository",
     "CorruptRecordError",
+    "EvolutionAuditRepository",
+    "EvolutionEvent",
     "FilesystemRepository",
     "GraphAlreadyExistsError",
     "GraphRevisionConflictError",

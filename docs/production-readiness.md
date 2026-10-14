@@ -56,6 +56,9 @@ system production-ready.
   evidence comes from the newest revision.
 - Evolution rollouts accept a polymorphic `ActionExecutor` strategy, so hosts
   can wire tools without monkeypatching module globals.
+- Filesystem, SQLite, and Postgres repositories can persist immutable
+  evolution round events, including outcome and score deltas; approval and
+  promotion policy remains an explicit service concern.
 - LLM attempts emit model/attempt OpenTelemetry spans and cancellation now has
   an explicit rollout regression test; collector/exporter policy remains a
   deployment concern.
@@ -113,7 +116,9 @@ system production-ready.
 16. Injectable per-client/tenant token budgets now enforce estimated input and
     cumulative request limits before dispatch; durable distributed accounting,
     provider-specific cost pricing, and graph-level quotas remain open.
-17. Evolution proposals lack a durable approval/audit workflow.
+17. Evolution round decisions are now durably auditable across supported
+    repositories; human approval, identity, and promotion policy are still
+    open.
 18. Backend snapshot restore now provides revision-safe graph rollback; an
     authenticated release action, approval record, and promotion workflow are
     still open.
