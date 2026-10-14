@@ -290,9 +290,9 @@ system production-ready.
    injection. A bounded duration-based HTTP soak probe is available for local
    and deployment checks; long-duration load, chaos, file-corruption, and
    broader cancellation tests remain open.
-25. CI scans the Docker image; tagged releases now publish, attest, keylessly
-   sign, and verify the immutable GHCR image digest against the exact release
-   workflow identity, and publish a digest/source release manifest. A checked-in
+25. CI scans the Docker image; tagged releases now scan the exact immutable
+   GHCR digest before publishing the manifest and keyless signature, then
+   verify that digest against the exact release workflow identity. A checked-in
    verifier validates the manifest and expected release identity before
    publication. Registry retention and independent verification of the Cosign
    signature remain operational controls.

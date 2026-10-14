@@ -85,6 +85,15 @@ jobs:
           sbom: true
           provenance: mode=max
 
+      - name: Scan immutable release image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: Write release manifest
         env:
           IMAGE_DIGEST: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
