@@ -321,6 +321,47 @@ class TestSQLiteEvolutionJobStore:
         assert cancelled_record is not None
         assert cancelled_record.status == "cancelled"
 
+    async def test_worker_preserves_cancellation_when_status_update_fails(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        job = await store.create_or_get(
+            graph_id="graph-cancel-outage",
+            k_rounds=1,
+            idempotency_key=None,
+        )
+
+        class UnavailableCancellationStore(SQLiteEvolutionJobStore):
+            async def update(
+                self,
+                job_id: str,
+                *,
+                status: str,
+                detail: str | None = None,
+                lease_token: str | None = None,
+            ) -> EvolutionJob:
+                if status == "cancelled":
+                    raise OSError("simulated status-store outage")
+                return await super().update(
+                    job_id,
+                    status=status,
+                    detail=detail,
+                    lease_token=lease_token,
+                )
+
+        outage_store = UnavailableCancellationStore(store.database_path)
+
+        class CancelledExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                raise asyncio.CancelledError
+
+        with pytest.raises(asyncio.CancelledError):
+            await EvolutionJobWorker(outage_store, CancelledExecutor()).run_once()
+        unresolved = await outage_store.get(job.job_id)
+        assert unresolved is not None
+        assert unresolved.status == "running"
+
     async def test_worker_retries_before_failing(self, store: SQLiteEvolutionJobStore) -> None:
         job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
         attempts = 0

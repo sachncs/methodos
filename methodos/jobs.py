@@ -874,12 +874,18 @@ class EvolutionJobWorker:
         try:
             await self._execute_with_lease(job)
         except asyncio.CancelledError:
-            await self.store.update(
-                job.job_id,
-                status="cancelled",
-                detail="worker cancelled",
-                lease_token=job.lease_token,
-            )
+            try:
+                await self.store.update(
+                    job.job_id,
+                    status="cancelled",
+                    detail="worker cancelled",
+                    lease_token=job.lease_token,
+                )
+            except Exception:
+                logger.exception(
+                    "could not persist cancellation for evolution job %s",
+                    job.job_id,
+                )
             raise
         except JobLeaseLostError:
             raise

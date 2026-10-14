@@ -110,6 +110,9 @@ system production-ready.
 - Worker liveness heartbeats now continue during long-running execution for
   both leased and host-owned non-leased executors, and cancellation cleans up
   execution and heartbeat tasks together.
+- Worker cancellation preserves the original cancellation signal when the
+  durable cancellation update itself fails; the failure is logged and the
+  lease/recovery path remains responsible for the unresolved job.
 - SQLite now uses an atomic WAL-backed rate-limit window shared by all local
   service processes; filesystem deployments remain process-local by design.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
