@@ -15,9 +15,12 @@ starting SLOs and should be tuned after observing representative traffic.
   replica within the deployment's documented recovery-time objective.
 
 The first three signals are emitted by `/metrics` and have starter alert rules
-in [`docker/prometheus-rules.yml`](../docker/prometheus-rules.yml). Alert
-delivery, paging ownership, retention, and error-budget burn calculations are
-deployment responsibilities.
+in [`docker/prometheus-rules.yml`](../docker/prometheus-rules.yml). A starter
+Grafana dashboard is available at
+[`docker/grafana-dashboard.json`](../docker/grafana-dashboard.json); import it
+with a Prometheus datasource selected for `${DS_PROMETHEUS}`. Alert delivery,
+paging ownership, retention, and error-budget burn calculations are deployment
+responsibilities.
 
 When a host configures `EvolutionJobWorker`, the same endpoint emits queue
 backlog and worker-heartbeat signals. Enable the evolution alerts only for
@@ -43,6 +46,9 @@ claim to execute queued jobs.
 
 - Load the Prometheus rule file and verify alert expressions after every
   metrics-name change.
+- Validate and review the dashboard queries after every metrics-name change;
+  dashboard panels are intentionally low-cardinality and contain no request
+  IDs, tenant IDs, graph IDs, or provider secrets.
 - Run the bounded local HTTP load smoke check before release and after major
   service changes:
 

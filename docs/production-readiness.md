@@ -33,6 +33,9 @@ system production-ready.
 - Graph updates use optimistic concurrency via revision tokens and `If-Match`.
 - CI generates an SBOM, scans the container, retains the SBOM artifact, and
   runs desktop/mobile browser smoke tests.
+- A low-cardinality Grafana service dashboard is versioned with the Prometheus
+  rules; deployment-specific datasource wiring, ownership, paging, and
+  retention remain operational responsibilities.
 - Tagged releases publish the runtime image to GHCR with BuildKit SBOM and
   provenance attestations, then sign the immutable digest with keyless Cosign.
 - Dependabot tracks Python, site, and GitHub Actions dependencies weekly, and
@@ -190,8 +193,9 @@ system production-ready.
     responsibilities.
 22. Baseline SLOs, starter alert thresholds, and an incident runbook are now
     versioned in `docs/operations.md` and `docker/prometheus-rules.yml`;
-    dashboards, paging ownership, retention, and error-budget policy remain
-    deployment responsibilities.
+    dashboard ownership, paging, retention, and error-budget policy remain
+    deployment responsibilities; a starter dashboard is versioned in
+    `docker/grafana-dashboard.json`.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
     cover basic contention, concurrent job claiming, and a parallel HTTP smoke
     test plus deterministic worker fault injection; sustained load, soak,
@@ -259,7 +263,7 @@ system production-ready.
 ### Phase 5 — operations
 
 - Done: request-correlated structured logs, OTEL spans, Prometheus metrics,
-  SLOs, alert rules, Prometheus and Collector syntax validation, runbook,
+  SLOs, alert rules, starter Grafana dashboard, Prometheus and Collector syntax validation, runbook,
   fault-injection tests, and container signing/attestation.
 - Remaining: assign dashboard/paging ownership, define retention and
   error-budget policy, run sustained load/soak/chaos tests, add full HTTP
