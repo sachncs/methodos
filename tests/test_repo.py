@@ -401,6 +401,49 @@ class TestFilesystemRepository:
 
 
 class TestSQLiteRepository:
+    async def test_rate_limit_is_shared_across_repository_instances(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        database = tmp_path / "rate-limit.db"
+        first = SQLiteRepository(db_path=database)
+        second = SQLiteRepository(db_path=database)
+
+        allowed, retry_after = await first.consume_rate_limit("shared", 1)
+        assert allowed
+        assert 1 <= retry_after <= 60
+        allowed, retry_after = await second.consume_rate_limit("shared", 1)
+        assert not allowed
+        assert 1 <= retry_after <= 60
+
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE rate_limits SET window_started = ? WHERE key = ?",
+                (0.0, "shared"),
+            )
+        allowed, retry_after = await first.consume_rate_limit("shared", 1)
+        assert allowed
+        assert 1 <= retry_after <= 60
+
+    async def test_rate_limit_concurrent_consumers_are_atomic(self, tmp_path: Path) -> None:
+        database = tmp_path / "concurrent-rate-limit.db"
+        repositories = [SQLiteRepository(db_path=database) for _ in range(4)]
+        outcomes = await asyncio.gather(
+            *(
+                repository.consume_rate_limit("atomic", 1)
+                for repository in repositories
+                for _ in range(4)
+            )
+        )
+        assert sum(allowed for allowed, _ in outcomes) == 1
+
+    async def test_rate_limit_validates_inputs(self, tmp_path: Path) -> None:
+        repository = SQLiteRepository(db_path=tmp_path / "rate-limit-validation.db")
+        with pytest.raises(ValueError, match="key must not be empty"):
+            await repository.consume_rate_limit("", 1)
+        with pytest.raises(ValueError, match="limit must be positive"):
+            await repository.consume_rate_limit("key", 0)
+
     async def test_concurrent_readers_and_cas_writers_are_safe(self, tmp_path: Path) -> None:
         repository = SQLiteRepository(db_path=tmp_path / "concurrent.db")
         graph = make_graph("concurrent")

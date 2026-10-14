@@ -85,6 +85,8 @@ system production-ready.
   SQLite/Postgres runners now bind jobs and idempotency keys to tenants and
   hide status from other tenants; external runners must implement the same
   capability before tenant mode accepts them.
+- SQLite now uses an atomic WAL-backed rate-limit window shared by all local
+  service processes; filesystem deployments remain process-local by design.
 
 ## Open issues
 
@@ -97,8 +99,8 @@ system production-ready.
    and production scheduler ownership, external-runner tenant capability, and
    alert-threshold tuning remain open;
    starter queue and worker alerts are now versioned.
-2. Distributed rate limiting is implemented for the Postgres backend; quota
-   enforcement and shared limiting for SQLite/filesystem deployments remain
+2. Distributed rate limiting is implemented for Postgres and SQLite backends;
+   quota enforcement and shared limiting for filesystem deployments remain
    open.
 3. Tenant-key authentication, server-derived tenant identity, and optional
    reader/writer/operator API-key roles now exist; external identity-provider
@@ -197,7 +199,9 @@ system production-ready.
 ### Phase 2 — service contract
 
 - Define a versioned error envelope and documented authentication model.
-- Add rate limiting and quotas backed by a shared store.
+- Add rate limiting and quotas backed by a shared store; Postgres and SQLite
+  rate-limit windows are now implemented, while filesystem deployments remain
+  development-only for this control.
 - Add tenant ownership to durable graph records and enforce authorization at
   every repository operation in the shared backend.
 - Design a safe REST evolution job model with idempotency keys and status

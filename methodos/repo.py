@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import sqlite3
@@ -611,6 +612,12 @@ CREATE TABLE IF NOT EXISTS evolution_events (
 );
 CREATE INDEX IF NOT EXISTS idx_evolution_events_graph_round
     ON evolution_events(graph_id, round_index, created_at);
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT PRIMARY KEY,
+    window_started REAL NOT NULL,
+    request_count INTEGER NOT NULL
+);
 """
 
 
@@ -656,6 +663,54 @@ class SQLiteRepository:
             existing = conn.execute("SELECT version FROM schema_meta").fetchone()
             current_version = 0 if existing is None else int(existing["version"])
             SCHEMA_MIGRATIONS.apply_sqlite(conn, current_version)
+
+    async def consume_rate_limit(self, key: str, limit: int) -> tuple[bool, int]:
+        """Atomically consume a request in a shared one-minute SQLite window."""
+        if not key:
+            raise ValueError("key must not be empty")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+
+        def consume() -> tuple[bool, int]:
+            now = time.time()
+            with self.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    row = conn.execute(
+                        "SELECT window_started, request_count FROM rate_limits WHERE key = ?",
+                        (key,),
+                    ).fetchone()
+                    if row is None:
+                        window_started = now
+                        request_count = 1
+                        conn.execute(
+                            "INSERT INTO rate_limits (key, window_started, request_count) "
+                            "VALUES (?, ?, ?)",
+                            (key, window_started, request_count),
+                        )
+                    elif now - float(row["window_started"]) >= 60:
+                        window_started = now
+                        request_count = 1
+                        conn.execute(
+                            "UPDATE rate_limits SET window_started = ?, request_count = ? "
+                            "WHERE key = ?",
+                            (window_started, request_count, key),
+                        )
+                    else:
+                        window_started = float(row["window_started"])
+                        request_count = int(row["request_count"]) + 1
+                        conn.execute(
+                            "UPDATE rate_limits SET request_count = ? WHERE key = ?",
+                            (request_count, key),
+                        )
+                    conn.commit()
+                except Exception:  # pragma: no cover - defensive transaction rollback
+                    conn.rollback()
+                    raise
+            retry_after = max(1, math.ceil(window_started + 60 - now))
+            return request_count <= limit, retry_after
+
+        return await asyncio.to_thread(consume)
 
     async def backup_to(self, destination: Path) -> None:
         """Create an atomic online backup and verify SQLite integrity."""
@@ -1108,7 +1163,7 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
             )
         window_started = float(row["window_started"])
         request_count = int(row["request_count"])
-        retry_after = max(1, int(window_started + 60 - now))
+        retry_after = max(1, math.ceil(window_started + 60 - now))
         return request_count <= limit, retry_after
 
     async def _get_pool(self) -> Any:

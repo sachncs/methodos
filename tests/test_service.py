@@ -693,6 +693,40 @@ class TestEvolveEndpoint:
             assert retried.status_code == repeated.status_code == 202
             assert retried.json()["job_id"] == repeated.json()["job_id"]
 
+    def test_tenant_mode_rejects_unscoped_runner(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TENANT_KEYS", "alpha:key-alpha")
+        monkeypatch.setenv("METHODOS_API_KEY_ROLES", "key-alpha=operator")
+
+        class Runner:
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                del graph_id, k_rounds, request_id
+                return "job-1"
+
+            async def status(self, job_id: str) -> EvolutionJobStatus | None:
+                del job_id
+                return None
+
+        app = create_app(
+            repo=SQLiteRepository(db_path=tmp_path / "unscoped-service.db"),
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=Runner(),
+        )
+        headers = {"X-API-Key": "key-alpha"}
+        with TestClient(app) as runner_client:
+            assert runner_client.post("/v1/graphs", headers=headers, json={"id": "g1"}).status_code == 201
+            queued = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers=headers,
+                json={"k_rounds": 1},
+            )
+            assert queued.status_code == 501
+            status = runner_client.get("/v1/evolution/jobs/job-1", headers=headers)
+            assert status.status_code == 501
+
     async def test_injected_runner_returns_accepted_job(
         self,
         seeded_repo: SQLiteRepository,
