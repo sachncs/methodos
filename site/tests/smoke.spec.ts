@@ -42,6 +42,21 @@ test("product page stays within the accessibility budget", async ({ page }) => {
   expect(results.violations).toEqual([]);
 });
 
+test("branded not-found route and crawl metadata are available", async ({ page }) => {
+  const notFound = await page.goto("/404.html");
+  expect(notFound?.status()).toBe(200);
+  await expect(page).toHaveTitle("Page not found — methodos");
+  await expect(page.getByRole("heading", { name: "This path doesn’t exist." })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Back to methodos/ })).toHaveAttribute(
+    "href",
+    "/methodos/",
+  );
+  const robots = await page.request.get("/robots.txt");
+  const sitemap = await page.request.get("/sitemap.xml");
+  expect(robots.status()).toBe(200);
+  expect(sitemap.status()).toBe(200);
+});
+
 test("product composition stays visually stable", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".visual")).toHaveScreenshot("product-visual.png", {

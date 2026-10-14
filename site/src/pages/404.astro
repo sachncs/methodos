@@ -1,0 +1,36 @@
+---
+const home = `${import.meta.env.BASE_URL}/`;
+const docs = "https://github.com/sachncs/methodos";
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="theme-color" content="#f5f4ef" />
+    <title>Page not found — methodos</title>
+    <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+  </head>
+  <body>
+    <main class="not-found" aria-labelledby="title">
+      <a class="brand" href={home} aria-label="methodos home">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>methodos</span>
+      </a>
+      <div class="copy">
+        <p class="eyebrow">404 · lost in the graph</p>
+        <h1 id="title">This path doesn’t exist.</h1>
+        <p>The page may have moved, or the link may have followed a route that methodos hasn’t learned yet.</p>
+        <div class="actions">
+          <a class="primary" href={home}>Back to methodos <span aria-hidden="true">↗</span></a>
+          <a class="secondary" href={docs}>Read the docs <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <div class="orb" aria-hidden="true"><span></span><span></span><span></span></div>
+    </main>
+  </body>
+</html>
+
+<style>
+  :global(*){box-sizing:border-box}:global(body){margin:0;background:#f5f4ef;color:#171817;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.not-found{min-height:100svh;padding:32px clamp(24px,7vw,112px);display:flex;flex-direction:column}.brand{display:inline-flex;align-items:center;gap:11px;color:#171817;font-weight:800;letter-spacing:-.04em;text-decoration:none;font-size:1.1rem}.mark{display:flex;align-items:end;gap:3px;width:22px;height:22px}.mark i{display:block;width:5px;border-radius:5px;background:#171817}.mark i:nth-child(1){height:9px}.mark i:nth-child(2){height:15px}.mark i:nth-child(3){height:22px;background:#9cca48}.copy{max-width:650px;margin:auto 0;padding:11vh 0 13vh}.eyebrow{color:#688a2f;font-size:.73rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.copy h1{max-width:590px;margin:18px 0;font-size:clamp(3.4rem,9vw,8rem);line-height:.88;letter-spacing:-.085em}.copy p:not(.eyebrow){max-width:470px;color:#65685f;font-size:1.1rem;line-height:1.6}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:34px}.actions a{border-radius:999px;padding:13px 18px;font-weight:750;text-decoration:none}.primary{background:#171817;color:#fff}.secondary{border:1px solid #d0d1c9;color:#171817}.orb{position:absolute;right:clamp(24px,10vw,160px);bottom:clamp(32px,10vh,110px);width:clamp(130px,18vw,250px);aspect-ratio:1;border:1px solid #d7d9ce;border-radius:50%;opacity:.8}.orb:before,.orb:after,.orb span{content:"";position:absolute;border:1px solid #d7d9ce;border-radius:50%}.orb:before{inset:17% -12%}.orb:after{inset:-12% 17%}.orb span:nth-child(1){width:15px;height:15px;top:25%;left:25%;background:#9cca48;border:0}.orb span:nth-child(2){width:10px;height:10px;right:16%;top:47%;background:#171817;border:0}.orb span:nth-child(3){width:8px;height:8px;bottom:19%;left:42%;background:#9cca48;border:0}@media(max-width:650px){.copy{padding:18vh 0}.orb{right:-35px;bottom:30px;opacity:.55}.copy h1{font-size:clamp(3.4rem,18vw,6rem)}}:global(*):focus-visible{outline:3px solid #8fbf4f;outline-offset:4px}
+</style>
