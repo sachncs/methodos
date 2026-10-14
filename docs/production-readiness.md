@@ -42,8 +42,8 @@ system production-ready.
   its startup schema is idempotent and lifecycle-managed by FastAPI.
 - Postgres CRUD, compare-and-swap, snapshots, trajectories, and cursor
   iteration run against a disposable database in CI and can be run locally.
-- Postgres-backed request windows are shared atomically across service
-  replicas; local backends retain the documented process-local limiter.
+- Postgres- and SQLite-backed request windows are shared atomically across
+  service processes; filesystem retains the documented process-local limiter.
 - Static API authentication supports overlapping keys for zero-downtime
   rotation; external identity and role management remain deployment work.
 - The core CLI no longer imports optional benchmark dependencies until the

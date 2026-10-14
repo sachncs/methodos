@@ -39,7 +39,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_API_KEY_ROLES` | — | optional comma-separated `key=reader|writer|operator` role assignments; unspecified authenticated keys remain writers |
 | `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
-| `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres uses a shared window, SQLite/filesystem use per-process limiting; `0` disables it |
+| `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres and SQLite use shared windows, filesystem remains per-process; `0` disables it |
 
 ## CLI
 
@@ -164,10 +164,10 @@ upgrade; do not manually edit production databases.
 Single-process by default. SQLite is suitable for one service instance with a
 local persistent volume; do not place the database on NFS or share it between
 independent writers. For horizontal scaling, use the transactional Postgres
-`Repository` backend and its shared rate-limit store.
-Tenant-key mode currently isolates graph namespaces in the configured process;
-a distributed deployment must carry that tenant scope into the shared
-repository and identity provider.
+`Repository` backend, its shared rate-limit store, and a durable tenant-aware
+job runner. Tenant-key mode carries the authenticated tenant into graph
+namespaces and evolution-job ownership; external identity lifecycle and
+deployment policy remain host responsibilities.
 
 The evolution loop is CPU/LLM-bound, not I/O-bound. For multi-tenant
 deployments, run one EvolutionEngine per tenant to avoid
