@@ -140,8 +140,9 @@ system production-ready.
 ### Persistence and data integrity
 
 8. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
-   across filesystem, SQLite, and Postgres repositories; broader contention
-   testing remains open.
+   across filesystem, SQLite, and Postgres repositories; filesystem CAS is
+   serialized per graph within a process, while broader multi-process
+   contention testing remains open.
 9. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; managed Postgres backups and restore drills
    remain operational responsibilities.

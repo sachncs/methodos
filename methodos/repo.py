@@ -338,6 +338,13 @@ class FilesystemRepository:
         """
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self._graph_locks: dict[str, asyncio.Lock] = {}
+
+    def _graph_lock(self, graph_id: str) -> asyncio.Lock:
+        """Return the in-process CAS lock for one graph namespace."""
+        if graph_id not in self._graph_locks:
+            self._graph_locks[graph_id] = asyncio.Lock()
+        return self._graph_locks[graph_id]
 
     def graph_dir(self, graph_id: str) -> Path:
         """Return the directory where artifacts for `graph_id` are stored."""
@@ -421,15 +428,16 @@ class FilesystemRepository:
         self, graph: ProceduralGraph, expected_revision: int
     ) -> ProceduralGraph:
         """Save a graph when its on-disk revision still matches."""
-        existing = await self.load_graph(graph.id)
-        if existing.revision != expected_revision:
-            raise GraphRevisionConflictError(
-                f"graph {graph.id!r} revision changed from {expected_revision} "
-                f"to {existing.revision}"
-            )
-        updated = graph.model_copy(update={"revision": existing.revision + 1})
-        await self.save_graph(updated)
-        return updated
+        async with self._graph_lock(graph.id):
+            existing = await self.load_graph(graph.id)
+            if existing.revision != expected_revision:
+                raise GraphRevisionConflictError(
+                    f"graph {graph.id!r} revision changed from {expected_revision} "
+                    f"to {existing.revision}"
+                )
+            updated = graph.model_copy(update={"revision": existing.revision + 1})
+            await self.save_graph(updated)
+            return updated
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""

@@ -393,6 +393,25 @@ class TestFilesystemRepository:
         with pytest.raises(GraphRevisionConflictError):
             await repo.save_graph_if_revision(make_graph("g"), expected_revision=0)
 
+    async def test_concurrent_compare_and_swap_has_one_winner(self, tmp_path: Path) -> None:
+        repo = FilesystemRepository(root=tmp_path)
+        graph = make_graph("concurrent")
+        await repo.save_graph(graph)
+
+        outcomes = await asyncio.gather(
+            *(
+                repo.save_graph_if_revision(
+                    graph.model_copy(update={"metadata": {"writer": index}}),
+                    expected_revision=0,
+                )
+                for index in range(8)
+            ),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(outcome, ProceduralGraph) for outcome in outcomes) == 1
+        assert sum(isinstance(outcome, GraphRevisionConflictError) for outcome in outcomes) == 7
+        assert (await repo.load_graph("concurrent")).revision == 1
+
 
 # ----------------------------------------------------------------------------
 # SQLiteRepository
