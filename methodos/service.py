@@ -565,6 +565,7 @@ def create_app(
         response.headers["x-content-type-options"] = "nosniff"
         response.headers["x-frame-options"] = "DENY"
         response.headers["referrer-policy"] = "no-referrer"
+        response.headers["cache-control"] = "no-store"
         return response
 
     cors_origins = [

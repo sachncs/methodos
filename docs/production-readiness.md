@@ -24,7 +24,8 @@ system production-ready.
 - Optional `sqlite-vec` no longer prevents the base production image from
   starting.
 - `/health`, `/ready`, and `/metrics` are available; request IDs, security
-  headers, request counters, and latency histograms are emitted.
+  headers, `Cache-Control: no-store`, request counters, and latency histograms
+  are emitted.
 - Authentication and authorization failures emit a low-cardinality counter
   split only by `unauthorized` and `forbidden`; credentials, tenant IDs, and
   request identifiers are never metric labels.

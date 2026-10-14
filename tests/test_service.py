@@ -160,6 +160,7 @@ class TestHealth:
         assert response.headers["x-request-id"] == "request-1"
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["cache-control"] == "no-store"
 
     def test_metrics_endpoint_is_available(self, client: TestClient) -> None:
         client.get("/health")
