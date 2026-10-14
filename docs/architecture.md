@@ -15,7 +15,7 @@ methodos/
 ├── llm.py           LLMClient Protocol + LiteLLMClient (litellm)
 ├── guidance.py      Ψ prompt + generate_guidance
 ├── adapter.py       AgentState, Solver Protocol, GuidanceCache, PGAdapter
-├── evolution.py     Algorithm 1 (refiner + rollback) + EvolutionEngine
+├── evolution.py     Algorithm 1 (refiner + rollback) + CAS-safe EvolutionEngine
 ├── repo.py          Repository + capability Protocols, Filesystem + SQLite + Postgres
 ├── jobs.py          Durable evolution jobs, leases, retries, workers, and runner strategies
 ├── migrations.py    Forward-only SQLite/Postgres schema migrations
@@ -56,7 +56,7 @@ methodos/
      2. Refiner: LLM(REFINER_prompt, graph, trajectories, rejection_history)
          → list[Edit]
      3. Validate: apply_edits → graph_validate(candidate)
-     4. If valid AND val_score ≥ current_score: accept, save
+     4. If valid AND val_score ≥ current_score: accept, CAS-save
         Else: append to rejection_memory (bounded FIFO)
 ```
 
@@ -126,8 +126,9 @@ Public SDK and service boundaries are async. Async-native backends use
 used by shared rate limits, token budgets, and circuit breakers are dispatched
 through `asyncio.to_thread` so they do not block the event loop. SQLite WAL,
 transactions, leases, and compare-and-swap revisions provide local
-concurrency guarantees; Postgres is the recommended horizontally scaled
-backend.
+concurrency guarantees. Evolution finalization uses compare-and-swap when the
+configured repository provides it, so a stale worker cannot overwrite a newer
+graph; Postgres is the recommended horizontally scaled backend.
 
 ## Deployment
 
