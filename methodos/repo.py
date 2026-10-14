@@ -961,6 +961,7 @@ class SQLiteRepository:
 
     async def snapshot(self, graph_id: str, tag: str) -> None:
         """Persist a tagged snapshot of `graph_id`'s current state."""
+        validate_storage_component(tag, field="tag")
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")

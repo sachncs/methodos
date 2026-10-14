@@ -226,6 +226,8 @@ system production-ready.
     canary verification, and readiness checks. GitHub Actions now runs the
     SQLite canary drill weekly and on demand; retention policy and managed-
     Postgres drill execution remain deployment responsibilities.
+    Snapshot tags are validated consistently before filesystem, SQLite, and
+    Postgres persistence, with a regression test covering the SQLite boundary.
 13. Filesystem JSON graph/trajectory corruption now raises a stable error and
     preserves the bad record under `corrupt/`; SQLite corruption is classified
     and now supports a non-overwriting `restore-backup` workflow that verifies

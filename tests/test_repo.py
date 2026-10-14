@@ -649,6 +649,13 @@ class TestSQLiteRepository:
         with pytest.raises(FileNotFoundError):
             await repo.snapshot("nope", "v1")
 
+    async def test_snapshot_rejects_unsafe_tag(self, tmp_path: Path) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "test.db")
+        await repo.save_graph(make_graph("g"))
+
+        with pytest.raises(ValueError, match="invalid tag"):
+            await repo.snapshot("g", "../escape")
+
     async def test_restore_snapshot_advances_revision(self, tmp_path: Path) -> None:
         repo = SQLiteRepository(db_path=tmp_path / "test.db")
         await repo.save_graph(make_graph("g"))
