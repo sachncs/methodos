@@ -71,6 +71,8 @@ system production-ready.
 - The Astro browser suite runs axe-core accessibility-budget checks for both
   desktop and mobile projects; the public product palette now satisfies the
   audited WCAG contrast checks.
+- Playwright also stores deterministic desktop/mobile product screenshots with
+  a small cross-platform raster tolerance, so layout drift is reviewed in CI.
 - `SQLiteEvolutionJobStore` now persists queued-job state across process
   restarts and atomically deduplicates idempotency keys; the optional
   `PostgresEvolutionJobStore` provides the same contract for horizontal
@@ -187,9 +189,9 @@ system production-ready.
     still open.
 27. The redesigned site is deployed and publicly verified at the GitHub Pages
     URL.
-28. Browser regression smoke tests and axe-core accessibility-budget checks
-    run in CI for desktop and mobile; broader visual-diff coverage remains
-    open.
+28. Browser regression smoke tests, axe-core accessibility-budget checks, and
+    product-page visual snapshots run in CI for desktop and mobile; broader
+    multi-page visual coverage remains open.
 
 ## Remediation plan
 

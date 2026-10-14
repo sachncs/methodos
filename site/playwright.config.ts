@@ -10,6 +10,7 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4325/methodos/",
     trace: "retain-on-failure",
   },
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   webServer: {
     command: "node test-server.mjs",
     url: "http://127.0.0.1:4325/methodos/",

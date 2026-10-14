@@ -37,3 +37,13 @@ test("product page stays within the accessibility budget", async ({ page }) => {
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
+
+test("product composition stays visually stable", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveScreenshot("product-page.png", {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: true,
+    maxDiffPixelRatio: 0.05,
+  });
+});
