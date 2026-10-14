@@ -47,7 +47,9 @@ system production-ready.
   provenance attestations, then sign the immutable digest with keyless Cosign.
 - Dependabot tracks Python, site, and GitHub Actions dependencies weekly, and
   tagged releases verify the Git tag matches the Python package version.
-- Tagged releases are validated and published by `.github/workflows/release.yml`.
+- Tagged releases are validated and published by `.github/workflows/release.yml`;
+  Python quality gates and the Astro build/audit now complete before registry
+  publication, reducing partial-release risk.
 - An optional pooled Postgres repository supports horizontal service replicas;
   its startup schema is idempotent and lifecycle-managed by FastAPI.
 - Postgres CRUD, compare-and-swap, snapshots, trajectories, and cursor
@@ -255,9 +257,10 @@ system production-ready.
 
 ### Delivery and governance
 
-25. Release tags are validated and published automatically; Dependabot now
-    tracks Python, npm, and GitHub Actions updates. Merges still require
-    human review of dependency changes.
+25. Release tags are validated and published automatically; the release
+    workflow runs Python quality gates and the Astro build/audit before
+    publication, and Dependabot tracks Python, npm, and GitHub Actions
+    updates. Merges still require human review of dependency changes.
 26. Changelog and compatibility policy are documented in `CHANGELOG.md` and
     `docs/compatibility.md`; migration tooling for future schema versions is
     still open.

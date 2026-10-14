@@ -24,7 +24,12 @@ jobs:
         run: uv python install 3.12
 
       - name: Verify Python package
-        run: uv sync --frozen --all-extras && uv run pytest --cov=methodos --cov-fail-under=95
+        run: |
+          uv sync --frozen --all-extras
+          uv run ruff check .
+          uv run ruff format --check methodos tests scripts eval/hotpotqa/*.py examples
+          uv run mypy methodos tests scripts eval/hotpotqa/*.py examples
+          uv run pytest --cov=methodos --cov-fail-under=95
 
       - name: Verify tag matches package version
         run: |
@@ -33,6 +38,17 @@ jobs:
 
       - name: Build Python artifacts
         run: uv build --out-dir release-artifacts
+
+      - name: Set up Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build and audit site before publishing
+        working-directory: site
+        run: npm ci && npm run build && npm audit --audit-level=high
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4.6.0
@@ -70,17 +86,6 @@ jobs:
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
           --certificate-identity
           "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${{ github.ref_name }}"
-
-      - name: Set up Node
-        uses: actions/setup-node@v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-
-      - name: Build and audit site
-        working-directory: site
-        run: npm ci && npm run build && npm audit --audit-level=high
 
       - name: Publish GitHub release
         env:
