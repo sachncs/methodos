@@ -186,6 +186,13 @@ class TestHealth:
         assert response.headers["x-frame-options"] == "DENY"
         assert response.headers["cache-control"] == "no-store"
 
+    @pytest.mark.parametrize("request_id", ["bad request", "/unsafe", "x" * 129])
+    def test_invalid_request_id_is_replaced(self, client: TestClient, request_id: str) -> None:
+        response = client.get("/health", headers={"x-request-id": request_id})
+        assert response.status_code == 200
+        assert response.headers["x-request-id"] != request_id
+        assert len(response.headers["x-request-id"]) == 36
+
     def test_metrics_endpoint_is_available(self, client: TestClient) -> None:
         client.get("/health")
         response = client.get("/metrics")

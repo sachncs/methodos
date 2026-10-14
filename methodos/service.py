@@ -74,6 +74,7 @@ repository_tracer = trace.get_tracer("methodos.repository")
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+REQUEST_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 
 
 HTTP_REQUESTS = Counter(
@@ -598,7 +599,12 @@ def create_app(
         call_next: RequestResponseEndpoint,
     ) -> Response:
         """Attach request correlation and baseline browser security headers."""
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        supplied_request_id = request.headers.get("x-request-id")
+        request_id = (
+            supplied_request_id
+            if supplied_request_id and re.fullmatch(REQUEST_ID_PATTERN, supplied_request_id)
+            else str(uuid.uuid4())
+        )
         request.state.request_id = request_id
         started_at = time.perf_counter()
         original_receive = request._receive
