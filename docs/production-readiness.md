@@ -121,7 +121,8 @@ system production-ready.
 5. CORS origins are validated at startup; deployment-specific allowlists still
    need operational review when domains change.
 6. The LLM client now enforces its timeout at the application boundary and
-   preserves task cancellation; full HTTP disconnect testing remains open.
+   preserves task cancellation, covered by a direct cancellation test; full
+   ASGI/HTTP disconnect testing remains open.
 7. Error responses use a documented envelope with stable codes and request IDs.
    The service also rejects oversized declared request bodies with a bounded
    `413` response; reverse-proxy limits remain required for streamed bodies.

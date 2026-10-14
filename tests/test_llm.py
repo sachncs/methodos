@@ -597,6 +597,26 @@ async def test_litellm_complete_enforces_timeout_at_client_boundary(
         await client.complete(system="s", user="u")
 
 
+async def test_litellm_complete_propagates_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Request cancellation must stop an in-flight provider call immediately."""
+    started = asyncio.Event()
+
+    async def cancellable_acompletion(**kwargs: Any) -> dict[str, Any]:
+        started.set()
+        await asyncio.Event().wait()
+        return {"choices": [{"message": {"content": "never"}}]}
+
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(cancellable_acompletion))
+    client = LiteLLMClient(model="gpt-4o-mini", timeout_seconds=60.0, max_retries=0)
+    task = asyncio.create_task(client.complete(system="s", user="u"))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
 async def test_litellm_complete_propagates_temperature(
     patched_litellm: dict[str, Any],
 ) -> None:
