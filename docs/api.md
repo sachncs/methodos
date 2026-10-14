@@ -312,7 +312,9 @@ Routers mounted by the factory:
 - `POST /v1/graphs/{graph_id}/guidance` (body: `GuidanceRequest`) → `GuidanceResponse`
 - `POST /v1/graphs/{graph_id}/rollback/{tag}` (header: `If-Match`) → `ProceduralGraph`
 - `POST /v1/graphs/{graph_id}/evolve` → `202 {detail, job_id, status}` when an
-  `EvolutionRunner` is injected; otherwise 501.
+  `EvolutionRunner` is injected; otherwise 501. An `Idempotency-Key` is
+  supported only by runners implementing `IdempotentEvolutionRunner` and
+  returns 501 when the configured runner cannot guarantee deduplication.
 - `GET /v1/evolution/jobs/{job_id}` → `EvolutionJobStatus` through the
   injected runner.
 

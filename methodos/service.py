@@ -56,6 +56,7 @@ structured_logger = structlog.get_logger("methodos.service")
 request_tracer = trace.get_tracer("methodos.service")
 repository_tracer = trace.get_tracer("methodos.repository")
 GRAPH_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 TENANT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 HTTP_REQUESTS = Counter(
     "methodos_http_requests_total",
@@ -142,6 +143,22 @@ class EvolutionRunner(Protocol):
         ...
 
 
+@runtime_checkable
+class IdempotentEvolutionRunner(EvolutionRunner, Protocol):
+    """Evolution runner capability for safe client retries."""
+
+    async def start_idempotent(
+        self,
+        *,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+        idempotency_key: str,
+    ) -> str:
+        """Return the same job id for repeated keys with the same request."""
+        ...
+
+
 class HealthResponse(BaseModel):
     """Response body for `GET /health`."""
 
@@ -177,6 +194,15 @@ def validate_tenant_id(tenant_id: str) -> str:
     if re.fullmatch(TENANT_ID_PATTERN, tenant_id) is None:
         raise ValueError("tenant ids must match the tenant identifier pattern")
     return tenant_id
+
+
+def validate_idempotency_key(key: str | None) -> str | None:
+    """Validate an optional idempotency key before passing it to a runner."""
+    if key is None:
+        return None
+    if re.fullmatch(IDEMPOTENCY_KEY_PATTERN, key) is None:
+        raise HTTPException(status_code=422, detail="invalid Idempotency-Key")
+    return key
 
 
 def validate_cors_origins(origins: list[str], *, authenticated: bool) -> list[str]:
@@ -383,7 +409,13 @@ def create_app(
             allow_origins=cors_origins,
             allow_credentials=False,
             allow_methods=["GET", "POST", "PUT"],
-            allow_headers=["content-type", "x-api-key", "x-request-id", "x-tenant-id"],
+            allow_headers=[
+                "content-type",
+                "idempotency-key",
+                "x-api-key",
+                "x-request-id",
+                "x-tenant-id",
+            ],
         )
 
     @app.middleware("http")
@@ -765,11 +797,28 @@ def create_app(
                     "use the Python SDK or configure a job runner."
                 ),
             )
-        job_id = await evolution_runner.start(
-            graph_id=graph_id,
-            k_rounds=request.k_rounds,
-            request_id=getattr(http_request.state, "request_id", "unknown"),
+        request_id = getattr(http_request.state, "request_id", "unknown")
+        idempotency_key = validate_idempotency_key(
+            http_request.headers.get("idempotency-key")
         )
+        if idempotency_key is not None:
+            if not isinstance(evolution_runner, IdempotentEvolutionRunner):
+                raise HTTPException(
+                    status_code=501,
+                    detail="configured evolution runner does not support idempotency",
+                )
+            job_id = await evolution_runner.start_idempotent(
+                graph_id=graph_id,
+                k_rounds=request.k_rounds,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+            )
+        else:
+            job_id = await evolution_runner.start(
+                graph_id=graph_id,
+                k_rounds=request.k_rounds,
+                request_id=request_id,
+            )
         return EvolveResponse(detail="evolution queued", job_id=job_id, status="queued")
 
     return app
@@ -789,6 +838,7 @@ __all__ = [
     "GuidanceRequest",
     "GuidanceResponse",
     "HealthResponse",
+    "IdempotentEvolutionRunner",
     "ReadinessResponse",
     "app",
     "create_app",

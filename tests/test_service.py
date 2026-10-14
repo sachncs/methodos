@@ -529,6 +529,84 @@ class TestEvolveEndpoint:
             missing = runner_client.get("/v1/evolution/jobs/missing")
         assert missing.status_code == 404
 
+        with TestClient(app) as runner_client:
+            unsupported_retry = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers={"Idempotency-Key": "retry-1"},
+                json={"k_rounds": 5},
+            )
+        assert unsupported_retry.status_code == 501
+
+    def test_idempotency_key_uses_runner_capability(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        class IdempotentRunner:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                del graph_id, k_rounds, request_id
+                return "job-basic"
+
+            async def status(self, job_id: str):
+                return {"job_id": job_id, "status": "queued"}
+
+            async def start_idempotent(
+                self,
+                *,
+                graph_id: str,
+                k_rounds: int,
+                request_id: str,
+                idempotency_key: str,
+            ) -> str:
+                del graph_id, k_rounds, request_id
+                self.calls.append(idempotency_key)
+                return "job-deduplicated"
+
+        runner = IdempotentRunner()
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=runner,
+        )
+        headers = {"Idempotency-Key": "retry-1"}
+        with TestClient(app) as runner_client:
+            first = runner_client.post(
+                "/v1/graphs/g1/evolve", headers=headers, json={"k_rounds": 5}
+            )
+            second = runner_client.post(
+                "/v1/graphs/g1/evolve", headers=headers, json={"k_rounds": 5}
+            )
+        assert first.status_code == second.status_code == 202
+        assert first.json()["job_id"] == second.json()["job_id"] == "job-deduplicated"
+        assert runner.calls == ["retry-1", "retry-1"]
+
+    def test_invalid_idempotency_key_is_rejected(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        class Runner:
+            async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+                del graph_id, k_rounds, request_id
+                return "job-1"
+
+            async def status(self, job_id: str):
+                return {"job_id": job_id, "status": "queued"}
+
+        app = create_app(
+            repo=seeded_repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=Runner(),
+        )
+        with TestClient(app) as runner_client:
+            response = runner_client.post(
+                "/v1/graphs/g1/evolve",
+                headers={"Idempotency-Key": "bad key"},
+                json={"k_rounds": 5},
+            )
+        assert response.status_code == 422
+
     def test_status_requires_configured_runner(self, client: TestClient) -> None:
         response = client.get("/v1/evolution/jobs/job-1")
         assert response.status_code == 501

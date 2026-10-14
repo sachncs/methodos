@@ -71,9 +71,10 @@ system production-ready.
 ### Runtime and API
 
 1. REST evolution now accepts an injected host-owned `EvolutionRunner`, returns
-   a queued job contract, and supports authenticated status polling; the
-   default app still returns 501 without a durable runner, and
-   idempotency/persistence remain open.
+   a queued job contract, supports authenticated status polling, and exposes a
+   fail-closed `Idempotency-Key` capability for runners that guarantee
+   deduplication; the default app still returns 501 without a durable runner,
+   and durable idempotency/persistence remain open.
 2. Distributed rate limiting is implemented for the Postgres backend; quota
    enforcement and shared limiting for SQLite/filesystem deployments remain
    open.
