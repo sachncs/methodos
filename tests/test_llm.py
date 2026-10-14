@@ -12,12 +12,14 @@ from pydantic import BaseModel
 
 import methodos.llm as llm_module
 from methodos.llm import (
+    BudgetExceededError,
     CircuitBreaker,
     CircuitOpenError,
     FailoverLLMClient,
     LiteLLMClient,
     LLMClient,
     LLMError,
+    TokenBudget,
     is_retryable_provider_error,
 )
 
@@ -27,6 +29,22 @@ class SimpleSchema(BaseModel):
 
     answer: str
     confidence: float
+
+
+def test_token_budget_validates_and_accounts() -> None:
+    with pytest.raises(ValueError, match="max_total_tokens"):
+        TokenBudget(max_total_tokens=0, max_input_tokens=10)
+    budget = TokenBudget(max_total_tokens=20, max_input_tokens=10)
+    assert budget.reserve(system="1234", user="1234", output_tokens=5) == 2
+    assert budget.consumed_tokens == 7
+    with pytest.raises(BudgetExceededError, match="cumulative"):
+        budget.reserve(system="1234", user="1234", output_tokens=14)
+
+
+def test_token_budget_rejects_large_input() -> None:
+    budget = TokenBudget(max_total_tokens=100, max_input_tokens=2)
+    with pytest.raises(BudgetExceededError, match="input"):
+        budget.reserve(system="123456789", user="u", output_tokens=1)
 
 
 class StubClient:
@@ -220,6 +238,17 @@ async def test_litellm_complete_returns_content(
         {"role": "system", "content": "s"},
         {"role": "user", "content": "u"},
     ]
+
+
+async def test_litellm_complete_enforces_shared_budget(
+    patched_litellm: dict[str, Any],
+) -> None:
+    budget = TokenBudget(max_total_tokens=10, max_input_tokens=10)
+    client = LiteLLMClient(model="gpt-4o-mini", max_output_tokens=5, budget=budget)
+    await client.complete(system="s", user="u")
+    with pytest.raises(BudgetExceededError, match="cumulative"):
+        await client.complete(system="s", user="u")
+    assert len(patched_litellm["calls"]) == 1
 
 
 async def test_litellm_complete_passes_api_key_and_base(

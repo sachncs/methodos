@@ -26,6 +26,8 @@ coupling the domain to infrastructure.
 - Validate untrusted identifiers before they reach a path or query.
 - Preserve atomic writes and use SQLite transactions for multi-step updates.
 - Bound external calls by timeout, output budget, and retry count.
+- Inject `TokenBudget` when tenant-scoped input and cumulative LLM limits are
+  required; do not rely on provider-side limits as the only guard.
 - Inject host-dependent behavior through Protocol strategies such as
   `Solver`, `LLMClient`, `Repository`, and `ActionExecutor`; keep defaults
   deterministic and side-effect free.

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
@@ -53,6 +54,53 @@ class LLMError(RuntimeError):
 
 class CircuitOpenError(LLMError):
     """Raised while a provider circuit is open and calls are being shed."""
+
+
+class BudgetExceededError(LLMError):
+    """Raised before a request would exceed its configured token budget."""
+
+
+class TokenBudget:
+    """Shared, in-process token budget that can be injected per tenant.
+
+    The budget uses a conservative four-characters-per-token estimate before
+    dispatch. A caller can share one instance across clients and requests;
+    successful or failed reservations both count because the provider may
+    charge for failed attempts.
+    """
+
+    def __init__(self, *, max_total_tokens: int, max_input_tokens: int) -> None:
+        """Initialize positive cumulative and per-request input limits."""
+        if max_total_tokens <= 0:
+            raise ValueError("max_total_tokens must be positive")
+        if max_input_tokens <= 0:
+            raise ValueError("max_input_tokens must be positive")
+        self.max_total_tokens = max_total_tokens
+        self.max_input_tokens = max_input_tokens
+        self.consumed_tokens = 0
+
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """Estimate tokens conservatively from UTF-8-independent text length."""
+        return max(1, math.ceil(len(text) / 4))
+
+    def reserve(self, *, system: str, user: str, output_tokens: int) -> int:
+        """Reserve one request and return its estimated input-token count."""
+        input_tokens = self.estimate_tokens(system) + self.estimate_tokens(user)
+        if input_tokens > self.max_input_tokens:
+            raise BudgetExceededError(
+                f"LLM input budget exceeded: {input_tokens} > {self.max_input_tokens}"
+            )
+        if output_tokens <= 0:
+            raise ValueError("output_tokens must be positive")
+        requested = input_tokens + output_tokens
+        if self.consumed_tokens + requested > self.max_total_tokens:
+            raise BudgetExceededError(
+                "LLM cumulative token budget exceeded: "
+                f"{self.consumed_tokens + requested} > {self.max_total_tokens}"
+            )
+        self.consumed_tokens += requested
+        return input_tokens
 
 
 def is_retryable_provider_error(exc: Exception) -> bool:
@@ -152,6 +200,7 @@ class LiteLLMClient:
         max_retry_backoff_seconds: float = 8.0,
         max_output_tokens: int = 2048,
         circuit_breaker: CircuitBreaker | None = None,
+        budget: TokenBudget | None = None,
     ) -> None:
         """Initialize the LiteLLM-backed client.
 
@@ -166,6 +215,8 @@ class LiteLLMClient:
             max_output_tokens: upper bound for generated response tokens.
             circuit_breaker: optional upstream failure breaker; a new local
                 breaker is created when omitted.
+            budget: optional shared token budget, suitable for tenant-scoped
+                accounting when injected by the application.
         """
         if not model:
             raise ValueError("model must be a non-empty string")
@@ -192,6 +243,7 @@ class LiteLLMClient:
         self.max_retry_backoff_seconds = max_retry_backoff_seconds
         self.max_output_tokens = max_output_tokens
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
+        self.budget = budget
 
     async def complete(
         self,
@@ -220,6 +272,12 @@ class LiteLLMClient:
         Returns:
             Assistant text (or JSON string if `json_schema` is set).
         """
+        if self.budget is not None:
+            self.budget.reserve(
+                system=system,
+                user=user,
+                output_tokens=self.max_output_tokens,
+            )
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -357,11 +415,13 @@ class FailoverLLMClient:
 
 
 __all__ = [
+    "BudgetExceededError",
     "CircuitBreaker",
     "CircuitOpenError",
     "FailoverLLMClient",
     "LLMClient",
     "LLMError",
     "LiteLLMClient",
+    "TokenBudget",
     "is_retryable_provider_error",
 ]

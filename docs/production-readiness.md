@@ -104,8 +104,9 @@ system production-ready.
     an application-level fallback strategy.
 15. A process-local circuit breaker exists and failover is covered in-process;
     shared-state breaker/failover policy across workers remains open.
-16. Token/cost budgets are not persisted or enforced per request, graph, or
-    tenant.
+16. Injectable per-client/tenant token budgets now enforce estimated input and
+    cumulative request limits before dispatch; durable distributed accounting,
+    provider-specific cost pricing, and graph-level quotas remain open.
 17. Evolution proposals lack a durable approval/audit workflow.
 18. Backend snapshot restore now provides revision-safe graph rollback; an
     authenticated release action, approval record, and promotion workflow are
