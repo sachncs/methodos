@@ -101,6 +101,9 @@ class LLMError(RuntimeError): ...
 def is_retryable_provider_error(exc: Exception) -> bool: ...
 ```
 
+`timeout_seconds` is the total deadline for one `complete` call, including
+transient retries and backoff; cancellation from the caller is propagated.
+
 ## `methodos.guidance` — Guidance Generation
 
 ```python

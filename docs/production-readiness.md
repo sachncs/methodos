@@ -22,8 +22,8 @@ system production-ready.
   available and returns HTTP 409.
 - SQLite rejects unsupported schema versions instead of silently operating on
   an unknown database.
-- LLM requests have timeouts, bounded output, retry limits, and exponential
-  backoff.
+- LLM requests have a total timeout covering provider attempts and retry
+  backoff, bounded output, retry limits, and exponential backoff.
 - Optional `sqlite-vec` no longer prevents the base production image from
   starting.
 - `/health`, `/ready`, and `/metrics` are available; bounded request IDs,
@@ -239,8 +239,9 @@ system production-ready.
     throttling, gateway, and server exception classes separately from
     permanent client/auth/request classes, then falls back to status codes;
    numeric and HTTP-date `Retry-After` hints are honored within the configured maximum
-   backoff; provider-specific policy tuning remains open. An ordered failover
-   client provides an application-level fallback strategy.
+   backoff, and the configured LLM timeout covers the complete retry operation;
+   provider-specific policy tuning remains open. An ordered failover client
+   provides an application-level fallback strategy.
 15. Local and optional shared SQLite/Postgres circuit breakers now protect
     workers from retry storms with an atomic half-open probe; shared gateway
     policy and provider-specific breaker tuning remain open.

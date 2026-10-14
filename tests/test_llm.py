@@ -804,8 +804,32 @@ async def test_litellm_complete_enforces_timeout_at_client_boundary(
 
     monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(hanging_acompletion))
     client = LiteLLMClient(model="gpt-4o-mini", timeout_seconds=0.01, max_retries=0)
-    with pytest.raises(LLMError, match="failed after 1 attempts"):
+    with pytest.raises(LLMError, match="exceeded its total timeout"):
         await client.complete(system="s", user="u")
+
+
+async def test_litellm_total_timeout_includes_retry_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retries cannot extend the configured total provider deadline."""
+    calls = 0
+
+    async def failing_acompletion(**kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("transient provider failure")
+
+    monkeypatch.setattr(llm_module, "litellm", LitellmModuleDouble(failing_acompletion))
+    client = LiteLLMClient(
+        model="gpt-4o-mini",
+        timeout_seconds=0.02,
+        max_retries=5,
+        retry_backoff_seconds=1.0,
+    )
+
+    with pytest.raises(LLMError, match="exceeded its total timeout"):
+        await client.complete(system="s", user="u")
+    assert calls == 1
 
 
 async def test_litellm_complete_propagates_cancellation(

@@ -861,7 +861,8 @@ class LiteLLMClient:
         api_key: optional API key override; otherwise read from the
             provider's standard environment variable by litellm.
         api_base: optional custom API base URL.
-        timeout_seconds: per-request timeout.
+        timeout_seconds: total timeout for the complete request, including
+            retries and backoff.
         max_retries: number of retries on transient failures (total
             attempts = `max_retries + 1`).
         retry_backoff_seconds: initial exponential delay between retries.
@@ -889,7 +890,8 @@ class LiteLLMClient:
             model: litellm model identifier.
             api_key: optional API key override.
             api_base: optional custom API base URL.
-            timeout_seconds: per-request timeout.
+            timeout_seconds: total timeout for the complete request, including
+                retries and backoff.
             max_retries: retries on transient failures; total attempts = max_retries + 1.
             retry_backoff_seconds: initial exponential delay between retries.
             max_retry_backoff_seconds: upper bound for exponential backoff.
@@ -943,6 +945,71 @@ class LiteLLMClient:
         if retry_after is None:
             return exponential
         return min(float(self.max_retry_backoff_seconds), max(exponential, retry_after))
+
+    async def _complete_with_retries(self, kwargs: dict[str, Any]) -> str:
+        """Execute provider attempts within the caller's total timeout."""
+        last_exc: Exception | None = None
+        total_attempts = self.max_retries + 1
+        for attempt in range(total_attempts):
+            if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                allowed = await self.circuit_breaker.allow_request_async()
+            else:
+                allowed = self.circuit_breaker.allow_request()
+            if not allowed:
+                LLM_ATTEMPTS.labels(self.model, "circuit_open").inc()
+                raise CircuitOpenError(f"LLM provider circuit is open for model {self.model}")
+            LLM_ATTEMPTS.labels(self.model, "started").inc()
+            try:
+                with llm_tracer.start_as_current_span("methodos.llm.attempt") as span:
+                    span.set_attribute("methodos.llm.model", self.model)
+                    span.set_attribute("methodos.llm.attempt", attempt + 1)
+                    try:
+                        response = await litellm.acompletion(**kwargs)
+                    except Exception as exc:
+                        span.record_exception(exc)
+                        raise
+                content = response["choices"][0]["message"]["content"]
+                if not isinstance(content, str):
+                    raise LLMError(
+                        f"expected str content from {self.model}, got {type(content).__name__}"
+                    )
+                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                    await self.circuit_breaker.record_success_async()
+                else:
+                    self.circuit_breaker.record_success()
+                LLM_ATTEMPTS.labels(self.model, "succeeded").inc()
+                return content
+            except LLMError:
+                LLM_ATTEMPTS.labels(self.model, "failed").inc()
+                raise
+            except Exception as exc:
+                LLM_ATTEMPTS.labels(self.model, "failed").inc()
+                last_exc = exc
+                logger.warning(
+                    "litellm attempt %d/%d for model %s failed: %s",
+                    attempt + 1,
+                    total_attempts,
+                    self.model,
+                    exc,
+                )
+                if not is_retryable_provider_error(exc):
+                    raise LLMError(f"non-retryable LLM call failure for {self.model}") from exc
+                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                    await self.circuit_breaker.record_failure_async()
+                else:
+                    self.circuit_breaker.record_failure()
+                if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
+                    delay = self._retry_delay(exc, attempt)
+                    await asyncio.sleep(delay)
+        assert last_exc is not None
+        logger.error(
+            "litellm exhausted %d attempts for model %s",
+            total_attempts,
+            self.model,
+        )
+        raise LLMError(
+            f"LLM call to {self.model} failed after {total_attempts} attempts"
+        ) from last_exc
 
     async def complete(
         self,
@@ -1025,69 +1092,12 @@ class LiteLLMClient:
                 },
             }
 
-        last_exc: Exception | None = None
-        total_attempts = self.max_retries + 1
-        for attempt in range(total_attempts):
-            if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
-                allowed = await self.circuit_breaker.allow_request_async()
-            else:
-                allowed = self.circuit_breaker.allow_request()
-            if not allowed:
-                LLM_ATTEMPTS.labels(self.model, "circuit_open").inc()
-                raise CircuitOpenError(f"LLM provider circuit is open for model {self.model}")
-            LLM_ATTEMPTS.labels(self.model, "started").inc()
-            try:
-                with llm_tracer.start_as_current_span("methodos.llm.attempt") as span:
-                    span.set_attribute("methodos.llm.model", self.model)
-                    span.set_attribute("methodos.llm.attempt", attempt + 1)
-                    try:
-                        async with asyncio.timeout(self.timeout):
-                            response = await litellm.acompletion(**kwargs)
-                    except Exception as exc:
-                        span.record_exception(exc)
-                        raise
-                content = response["choices"][0]["message"]["content"]
-                if not isinstance(content, str):
-                    raise LLMError(
-                        f"expected str content from {self.model}, got {type(content).__name__}"
-                    )
-                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
-                    await self.circuit_breaker.record_success_async()
-                else:
-                    self.circuit_breaker.record_success()
-                LLM_ATTEMPTS.labels(self.model, "succeeded").inc()
-                return content
-            except LLMError:
-                LLM_ATTEMPTS.labels(self.model, "failed").inc()
-                raise
-            except Exception as exc:
-                LLM_ATTEMPTS.labels(self.model, "failed").inc()
-                last_exc = exc
-                logger.warning(
-                    "litellm attempt %d/%d for model %s failed: %s",
-                    attempt + 1,
-                    total_attempts,
-                    self.model,
-                    exc,
-                )
-                if not is_retryable_provider_error(exc):
-                    raise LLMError(f"non-retryable LLM call failure for {self.model}") from exc
-                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
-                    await self.circuit_breaker.record_failure_async()
-                else:
-                    self.circuit_breaker.record_failure()
-                if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
-                    delay = self._retry_delay(exc, attempt)
-                    await asyncio.sleep(delay)
-        assert last_exc is not None
-        logger.error(
-            "litellm exhausted %d attempts for model %s",
-            total_attempts,
-            self.model,
-        )
-        raise LLMError(
-            f"LLM call to {self.model} failed after {total_attempts} attempts"
-        ) from last_exc
+        try:
+            async with asyncio.timeout(self.timeout):
+                return await self._complete_with_retries(kwargs)
+        except TimeoutError as exc:
+            LLM_ATTEMPTS.labels(self.model, "timeout").inc()
+            raise LLMError(f"LLM call to {self.model} exceeded its total timeout") from exc
 
 
 class FailoverLLMClient:
