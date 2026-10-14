@@ -10,9 +10,14 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -39,6 +44,15 @@ jobs:
 
       - name: Build Python artifacts
         run: uv build --out-dir release-artifacts
+
+      - name: Smoke-test built Python wheel
+        run: |
+          wheel_path="$(find release-artifacts -maxdepth 1 -name '*.whl' -print -quit)"
+          wheel_venv="${RUNNER_TEMP}/methodos-release-wheel-venv"
+          uv venv --python 3.12 "$wheel_venv"
+          uv pip install --python "$wheel_venv/bin/python" "$wheel_path"
+          "$wheel_venv/bin/methodos" --help >/dev/null
+          "$wheel_venv/bin/python" -c 'import methodos; assert methodos.__version__ == "0.1.0"'
 
       - name: Set up Node
         uses: actions/setup-node@v7.1.0
