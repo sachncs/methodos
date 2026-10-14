@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 import methodos.llm as llm_module
 from methodos.llm import (
+    AsyncCircuitBreaker,
     BudgetExceededError,
     CircuitBreaker,
     CircuitOpenError,
@@ -20,6 +22,7 @@ from methodos.llm import (
     LiteLLMClient,
     LLMClient,
     LLMError,
+    SQLiteCircuitBreaker,
     SQLiteTokenBudget,
     TokenBudget,
     is_retryable_provider_error,
@@ -224,6 +227,47 @@ def test_circuit_breaker_rejects_invalid_configuration() -> None:
         CircuitBreaker(recovery_seconds=0)
 
 
+def test_sqlite_circuit_breaker_serializes_half_open_probes(tmp_path: Path) -> None:
+    breaker = SQLiteCircuitBreaker(
+        database_path=tmp_path / "circuit.db",
+        key="provider-a",
+        failure_threshold=1,
+        recovery_seconds=30.0,
+    )
+
+    async def exercise() -> None:
+        assert await breaker.allow_request_async()
+        await breaker.record_failure_async()
+        assert not await breaker.allow_request_async()
+        with sqlite3.connect(tmp_path / "circuit.db") as connection:
+            connection.execute(
+                "UPDATE circuit_breakers SET opened_at = ?, probe_until = NULL WHERE key = ?",
+                (0.0, "provider-a"),
+            )
+        outcomes = await asyncio.gather(
+            breaker.allow_request_async(), breaker.allow_request_async()
+        )
+        assert sum(outcomes) == 1
+        await breaker.record_success_async()
+        assert await breaker.allow_request_async()
+
+    asyncio.run(exercise())
+
+
+def test_async_circuit_breaker_is_runtime_checkable() -> None:
+    class Breaker:
+        async def allow_request_async(self) -> bool:
+            return True
+
+        async def record_success_async(self) -> None:
+            return None
+
+        async def record_failure_async(self) -> None:
+            return None
+
+    assert isinstance(Breaker(), AsyncCircuitBreaker)
+
+
 def test_llm_client_is_runtime_checkable_protocol() -> None:
     """LLMClient is `runtime_checkable` so isinstance checks work at runtime."""
 
@@ -330,6 +374,70 @@ async def test_litellm_complete_returns_content(
         {"role": "system", "content": "s"},
         {"role": "user", "content": "u"},
     ]
+
+
+async def test_litellm_complete_uses_async_circuit_breaker(
+    patched_litellm: dict[str, Any],
+) -> None:
+    class AsyncBreaker:
+        def __init__(self) -> None:
+            self.successes = 0
+
+        async def allow_request_async(self) -> bool:
+            return True
+
+        async def record_success_async(self) -> None:
+            self.successes += 1
+
+        async def record_failure_async(self) -> None:
+            raise AssertionError("failure path should not run")
+
+    breaker = AsyncBreaker()
+    client = LiteLLMClient(model="gpt-4o-mini", circuit_breaker=breaker)
+    assert await client.complete(system="s", user="u") == "ok"
+    assert breaker.successes == 1
+
+
+async def test_litellm_complete_records_async_circuit_failure(
+    patched_litellm: dict[str, Any],
+) -> None:
+    class AsyncBreaker:
+        def __init__(self) -> None:
+            self.failures = 0
+
+        async def allow_request_async(self) -> bool:
+            return True
+
+        async def record_success_async(self) -> None:
+            raise AssertionError("success path should not run")
+
+        async def record_failure_async(self) -> None:
+            self.failures += 1
+
+    patched_litellm["exceptions"] = [RuntimeError("provider down")]
+    breaker = AsyncBreaker()
+    client = LiteLLMClient(
+        model="gpt-4o-mini",
+        max_retries=0,
+        circuit_breaker=breaker,
+    )
+    with pytest.raises(LLMError):
+        await client.complete(system="s", user="u")
+    assert breaker.failures == 1
+
+
+async def test_litellm_complete_uses_async_token_budget(
+    patched_litellm: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    budget = SQLiteTokenBudget(
+        database_path=tmp_path / "client-token-budget.db",
+        key="tenant-a",
+        max_total_tokens=10,
+        max_input_tokens=10,
+    )
+    client = LiteLLMClient(model="gpt-4o-mini", max_output_tokens=5, budget=budget)
+    assert await client.complete(system="s", user="u") == "ok"
 
 
 async def test_litellm_complete_enforces_shared_budget(

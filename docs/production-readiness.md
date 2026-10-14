@@ -92,6 +92,9 @@ system production-ready.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
   atomic durable token budgets for local and horizontally scaled deployments;
   provider-specific cost pricing and graph-level quotas remain open.
+- `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
+  shared async breaker state with an atomic half-open probe lease; gateway
+  policy and provider-specific breaker tuning remain deployment concerns.
 
 ## Open issues
 
@@ -144,8 +147,9 @@ system production-ready.
     throttling, and server errors from permanent client/auth failures; provider
     SDK-specific mappings remain open. An ordered failover client now provides
     an application-level fallback strategy.
-15. A process-local circuit breaker exists and failover is covered in-process;
-    shared-state breaker/failover policy across workers remains open.
+15. Local and optional shared SQLite/Postgres circuit breakers now protect
+    workers from retry storms with an atomic half-open probe; shared gateway
+    policy and provider-specific breaker tuning remain open.
 16. Injectable per-client/tenant token budgets now enforce estimated input and
     cumulative request limits before dispatch; SQLite-backed durable accounting
     and Postgres-backed accounting are available for local and horizontally

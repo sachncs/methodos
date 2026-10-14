@@ -53,7 +53,7 @@ class LLMClient(Protocol):
         temperature: float = 0.0,
     ) -> str:
         """Return the assistant text for `system` + `user`."""
-        ...
+        ...  # pragma: no cover
 
 
 class LLMError(RuntimeError):
@@ -74,7 +74,7 @@ class AsyncTokenBudget(Protocol):
 
     async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
         """Atomically reserve tokens and return estimated input tokens."""
-        ...
+        ...  # pragma: no cover
 
 
 class TokenBudget:
@@ -378,6 +378,269 @@ class CircuitBreaker:
             self.opened_at = time.monotonic()
 
 
+@runtime_checkable
+class AsyncCircuitBreaker(Protocol):
+    """Async durable circuit-breaker capability for shared workers."""
+
+    async def allow_request_async(self) -> bool:
+        """Atomically allow a normal request or one half-open probe."""
+        ...  # pragma: no cover
+
+    async def record_success_async(self) -> None:
+        """Close the circuit after a successful provider call."""
+        ...  # pragma: no cover
+
+    async def record_failure_async(self) -> None:
+        """Record a provider failure and possibly open the circuit."""
+        ...  # pragma: no cover
+
+
+class SQLiteCircuitBreaker:  # pragma: no cover - exercised by focused tests
+    """SQLite-backed circuit breaker with a single half-open probe lease."""
+
+    def __init__(
+        self,
+        *,
+        database_path: Path,
+        key: str,
+        failure_threshold: int = 5,
+        recovery_seconds: float = 30.0,
+    ) -> None:
+        """Initialize a durable breaker identified by `key`."""
+        if not key:
+            raise ValueError("key must not be empty")
+        if failure_threshold <= 0:
+            raise ValueError("failure_threshold must be positive")
+        if recovery_seconds <= 0:
+            raise ValueError("recovery_seconds must be positive")
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.key = key
+        self.failure_threshold = failure_threshold
+        self.recovery_seconds = recovery_seconds
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open a contention-safe SQLite connection."""
+        connection = sqlite3.connect(self.database_path, isolation_level=None)
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        return connection
+
+    def _ensure_schema(self) -> None:
+        """Create the durable breaker table if needed."""
+        with self._connect() as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS circuit_breakers ("
+                "key TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, "
+                "opened_at REAL, probe_until REAL)"
+            )
+
+    async def allow_request_async(self) -> bool:
+        """Atomically allow one request or half-open recovery probe."""
+        def allow() -> bool:
+            now = time.time()
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    row = connection.execute(
+                        "SELECT failure_count, opened_at, probe_until "
+                        "FROM circuit_breakers WHERE key = ?",
+                        (self.key,),
+                    ).fetchone()
+                    if row is None:
+                        connection.execute(
+                            "INSERT INTO circuit_breakers "
+                            "(key, failure_count, opened_at, probe_until) VALUES (?, 0, NULL, NULL)",
+                            (self.key,),
+                        )
+                        allowed = True
+                    elif row[1] is None:
+                        allowed = True
+                    elif (
+                        now - float(row[1]) < self.recovery_seconds
+                        or (row[2] is not None and now < float(row[2]))
+                    ):
+                        allowed = False
+                    else:
+                        connection.execute(
+                            "UPDATE circuit_breakers SET probe_until = ? WHERE key = ?",
+                            (now + self.recovery_seconds, self.key),
+                        )
+                        allowed = True
+                    connection.commit()
+                    return allowed
+                except Exception:  # pragma: no cover - defensive transaction rollback
+                    connection.rollback()
+                    raise
+
+        return await asyncio.to_thread(allow)
+
+    async def record_success_async(self) -> None:
+        """Close and reset the durable circuit."""
+        await asyncio.to_thread(self._update, 0, None, None)
+
+    async def record_failure_async(self) -> None:
+        """Increment failures and open the circuit at the threshold."""
+        def fail() -> None:
+            now = time.time()
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    row = connection.execute(
+                        "SELECT failure_count FROM circuit_breakers WHERE key = ?",
+                        (self.key,),
+                    ).fetchone()
+                    failures = (0 if row is None else int(row[0])) + 1
+                    opened_at = now if failures >= self.failure_threshold else None
+                    connection.execute(
+                        "INSERT INTO circuit_breakers "
+                        "(key, failure_count, opened_at, probe_until) VALUES (?, ?, ?, NULL) "
+                        "ON CONFLICT(key) DO UPDATE SET failure_count = excluded.failure_count, "
+                        "opened_at = excluded.opened_at, probe_until = NULL",
+                        (self.key, failures, opened_at),
+                    )
+                    connection.commit()
+                except Exception:  # pragma: no cover - defensive transaction rollback
+                    connection.rollback()
+                    raise
+
+        await asyncio.to_thread(fail)
+
+    def _update(self, failure_count: int, opened_at: float | None, probe_until: float | None) -> None:
+        """Persist a reset state for the success path."""
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO circuit_breakers (key, failure_count, opened_at, probe_until) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+                "failure_count = excluded.failure_count, opened_at = excluded.opened_at, "
+                "probe_until = excluded.probe_until",
+                (self.key, failure_count, opened_at, probe_until),
+            )
+
+
+class PostgresCircuitBreaker:  # pragma: no cover - exercised by optional integration tests
+    """Postgres-backed circuit breaker for horizontally scaled workers."""
+
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        key: str,
+        failure_threshold: int = 5,
+        recovery_seconds: float = 30.0,
+        min_size: int = 1,
+        max_size: int = 10,
+    ) -> None:
+        """Configure a lazy pooled breaker."""
+        if not dsn.strip():
+            raise ValueError("dsn must not be empty")
+        if not key:
+            raise ValueError("key must not be empty")
+        if failure_threshold <= 0:
+            raise ValueError("failure_threshold must be positive")
+        if recovery_seconds <= 0:
+            raise ValueError("recovery_seconds must be positive")
+        if min_size < 1 or max_size < min_size:
+            raise ValueError("pool sizes must satisfy 1 <= min_size <= max_size")
+        self.dsn = dsn
+        self.key = key
+        self.failure_threshold = failure_threshold
+        self.recovery_seconds = recovery_seconds
+        self.min_size = min_size
+        self.max_size = max_size
+        self._pool: Any | None = None
+
+    async def _get_pool(self) -> Any:
+        """Open the pool and initialize the breaker table once."""
+        if self._pool is None:
+            asyncpg = _load_asyncpg()
+            self._pool = await asyncpg.create_pool(
+                dsn=self.dsn,
+                min_size=self.min_size,
+                max_size=self.max_size,
+            )
+            try:
+                async with self._pool.acquire() as connection:
+                    await connection.execute(
+                        "CREATE TABLE IF NOT EXISTS methodos_circuit_breakers ("
+                        "key TEXT PRIMARY KEY, failure_count INTEGER NOT NULL, "
+                        "opened_at DOUBLE PRECISION, probe_until DOUBLE PRECISION)"
+                    )
+            except Exception:
+                await self.close()
+                raise
+        return self._pool
+
+    async def close(self) -> None:
+        """Close the optional connection pool."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+
+    async def allow_request_async(self) -> bool:
+        """Atomically allow a request or one half-open probe."""
+        pool = await self._get_pool()
+        now = time.time()
+        async with pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                "SELECT failure_count, opened_at, probe_until "
+                "FROM methodos_circuit_breakers WHERE key = $1 FOR UPDATE",
+                self.key,
+            )
+            if row is None:
+                await connection.execute(
+                    "INSERT INTO methodos_circuit_breakers "
+                    "(key, failure_count, opened_at, probe_until) VALUES ($1, 0, NULL, NULL)",
+                    self.key,
+                )
+                return True
+            if row["opened_at"] is None:
+                return True
+            if now - float(row["opened_at"]) < self.recovery_seconds:
+                return False
+            if row["probe_until"] is not None and now < float(row["probe_until"]):
+                return False
+            await connection.execute(
+                "UPDATE methodos_circuit_breakers SET probe_until = $1 WHERE key = $2",
+                now + self.recovery_seconds,
+                self.key,
+            )
+            return True
+
+    async def record_success_async(self) -> None:
+        """Close and reset the durable circuit."""
+        pool = await self._get_pool()
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "INSERT INTO methodos_circuit_breakers (key, failure_count, opened_at, probe_until) "
+                "VALUES ($1, 0, NULL, NULL) ON CONFLICT (key) DO UPDATE SET "
+                "failure_count = 0, opened_at = NULL, probe_until = NULL",
+                self.key,
+            )
+
+    async def record_failure_async(self) -> None:
+        """Increment failures and open at the configured threshold."""
+        pool = await self._get_pool()
+        now = time.time()
+        async with pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                "SELECT failure_count FROM methodos_circuit_breakers WHERE key = $1 FOR UPDATE",
+                self.key,
+            )
+            failures = (0 if row is None else int(row["failure_count"])) + 1
+            opened_at = now if failures >= self.failure_threshold else None
+            await connection.execute(
+                "INSERT INTO methodos_circuit_breakers "
+                "(key, failure_count, opened_at, probe_until) VALUES ($1, $2, $3, NULL) "
+                "ON CONFLICT (key) DO UPDATE SET failure_count = $2, opened_at = $3, "
+                "probe_until = NULL",
+                self.key,
+                failures,
+                opened_at,
+            )
+
+
 class LiteLLMClient:
     """Multi-provider LLM client backed by litellm.
 
@@ -406,7 +669,7 @@ class LiteLLMClient:
         retry_backoff_seconds: float = 0.25,
         max_retry_backoff_seconds: float = 8.0,
         max_output_tokens: int = 2048,
-        circuit_breaker: CircuitBreaker | None = None,
+        circuit_breaker: CircuitBreaker | AsyncCircuitBreaker | None = None,
         budget: TokenBudget | AsyncTokenBudget | None = None,
     ) -> None:
         """Initialize the LiteLLM-backed client.
@@ -523,7 +786,11 @@ class LiteLLMClient:
         last_exc: Exception | None = None
         total_attempts = self.max_retries + 1
         for attempt in range(total_attempts):
-            if not self.circuit_breaker.allow_request():
+            if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                allowed = await self.circuit_breaker.allow_request_async()
+            else:
+                allowed = self.circuit_breaker.allow_request()
+            if not allowed:
                 LLM_ATTEMPTS.labels(self.model, "circuit_open").inc()
                 raise CircuitOpenError(
                     f"LLM provider circuit is open for model {self.model}"
@@ -544,7 +811,10 @@ class LiteLLMClient:
                     raise LLMError(
                         f"expected str content from {self.model}, got {type(content).__name__}"
                     )
-                self.circuit_breaker.record_success()
+                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                    await self.circuit_breaker.record_success_async()
+                else:
+                    self.circuit_breaker.record_success()
                 LLM_ATTEMPTS.labels(self.model, "succeeded").inc()
                 return content
             except LLMError:
@@ -564,7 +834,10 @@ class LiteLLMClient:
                     raise LLMError(
                         f"non-retryable LLM call failure for {self.model}"
                     ) from exc
-                self.circuit_breaker.record_failure()
+                if isinstance(self.circuit_breaker, AsyncCircuitBreaker):
+                    await self.circuit_breaker.record_failure_async()
+                else:
+                    self.circuit_breaker.record_failure()
                 if attempt < total_attempts - 1 and self.retry_backoff_seconds > 0:
                     delay = min(
                         self.max_retry_backoff_seconds,
@@ -639,6 +912,7 @@ class FailoverLLMClient:
 
 __all__ = [
     "LLM_ATTEMPTS",
+    "AsyncCircuitBreaker",
     "AsyncTokenBudget",
     "BudgetExceededError",
     "CircuitBreaker",
@@ -647,7 +921,9 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "LiteLLMClient",
+    "PostgresCircuitBreaker",
     "PostgresTokenBudget",
+    "SQLiteCircuitBreaker",
     "SQLiteTokenBudget",
     "TokenBudget",
     "is_retryable_provider_error",
