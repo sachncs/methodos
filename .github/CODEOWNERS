@@ -1,0 +1,3 @@
+# Default owner for all repository changes. Branch protection should require
+# review from the listed owner before merging protected-branch changes.
+* @sachncs

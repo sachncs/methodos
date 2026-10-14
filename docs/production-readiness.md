@@ -50,6 +50,10 @@ system production-ready.
 - Tagged releases are validated and published by `.github/workflows/release.yml`;
   Python quality gates and the Astro build/audit now complete before registry
   publication, reducing partial-release risk.
+- Contributor, security-reporting, code-ownership, and pull-request checklist
+  artifacts are versioned in `CONTRIBUTING.md`, `SECURITY.md`,
+  `.github/CODEOWNERS`, and `.github/pull_request_template.md`; protected-branch
+  enforcement remains a repository-settings responsibility.
 - An optional pooled Postgres repository supports horizontal service replicas;
   its startup schema is idempotent and lifecycle-managed by FastAPI.
 - Postgres CRUD, compare-and-swap, snapshots, trajectories, and cursor
@@ -270,7 +274,9 @@ system production-ready.
 25. Release tags are validated and published automatically; the release
     workflow runs Python quality gates and the Astro build/audit before
     publication, and Dependabot tracks Python, npm, and GitHub Actions
-    updates. Merges still require human review of dependency changes.
+    updates. Contributor and security-reporting policy is now versioned, while
+    protected-branch review enforcement and human review of dependency changes
+    remain repository-governance responsibilities.
 26. Changelog and compatibility policy are documented in `CHANGELOG.md` and
     `docs/compatibility.md`; migration tooling for future schema versions is
     still open.
