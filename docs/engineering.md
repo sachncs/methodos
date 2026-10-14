@@ -12,7 +12,8 @@ behavior visible.
 - `llm.py` owns provider I/O, timeouts, bounded output, and retries.
 - `repo.py` owns durable persistence behind the `Repository` protocol.
 - `jobs.py` owns durable evolution-job records behind the `EvolutionJobStore`
-  protocol; queue and worker orchestration remains host-owned.
+  protocol, plus the `EvolutionJobExecutor` strategy and
+  `EvolutionJobWorker`; queue execution remains injected and host-owned.
 - `service.py` owns HTTP DTOs, authentication, readiness, and transport errors.
 
 ## Polymorphism

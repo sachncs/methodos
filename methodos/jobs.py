@@ -61,6 +61,10 @@ class EvolutionJobStore(Protocol):
         """Return a job by id, or `None` when it is unknown."""
         ...
 
+    async def claim_next(self) -> EvolutionJob | None:
+        """Atomically claim the oldest queued job, or return `None`."""
+        ...
+
     async def update(
         self,
         job_id: str,
@@ -221,6 +225,37 @@ class SQLiteEvolutionJobStore:
 
         return await asyncio.to_thread(write)
 
+    async def claim_next(self) -> EvolutionJob | None:
+        """Atomically transition the oldest queued job to `running`."""
+
+        def claim() -> EvolutionJob | None:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    row = connection.execute(
+                        "SELECT * FROM evolution_jobs WHERE status = 'queued' "
+                        "ORDER BY created_at ASC, job_id ASC LIMIT 1"
+                    ).fetchone()
+                    if row is None:
+                        connection.commit()
+                        return None
+                    connection.execute(
+                        "UPDATE evolution_jobs SET status = 'running', updated_at = ? "
+                        "WHERE job_id = ? AND status = 'queued'",
+                        (time.time(), row["job_id"]),
+                    )
+                    claimed = connection.execute(
+                        "SELECT * FROM evolution_jobs WHERE job_id = ?", (row["job_id"],)
+                    ).fetchone()
+                    connection.commit()
+                    assert claimed is not None
+                    return self._record(claimed)
+                except Exception:
+                    connection.rollback()
+                    raise
+
+        return await asyncio.to_thread(claim)
+
 
 def _load_asyncpg() -> Any:  # pragma: no cover - covered by optional integration tests
     """Load the optional Postgres driver only when this store is used."""
@@ -348,6 +383,25 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
             )
         return None if row is None else self._record(row)
 
+    async def claim_next(self) -> EvolutionJob | None:
+        """Claim one queued job using row locks across workers."""
+        pool = await self._get_pool()
+        async with pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                "SELECT * FROM methodos_evolution_jobs WHERE status = 'queued' "
+                "ORDER BY created_at ASC, job_id ASC FOR UPDATE SKIP LOCKED LIMIT 1"
+            )
+            if row is None:
+                return None
+            updated = await connection.fetchrow(
+                "UPDATE methodos_evolution_jobs SET status = 'running', updated_at = $1 "
+                "WHERE job_id = $2 AND status = 'queued' RETURNING *",
+                time.time(),
+                row["job_id"],
+            )
+            assert updated is not None
+            return self._record(updated)
+
     async def update(
         self,
         job_id: str,
@@ -373,12 +427,97 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         return self._record(row)
 
 
+@runtime_checkable
+class EvolutionJobExecutor(Protocol):
+    """Injected environment-specific evolution execution strategy."""
+
+    async def execute(self, job: EvolutionJob) -> None:
+        """Execute one claimed job or raise an operational failure."""
+        ...
+
+
+class EvolutionJobWorker:
+    """Crash-aware worker that drives jobs from queued to terminal state."""
+
+    def __init__(self, store: EvolutionJobStore, executor: EvolutionJobExecutor) -> None:
+        """Configure a worker with durable storage and an injected executor."""
+        self.store = store
+        self.executor = executor
+
+    async def run_once(self) -> bool:
+        """Claim and execute one job; return `False` when the queue is empty."""
+        job = await self.store.claim_next()
+        if job is None:
+            return False
+        try:
+            await self.executor.execute(job)
+        except asyncio.CancelledError:
+            await self.store.update(job.job_id, status="cancelled", detail="worker cancelled")
+            raise
+        except Exception:
+            await self.store.update(
+                job.job_id,
+                status="failed",
+                detail="evolution execution failed",
+            )
+            return True
+        await self.store.update(job.job_id, status="succeeded", detail="evolution completed")
+        return True
+
+
+class StoreBackedEvolutionRunner:
+    """REST runner backed by a durable store and a separate worker process."""
+
+    def __init__(self, store: EvolutionJobStore) -> None:
+        """Configure the runner with a durable job store."""
+        self.store = store
+
+    async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
+        """Persist a job and return its stable identifier."""
+        del request_id
+        job = await self.store.create_or_get(
+            graph_id=graph_id,
+            k_rounds=k_rounds,
+            idempotency_key=None,
+        )
+        return job.job_id
+
+    async def start_idempotent(
+        self,
+        *,
+        graph_id: str,
+        k_rounds: int,
+        request_id: str,
+        idempotency_key: str,
+    ) -> str:
+        """Persist or deduplicate an idempotent REST request."""
+        del request_id
+        job = await self.store.create_or_get(
+            graph_id=graph_id,
+            k_rounds=k_rounds,
+            idempotency_key=idempotency_key,
+        )
+        return job.job_id
+
+    async def status(self, job_id: str) -> Any:
+        """Adapt a durable record to the service's public status DTO."""
+        from methodos.service import EvolutionJobStatus
+
+        job = await self.store.get(job_id)
+        if job is None:
+            return None
+        return EvolutionJobStatus(job_id=job.job_id, status=job.status, detail=job.detail)
+
+
 __all__ = [
     "JOB_STATUSES",
     "EvolutionJob",
+    "EvolutionJobExecutor",
     "EvolutionJobStore",
+    "EvolutionJobWorker",
     "JobIdempotencyConflictError",
     "JobNotFoundError",
     "PostgresEvolutionJobStore",
     "SQLiteEvolutionJobStore",
+    "StoreBackedEvolutionRunner",
 ]

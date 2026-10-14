@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from methodos.jobs import (
+    EvolutionJob,
+    EvolutionJobWorker,
     JobIdempotencyConflictError,
     JobNotFoundError,
     SQLiteEvolutionJobStore,
+    StoreBackedEvolutionRunner,
 )
 
 
@@ -76,3 +80,62 @@ class TestSQLiteEvolutionJobStore:
         with pytest.raises(ValueError):
             await store.get("")
         assert await store.get("missing") is None
+
+    async def test_worker_claims_and_completes_a_job(self, store: SQLiteEvolutionJobStore) -> None:
+        job = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+        executed: list[str] = []
+
+        class Executor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                executed.append(claimed.job_id)
+
+        worker = EvolutionJobWorker(store, Executor())
+        assert await worker.run_once()
+        assert not await worker.run_once()
+        assert executed == [job.job_id]
+        completed = await store.get(job.job_id)
+        assert completed is not None
+        assert completed.status == "succeeded"
+
+    async def test_worker_records_failure_and_cancellation(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        failed = await store.create_or_get(graph_id="graph-1", k_rounds=2, idempotency_key=None)
+
+        class FailingExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                raise RuntimeError("boom")
+
+        assert await EvolutionJobWorker(store, FailingExecutor()).run_once()
+        failed_record = await store.get(failed.job_id)
+        assert failed_record is not None
+        assert failed_record.status == "failed"
+
+        cancelled = await store.create_or_get(graph_id="graph-2", k_rounds=2, idempotency_key=None)
+
+        class CancelledExecutor:
+            async def execute(self, claimed: EvolutionJob) -> None:
+                del claimed
+                raise asyncio.CancelledError
+
+        with pytest.raises(asyncio.CancelledError):
+            await EvolutionJobWorker(store, CancelledExecutor()).run_once()
+        cancelled_record = await store.get(cancelled.job_id)
+        assert cancelled_record is not None
+        assert cancelled_record.status == "cancelled"
+
+    async def test_store_backed_runner_round_trip(self, store: SQLiteEvolutionJobStore) -> None:
+        runner = StoreBackedEvolutionRunner(store)
+        job_id = await runner.start(graph_id="graph-1", k_rounds=2, request_id="request-1")
+        same_job_id = await runner.start_idempotent(
+            graph_id="graph-2",
+            k_rounds=2,
+            request_id="request-2",
+            idempotency_key="retry-2",
+        )
+        assert job_id != same_job_id
+        status = await runner.status(job_id)
+        assert status is not None
+        assert status.status == "queued"
