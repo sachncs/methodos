@@ -116,9 +116,9 @@ system production-ready.
 
 ### Persistence and data integrity
 
-8. Graph revisions and a SQLite/filesystem compare-and-swap update API now
-   prevent stale HTTP writers; distributed repositories still need the same
-   contract.
+8. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
+   across filesystem, SQLite, and Postgres repositories; broader contention
+   testing remains open.
 9. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; managed Postgres backups and restore drills
    remain operational responsibilities.
@@ -209,8 +209,8 @@ system production-ready.
 
 ### Phase 3 — durable data layer
 
-- Extend graph revision tokens and compare-and-swap writes to every durable
-  backend.
+- Extend contention tests around the existing graph revision tokens and
+  compare-and-swap writes across every durable backend.
 - Add reviewed schema migrations and data-model compatibility tests whenever
   schema version 2 is introduced.
 - Add migration runners and backup/restore verification around the

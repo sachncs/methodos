@@ -1144,6 +1144,8 @@ class PostgresRepository:  # pragma: no cover - exercised by the Postgres integr
 
     async def consume_rate_limit(self, key: str, limit: int) -> tuple[bool, int]:
         """Atomically consume a request in a shared one-minute window."""
+        if not key:
+            raise ValueError("key must not be empty")
         if limit < 1:
             raise ValueError("limit must be positive")
         pool = await self._get_pool()
