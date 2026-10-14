@@ -80,6 +80,18 @@ jobs:
           uv run python -c
           'import json, os; from pathlib import Path; Path("release-artifacts/release-manifest.json").write_text(json.dumps({"package_version": os.environ["PACKAGE_VERSION"].removeprefix("v"), "source_revision": os.environ["SOURCE_REVISION"], "image": os.environ["IMAGE_DIGEST"]}, indent=2) + "\n")'
 
+      - name: Verify release manifest
+        env:
+          IMAGE_DIGEST: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
+          PACKAGE_VERSION: ${{ github.ref_name }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          uv run python scripts/verify_release_manifest.py \
+            release-artifacts/release-manifest.json \
+            --package-version "${PACKAGE_VERSION#v}" \
+            --source-revision "$SOURCE_REVISION" \
+            --image "$IMAGE_DIGEST"
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
 

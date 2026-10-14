@@ -15,3 +15,15 @@ The CI release workflow validates tagged releases before publishing generated
 release notes, Python distribution artifacts, and a `release-manifest.json`
 asset that binds the package version and source revision to the immutable signed
 container digest.
+
+Operators can validate that binding before deployment with:
+
+```bash
+uv run python scripts/verify_release_manifest.py release-manifest.json \
+  --package-version 0.1.0 \
+  --source-revision <verified-commit-sha> \
+  --image ghcr.io/sachncs/methodos@sha256:<verified-digest>
+```
+
+The verifier rejects mutable image tags, malformed commit identifiers, unexpected
+manifest fields, and mismatched release identity values.

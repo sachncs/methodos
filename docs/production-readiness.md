@@ -48,6 +48,9 @@ system production-ready.
 - Tagged releases also publish `release-manifest.json`, binding the package
   version and source revision to the signed immutable image digest for
   independent operator verification.
+- `scripts/verify_release_manifest.py` strictly validates release manifests and
+  release identity expectations; the tagged release workflow runs this verifier
+  before publishing artifacts.
 - Dependabot tracks Python, site, and GitHub Actions dependencies weekly, and
   tagged releases verify the Git tag matches the Python package version.
 - Tagged releases are validated and published by `.github/workflows/release.yml`;
@@ -271,9 +274,10 @@ system production-ready.
    cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, keylessly
    sign, and verify the immutable GHCR image digest against the exact release
-   workflow identity, and publish a digest/source release manifest. Registry
-   retention and independent operator verification of that manifest remain
-   operational controls.
+   workflow identity, and publish a digest/source release manifest. A checked-in
+   verifier validates the manifest and expected release identity before
+   publication. Registry retention and independent verification of the Cosign
+   signature remain operational controls.
 
 ### Delivery and governance
 
@@ -339,7 +343,8 @@ system production-ready.
 
 - Done: request-correlated structured logs, OTEL spans, Prometheus metrics,
   SLOs, alert rules, starter Grafana dashboard, Prometheus and Collector syntax validation, runbook,
-  fault-injection tests, and container signing/attestation.
+  fault-injection tests, container signing/attestation, and executable release-
+  manifest verification.
 - Remaining: assign dashboard/paging ownership, define retention and
   error-budget policy, run long-duration load/soak/chaos tests, exercise
   reverse-proxy disconnect behavior, enable credentialed live-provider suites,
