@@ -211,86 +211,86 @@ system production-ready.
    The service rejects oversized declared and streamed request bodies with a
    bounded `413` response; reverse-proxy limits remain an additional perimeter
    control.
-- Service configuration parsing now rejects malformed, negative, NaN, and
-  infinite numeric values, incomplete pricing budgets, and readiness-probe
-  failures with explicit tests; the full local suite currently reports 96.05%
-  coverage.
+8. Service configuration parsing now rejects malformed, negative, NaN, and
+   infinite numeric values, incomplete pricing budgets, and readiness-probe
+   failures with explicit tests; the full local suite currently reports 96.05%
+   coverage.
 
 ### Persistence and data integrity
 
-8. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
+9. Graph revisions and compare-and-swap updates now prevent stale HTTP writers
    across filesystem, SQLite, and Postgres repositories; SQLite has regression
    coverage for independent repository instances and four concurrent OS
    processes. Filesystem multi-process contention remains intentionally outside
    its development-only deployment boundary.
-9. Postgres support is implemented as an optional pooled backend with local
+10. Postgres support is implemented as an optional pooled backend with local
    and CI integration coverage; managed Postgres backups and restore drills
    remain operational responsibilities.
-10. Migration infrastructure is implemented for forward-only SQL upgrades;
+11. Migration infrastructure is implemented for forward-only SQL upgrades;
     no schema version 2 migration is currently needed or defined.
-11. Filesystem trajectory appends are not a multi-process journal and should
+12. Filesystem trajectory appends are not a multi-process journal and should
     remain development-only.
-12. SQLite backup creation and verification are available, and the recovery
+13. SQLite backup creation and verification are available, and the recovery
     runbook now defines RPO/RTO evidence, separate-destination restore drills,
     canary verification, and readiness checks. GitHub Actions now runs the
     SQLite canary drill weekly and on demand; retention policy and managed-
     Postgres drill execution remain deployment responsibilities.
     Snapshot tags are validated consistently before filesystem, SQLite, and
     Postgres persistence, with a regression test covering the SQLite boundary.
-13. Filesystem JSON graph/trajectory corruption now raises a stable error and
+14. Filesystem JSON graph/trajectory corruption now raises a stable error and
     preserves the bad record under `corrupt/`; SQLite corruption is classified
     and now supports a non-overwriting `restore-backup` workflow that verifies
     the source and published destination.
 
 ### LLM and evolution
 
-14. Provider retry classification now maps LiteLLM's transient connection,
+15. Provider retry classification now maps LiteLLM's transient connection,
     throttling, gateway, and server exception classes separately from
     permanent client/auth/request classes, then falls back to status codes;
    numeric and HTTP-date `Retry-After` hints are honored within the configured maximum
    backoff, and the configured LLM timeout covers the complete retry operation;
    provider-specific policy tuning remains open. An ordered failover client
    provides an application-level fallback strategy.
-15. Local and optional shared SQLite/Postgres circuit breakers now protect
+16. Local and optional shared SQLite/Postgres circuit breakers now protect
     workers from retry storms with an atomic half-open probe; shared gateway
     policy and provider-specific breaker tuning remain open.
-16. Injectable per-client/tenant token budgets now enforce estimated input and
+17. Injectable per-client/tenant token budgets now enforce estimated input and
     cumulative request limits before dispatch. `ScopedTokenBudget` adds an
     explicit graph-capable scope routed through the polymorphic LLM contract;
     SQLite-backed durable accounting and Postgres-backed accounting remain
     available; paired deployment settings now wire scoped budgets into the
     default service LLM. Optional pricing-aware USD ceilings are supported when
     the deployment supplies a reviewed provider/model price table.
-17. Evolution round decisions are now durably auditable across supported
+18. Evolution round decisions are now durably auditable across supported
     repositories; human approval, identity, and promotion policy are still
     open.
-18. Backend snapshot restore now provides revision-safe graph rollback, and the
+19. Backend snapshot restore now provides revision-safe graph rollback, and the
     authenticated snapshot action is revision-guarded; approval records, human
     identity, and promotion workflow are still open.
-19. Live provider tests are skipped without API credentials.
+20. Live provider tests are skipped without API credentials.
 
 ### Observability and operations
 
-20. Request metrics, OTEL spans, and structured completion events are now
+21. Request metrics, OTEL spans, and structured completion events are now
     correlated with the request ID; exporter and retention policy remain
     deployment responsibilities.
-21. HTTP, repository-boundary, and LLM spans are instrumented; low-cardinality
+22. HTTP, repository-boundary, and LLM spans are instrumented; low-cardinality
     LLM attempt outcome counters are exported through `/metrics`. Prometheus
     and OpenTelemetry Collector configuration syntax are now validated in CI;
     collector deployment and exporter compatibility remain operational
     responsibilities.
-22. Baseline SLOs, starter alert thresholds, and an incident runbook are now
+23. Baseline SLOs, starter alert thresholds, and an incident runbook are now
     versioned in `docs/operations.md` and `docker/prometheus-rules.yml`;
     dashboard ownership, paging, retention, and error-budget policy remain
     deployment responsibilities; a starter dashboard is versioned in
     `docker/grafana-dashboard.json`.
-23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
+24. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
    cover independent repository instances, basic contention, concurrent job
    claiming, and a parallel HTTP smoke test plus deterministic worker fault
    injection. A bounded duration-based HTTP soak probe is available for local
    and deployment checks; long-duration load, chaos, file-corruption, and
    broader cancellation tests remain open.
-24. CI scans the Docker image; tagged releases now publish, attest, keylessly
+25. CI scans the Docker image; tagged releases now publish, attest, keylessly
    sign, and verify the immutable GHCR image digest against the exact release
    workflow identity, and publish a digest/source release manifest. A checked-in
    verifier validates the manifest and expected release identity before
@@ -299,18 +299,18 @@ system production-ready.
 
 ### Delivery and governance
 
-25. Release tags are validated and published automatically; the release
+26. Release tags are validated and published automatically; the release
     workflow runs Python quality gates and the Astro build/audit before
     publication, and Dependabot tracks Python, npm, and GitHub Actions
     updates. Contributor and security-reporting policy is now versioned, while
     protected-branch review enforcement and human review of dependency changes
     remain repository-governance responsibilities.
-26. Changelog and compatibility policy are documented in `CHANGELOG.md` and
-    `docs/compatibility.md`; migration tooling for future schema versions is
-    still open.
-27. The redesigned site is deployed and publicly verified at the GitHub Pages
+27. Changelog and compatibility policy are documented in `CHANGELOG.md` and
+    `docs/compatibility.md`; each future schema version still requires a
+    reviewed migration and data-model compatibility tests.
+28. The redesigned site is deployed and publicly verified at the GitHub Pages
     URL.
-28. Browser regression smoke tests, axe-core accessibility-budget checks, and
+29. Browser regression smoke tests, axe-core accessibility-budget checks, and
     product-page plus branded 404 visual snapshots run in CI for desktop and
     mobile; broader page coverage should be added if the site grows.
 
