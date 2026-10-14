@@ -27,13 +27,16 @@ def test_run_check_reports_successes(capsys: pytest.CaptureFixture[str]) -> None
             requests=8,
             concurrency=3,
             timeout=1,
+            rounds=2,
             transport=httpx.MockTransport(handler),
         )
     )
 
     assert result == 0
     output = capsys.readouterr().out
-    assert "succeeded=8" in output
+    assert "requests=16" in output
+    assert "rounds=2" in output
+    assert "succeeded=16" in output
     assert "failed=0" in output
     assert "p99_seconds=" in output
 
@@ -49,21 +52,31 @@ def test_run_check_returns_failure_for_non_200(capsys: pytest.CaptureFixture[str
             requests=2,
             concurrency=1,
             timeout=1,
+            rounds=2,
             transport=httpx.MockTransport(handler),
         )
     )
 
     assert result == 1
     captured = capsys.readouterr()
-    assert "failed=2" in captured.out
+    assert "failed=4" in captured.out
     assert "HTTP 503" in captured.err
 
 
 @pytest.mark.parametrize(
-    ("requests", "concurrency", "timeout"),
-    [(0, 1, 1), (100001, 1, 1), (1, 0, 1), (1, 1, 0)],
+    ("requests", "concurrency", "timeout", "rounds"),
+    [
+        (0, 1, 1, 1),
+        (100001, 1, 1, 1),
+        (1000, 1, 1, 101),
+        (1, 0, 1, 1),
+        (1, 1, 0, 1),
+        (1, 1, 1, 0),
+    ],
 )
-def test_run_check_rejects_invalid_limits(requests: int, concurrency: int, timeout: float) -> None:
+def test_run_check_rejects_invalid_limits(
+    requests: int, concurrency: int, timeout: float, rounds: int
+) -> None:
     with pytest.raises(ValueError):
         asyncio.run(
             run_check(
@@ -71,5 +84,6 @@ def test_run_check_rejects_invalid_limits(requests: int, concurrency: int, timeo
                 requests=requests,
                 concurrency=concurrency,
                 timeout=timeout,
+                rounds=rounds,
             )
         )

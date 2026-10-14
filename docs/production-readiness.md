@@ -77,6 +77,8 @@ system production-ready.
 - The local release gate exercises parallel HTTP reads and compare-and-swap
   writers through FastAPI, alongside concurrent evolution-job claims and a
   worker storage-outage recovery test.
+- The HTTP load probe supports a hard-capped repeated-round mode; CI runs five
+  1,000-request rounds and reports aggregate throughput and p95/p99 latency.
 - The Astro browser suite runs axe-core accessibility-budget checks for both
   desktop and mobile projects; the public product palette now satisfies the
   audited WCAG contrast checks.
@@ -295,6 +297,6 @@ system production-ready.
   SLOs, alert rules, starter Grafana dashboard, Prometheus and Collector syntax validation, runbook,
   fault-injection tests, and container signing/attestation.
 - Remaining: assign dashboard/paging ownership, define retention and
-  error-budget policy, run sustained load/soak/chaos tests, add full HTTP
+  error-budget policy, run long-duration load/soak/chaos tests, add full HTTP
   disconnect tests, enable credentialed live-provider suites, and independently
   verify release signatures.

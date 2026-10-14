@@ -100,7 +100,8 @@ jobs:
           uv run python scripts/http_load_smoke.py \
             --url http://127.0.0.1:8000/health \
             --requests 1000 \
-            --concurrency 25
+            --concurrency 25 \
+            --rounds 5
 
       - name: Validate production Compose configuration
         run: docker compose -f docker/compose.yml config --quiet

@@ -88,11 +88,12 @@ its dashboard status; retain the drill evidence with the release.
   service changes:
 
   ```bash
-  uv run python scripts/http_load_smoke.py --requests 1000 --concurrency 25
+  uv run python scripts/http_load_smoke.py --requests 1000 --concurrency 25 --rounds 5
   ```
 
   Record throughput, p95/p99 latency, failure count, and the deployment revision;
-  use a dedicated load environment for sustained or destructive tests.
+  this is a bounded five-round gate, not a substitute for a dedicated long-duration
+  soak or destructive test environment.
 - Run a restore drill at least once per release or according to the service's
   recovery policy. For SQLite, the repository-level drill is:
 
