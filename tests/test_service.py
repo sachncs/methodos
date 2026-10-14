@@ -141,6 +141,46 @@ class TestHealth:
         assert response.status_code == 200
         assert "methodos_evolution_worker" in response.text
 
+
+class TestConcurrentHttpResilience:
+    async def test_parallel_reads_keep_request_correlation(
+        self,
+        seeded_repo: SQLiteRepository,
+    ) -> None:
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as concurrent_client:
+            responses = await asyncio.gather(
+                *(
+                    asyncio.to_thread(concurrent_client.get, "/v1/graphs/g1")
+                    for _ in range(24)
+                )
+            )
+        assert all(response.status_code == 200 for response in responses)
+        request_ids = {response.headers["x-request-id"] for response in responses}
+        assert len(request_ids) == len(responses)
+
+    async def test_parallel_cas_writers_allow_only_one_revision_winner(
+        self,
+        seeded_repo: SQLiteRepository,
+        graph: ProceduralGraph,
+    ) -> None:
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as concurrent_client:
+            responses = await asyncio.gather(
+                *(
+                    asyncio.to_thread(
+                        concurrent_client.put,
+                        "/v1/graphs/g1",
+                        headers={"If-Match": "0"},
+                        json=graph.model_dump(mode="json"),
+                    )
+                    for _ in range(8)
+                )
+            )
+        statuses = [response.status_code for response in responses]
+        assert statuses.count(200) == 1
+        assert statuses.count(409) == len(statuses) - 1
+
     def test_readiness_checks_repository(self, client: TestClient) -> None:
         response = client.get("/ready")
         assert response.status_code == 200
