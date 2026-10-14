@@ -45,6 +45,9 @@ system production-ready.
   retention remain operational responsibilities.
 - Tagged releases publish the runtime image to GHCR with BuildKit SBOM and
   provenance attestations, then sign the immutable digest with keyless Cosign.
+- Tagged releases also publish `release-manifest.json`, binding the package
+  version and source revision to the signed immutable image digest for
+  independent operator verification.
 - Dependabot tracks Python, site, and GitHub Actions dependencies weekly, and
   tagged releases verify the Git tag matches the Python package version.
 - Tagged releases are validated and published by `.github/workflows/release.yml`;
@@ -268,8 +271,9 @@ system production-ready.
    cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, keylessly
    sign, and verify the immutable GHCR image digest against the exact release
-   workflow identity. Registry retention and independent operator verification
-   remain operational controls.
+   workflow identity, and publish a digest/source release manifest. Registry
+   retention and independent operator verification of that manifest remain
+   operational controls.
 
 ### Delivery and governance
 

@@ -12,4 +12,6 @@ Breaking changes require:
 4. updated API documentation and examples.
 
 The CI release workflow validates tagged releases before publishing generated
-release notes and the Python distribution artifacts.
+release notes, Python distribution artifacts, and a `release-manifest.json`
+asset that binds the package version and source revision to the immutable signed
+container digest.
