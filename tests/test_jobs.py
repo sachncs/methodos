@@ -13,6 +13,7 @@ from methodos.jobs import (
     EvolutionJobWorker,
     JobIdempotencyConflictError,
     JobNotFoundError,
+    JobQuotaExceededError,
     SQLiteEvolutionJobStore,
     StoreBackedEvolutionRunner,
 )
@@ -93,6 +94,32 @@ class TestSQLiteEvolutionJobStore:
         first = await store.create_or_get(graph_id="graph-1", k_rounds=3, idempotency_key=None)
         second = await store.create_or_get(graph_id="graph-1", k_rounds=3, idempotency_key=None)
         assert first.job_id != second.job_id
+
+    async def test_active_job_quota_is_tenant_scoped(self, store: SQLiteEvolutionJobStore) -> None:
+        first = await store.create_or_get(
+            graph_id="graph-1",
+            k_rounds=1,
+            idempotency_key=None,
+            tenant_id="alpha",
+            max_active_jobs=1,
+        )
+        with pytest.raises(JobQuotaExceededError):
+            await store.create_or_get(
+                graph_id="graph-2",
+                k_rounds=1,
+                idempotency_key=None,
+                tenant_id="alpha",
+                max_active_jobs=1,
+            )
+        second = await store.create_or_get(
+            graph_id="graph-2",
+            k_rounds=1,
+            idempotency_key=None,
+            tenant_id="beta",
+            max_active_jobs=1,
+        )
+        assert first.tenant_id == "alpha"
+        assert second.tenant_id == "beta"
 
     async def test_invalid_inputs_and_missing_update_fail(
         self,

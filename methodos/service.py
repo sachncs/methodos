@@ -43,6 +43,7 @@ from methodos.jobs import (
     EvolutionJobMetricsStore,
     EvolutionJobWorker,
     JobIdempotencyConflictError,
+    JobQuotaExceededError,
 )
 from methodos.llm import LiteLLMClient, LLMClient
 from methodos.repo import (
@@ -960,6 +961,8 @@ def create_app(
                     )
         except JobIdempotencyConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except JobQuotaExceededError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         return EvolveResponse(detail="evolution queued", job_id=job_id, status="queued")
 
     return app

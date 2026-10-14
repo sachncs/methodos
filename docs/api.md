@@ -319,6 +319,8 @@ Routers mounted by the factory:
   `EvolutionRunner` is injected; otherwise 501. An `Idempotency-Key` is
   supported only by runners implementing `IdempotentEvolutionRunner` and
   returns 501 when the configured runner cannot guarantee deduplication.
+  Durable store-backed runners may enforce an active-job quota and return 429
+  before queue admission.
 - `GET /v1/evolution/jobs/{job_id}` → `EvolutionJobStatus` through the
   injected runner.
 

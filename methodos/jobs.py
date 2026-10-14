@@ -63,6 +63,10 @@ class JobIdempotencyConflictError(RuntimeError):
     """Raised when a key is reused for a different evolution request."""
 
 
+class JobQuotaExceededError(RuntimeError):
+    """Raised when a tenant has reached its active evolution-job quota."""
+
+
 class JobNotFoundError(FileNotFoundError):
     """Raised when updating a job that does not exist."""
 
@@ -78,6 +82,7 @@ class EvolutionJobStore(Protocol):
         k_rounds: int,
         idempotency_key: str | None,
         tenant_id: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> EvolutionJob:
         """Create a job or return the existing job for an idempotency key."""
         ...  # pragma: no cover
@@ -195,10 +200,13 @@ class SQLiteEvolutionJobStore:
         k_rounds: int,
         idempotency_key: str | None,
         tenant_id: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> EvolutionJob:
         """Create a durable job, atomically deduplicating a supplied key."""
         if not graph_id or k_rounds <= 0:
             raise ValueError("graph_id must be non-empty and k_rounds must be positive")
+        if max_active_jobs is not None and max_active_jobs <= 0:
+            raise ValueError("max_active_jobs must be positive when configured")
         fingerprint = self._fingerprint(graph_id, k_rounds, tenant_id)
         storage_idempotency_key = (
             f"{tenant_id}:{idempotency_key}"
@@ -223,6 +231,14 @@ class SQLiteEvolutionJobStore:
                                 )
                             connection.commit()
                             return self._record(row)
+                    if max_active_jobs is not None:
+                        active = connection.execute(
+                            "SELECT COUNT(*) FROM evolution_jobs "
+                            "WHERE status IN ('queued', 'running') AND tenant_id IS ?",
+                            (tenant_id,),
+                        ).fetchone()
+                        if active is None or int(active[0]) >= max_active_jobs:
+                            raise JobQuotaExceededError("active evolution-job quota exceeded")
                     job_id = str(uuid.uuid4())
                     connection.execute(
                         "INSERT INTO evolution_jobs "
@@ -469,10 +485,13 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
         k_rounds: int,
         idempotency_key: str | None,
         tenant_id: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> EvolutionJob:
         """Create a job or atomically return the keyed existing job."""
         if not graph_id or k_rounds <= 0:
             raise ValueError("graph_id must be non-empty and k_rounds must be positive")
+        if max_active_jobs is not None and max_active_jobs <= 0:
+            raise ValueError("max_active_jobs must be positive when configured")
         fingerprint = SQLiteEvolutionJobStore._fingerprint(graph_id, k_rounds, tenant_id)
         storage_idempotency_key = (
             f"{tenant_id}:{idempotency_key}"
@@ -493,6 +512,15 @@ class PostgresEvolutionJobStore:  # pragma: no cover - exercised by optional int
                             "idempotency key was used for a different request"
                         )
                     return self._record(row)
+            if max_active_jobs is not None:
+                active = await connection.fetchval(
+                    "SELECT COUNT(*) FROM methodos_evolution_jobs "
+                    "WHERE status IN ('queued', 'running') "
+                    "AND tenant_id IS NOT DISTINCT FROM $1",
+                    tenant_id,
+                )
+                if active is None or int(active) >= max_active_jobs:
+                    raise JobQuotaExceededError("active evolution-job quota exceeded")
             job_id = str(uuid.uuid4())
             row = await connection.fetchrow(
                 "INSERT INTO methodos_evolution_jobs "
@@ -706,9 +734,12 @@ class EvolutionJobWorker:
 class StoreBackedEvolutionRunner:
     """REST runner backed by a durable store and a separate worker process."""
 
-    def __init__(self, store: EvolutionJobStore) -> None:
+    def __init__(self, store: EvolutionJobStore, *, max_active_jobs: int | None = None) -> None:
         """Configure the runner with a durable job store."""
+        if max_active_jobs is not None and max_active_jobs <= 0:
+            raise ValueError("max_active_jobs must be positive when configured")
         self.store = store
+        self.max_active_jobs = max_active_jobs
 
     async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
         """Persist a job and return its stable identifier."""
@@ -717,6 +748,7 @@ class StoreBackedEvolutionRunner:
             graph_id=graph_id,
             k_rounds=k_rounds,
             idempotency_key=None,
+            max_active_jobs=self.max_active_jobs,
         )
         return job.job_id
 
@@ -735,6 +767,7 @@ class StoreBackedEvolutionRunner:
             k_rounds=k_rounds,
             idempotency_key=None,
             tenant_id=tenant_id,
+            max_active_jobs=self.max_active_jobs,
         )
         return job.job_id
 
@@ -752,6 +785,7 @@ class StoreBackedEvolutionRunner:
             graph_id=graph_id,
             k_rounds=k_rounds,
             idempotency_key=idempotency_key,
+            max_active_jobs=self.max_active_jobs,
         )
         return job.job_id
 
@@ -771,6 +805,7 @@ class StoreBackedEvolutionRunner:
             k_rounds=k_rounds,
             idempotency_key=idempotency_key,
             tenant_id=tenant_id,
+            max_active_jobs=self.max_active_jobs,
         )
         return job.job_id
 
@@ -801,6 +836,7 @@ __all__ = [
     "EvolutionJobWorker",
     "JobIdempotencyConflictError",
     "JobNotFoundError",
+    "JobQuotaExceededError",
     "PostgresEvolutionJobStore",
     "SQLiteEvolutionJobStore",
     "StoreBackedEvolutionRunner",

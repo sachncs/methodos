@@ -85,13 +85,14 @@ system production-ready.
 - The evolution API verifies graph ownership before queueing work and maps
   idempotency-key reuse conflicts to a stable HTTP 409 response. Durable
   SQLite/Postgres runners now bind jobs and idempotency keys to tenants and
-  hide status from other tenants; external runners must implement the same
-  capability before tenant mode accepts them.
+  hide status from other tenants; configurable active-job quotas reject work
+  atomically with HTTP 429 before a tenant can overload the queue. External
+  runners must implement the same capability before tenant mode accepts them.
 - SQLite now uses an atomic WAL-backed rate-limit window shared by all local
   service processes; filesystem deployments remain process-local by design.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
   atomic durable token budgets for local and horizontally scaled deployments;
-  provider-specific cost pricing and graph-level quotas remain open.
+  provider-specific cost pricing and graph-level token quotas remain open.
 - `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
   shared async breaker state with an atomic half-open probe lease; gateway
   policy and provider-specific breaker tuning remain deployment concerns.
@@ -107,9 +108,9 @@ system production-ready.
    and production scheduler ownership, external-runner tenant capability, and
    alert-threshold tuning remain open;
    starter queue and worker alerts are now versioned.
-2. Distributed rate limiting is implemented for Postgres and SQLite backends;
-   quota enforcement and shared limiting for filesystem deployments remain
-   open.
+2. Distributed rate limiting and durable active-job quotas are implemented for
+   Postgres and SQLite backends; token/graph quotas and shared limiting for
+   filesystem deployments remain open.
 3. Tenant-key authentication, server-derived tenant identity, and optional
    reader/writer/operator API-key roles now exist; external identity-provider
    integration and role lifecycle management remain open.
@@ -218,10 +219,11 @@ system production-ready.
 
 - Done: stable error envelope, API-key authentication and roles, CORS
   validation, shared SQLite/Postgres rate-limit windows, tenant namespaces,
-  tenant-aware jobs, idempotency, and queued evolution status polling.
+  tenant-aware jobs, active-job admission quotas, idempotency, and queued
+  evolution status polling.
 - Remaining: integrate an external identity provider, manage key/role
-  lifecycle, add graph-level quotas, and make production scheduler ownership
-  explicit for each deployment.
+  lifecycle, add graph-level token quotas, and make production scheduler
+  ownership explicit for each deployment.
 
 ### Phase 3 — durable data layer
 

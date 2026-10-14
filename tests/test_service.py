@@ -727,6 +727,35 @@ class TestEvolveEndpoint:
             assert retried.status_code == repeated.status_code == 202
             assert retried.json()["job_id"] == repeated.json()["job_id"]
 
+    def test_tenant_active_job_quota_returns_rate_limit(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_TENANT_KEYS", "alpha:key-alpha")
+        monkeypatch.setenv("METHODOS_API_KEY_ROLES", "key-alpha=operator")
+        repo = SQLiteRepository(db_path=tmp_path / "quota-service.db")
+        jobs = SQLiteEvolutionJobStore(tmp_path / "quota-jobs.db")
+        app = create_app(
+            repo=repo,
+            llm=ScriptedLLM(responses=["x"]),
+            evolution_runner=StoreBackedEvolutionRunner(jobs, max_active_jobs=1),
+        )
+        headers = {"X-API-Key": "key-alpha"}
+        with TestClient(app) as runner_client:
+            assert (
+                runner_client.post("/v1/graphs", headers=headers, json={"id": "g1"}).status_code
+                == 201
+            )
+            first = runner_client.post(
+                "/v1/graphs/g1/evolve", headers=headers, json={"k_rounds": 1}
+            )
+            second = runner_client.post(
+                "/v1/graphs/g1/evolve", headers=headers, json={"k_rounds": 1}
+            )
+        assert first.status_code == 202
+        assert second.status_code == 429
+
     def test_tenant_mode_rejects_unscoped_runner(
         self,
         tmp_path: Path,
