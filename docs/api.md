@@ -313,6 +313,8 @@ Routers mounted by the factory:
 - `POST /v1/graphs/{graph_id}/rollback/{tag}` (header: `If-Match`) → `ProceduralGraph`
 - `POST /v1/graphs/{graph_id}/evolve` → `202 {detail, job_id, status}` when an
   `EvolutionRunner` is injected; otherwise 501.
+- `GET /v1/evolution/jobs/{job_id}` → `EvolutionJobStatus` through the
+  injected runner.
 
 Run with: `uvicorn methodos.service:app --host 0.0.0.0 --port 8000`
 

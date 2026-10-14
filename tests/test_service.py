@@ -502,6 +502,11 @@ class TestEvolveEndpoint:
                 assert request_id
                 return "job-1"
 
+            async def status(self, job_id: str):
+                if job_id != "job-1":
+                    return None
+                return {"job_id": job_id, "status": "running", "detail": "working"}
+
         app = create_app(
             repo=seeded_repo,
             llm=ScriptedLLM(responses=["x"]),
@@ -515,6 +520,18 @@ class TestEvolveEndpoint:
             "job_id": "job-1",
             "status": "queued",
         }
+
+        with TestClient(app) as runner_client:
+            status = runner_client.get("/v1/evolution/jobs/job-1")
+        assert status.status_code == 200
+        assert status.json()["status"] == "running"
+        with TestClient(app) as runner_client:
+            missing = runner_client.get("/v1/evolution/jobs/missing")
+        assert missing.status_code == 404
+
+    def test_status_requires_configured_runner(self, client: TestClient) -> None:
+        response = client.get("/v1/evolution/jobs/job-1")
+        assert response.status_code == 501
 
 
 class TestRollbackEndpoint:

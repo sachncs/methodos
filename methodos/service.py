@@ -120,12 +120,25 @@ class EvolveResponse(BaseModel):
     status: str | None = None
 
 
+class EvolutionJobStatus(BaseModel):
+    """Public status returned while an evolution job is being processed."""
+
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(min_length=1, max_length=128, pattern=GRAPH_ID_PATTERN)
+    status: str = Field(min_length=1, max_length=32)
+    detail: str | None = None
+
+
 @runtime_checkable
 class EvolutionRunner(Protocol):
     """Host-owned job launcher for asynchronous evolution."""
 
     async def start(self, *, graph_id: str, k_rounds: int, request_id: str) -> str:
         """Queue evolution and return a stable job identifier."""
+        ...
+
+    async def status(self, job_id: str) -> EvolutionJobStatus | None:
+        """Return a job status or `None` when the job is unknown."""
         ...
 
 
@@ -715,6 +728,21 @@ def create_app(
         except GraphRevisionConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.get("/v1/evolution/jobs/{job_id}", response_model=EvolutionJobStatus)
+    async def evolution_job_status(
+        job_id: str,
+        http_request: Request,
+    ) -> EvolutionJobStatus:
+        """Return status for a host-owned evolution job."""
+        validate_graph_id(job_id)
+        require_role(http_request, "operator")
+        if evolution_runner is None:
+            raise HTTPException(status_code=501, detail="evolution runner is not configured")
+        status = await evolution_runner.status(job_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail="evolution job not found")
+        return status
+
     @app.post(
         "/v1/graphs/{graph_id}/evolve",
         response_model=EvolveResponse,
@@ -753,6 +781,7 @@ app = create_app()
 
 __all__ = [
     "ErrorResponse",
+    "EvolutionJobStatus",
     "EvolutionRunner",
     "EvolveRequest",
     "EvolveResponse",
