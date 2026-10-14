@@ -145,10 +145,11 @@ system production-ready.
 
 ### LLM and evolution
 
-14. Provider retry classification now distinguishes transient transport,
-    throttling, and server errors from permanent client/auth failures; provider
-    SDK-specific mappings remain open. An ordered failover client now provides
-    an application-level fallback strategy.
+14. Provider retry classification now maps LiteLLM's transient connection,
+    throttling, gateway, and server exception classes separately from
+    permanent client/auth/request classes, then falls back to status codes;
+    provider-specific policy tuning remains open. An ordered failover client
+    provides an application-level fallback strategy.
 15. Local and optional shared SQLite/Postgres circuit breakers now protect
     workers from retry storms with an atomic half-open probe; shared gateway
     policy and provider-specific breaker tuning remain open.

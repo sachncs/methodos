@@ -7,8 +7,9 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+import litellm
 import pytest
 from pydantic import BaseModel
 
@@ -323,6 +324,15 @@ def test_provider_error_policy_distinguishes_transient_and_permanent_errors() ->
     assert not is_retryable_provider_error(UnauthorizedError())
     assert is_retryable_provider_error(RateLimitError())
     assert is_retryable_provider_error(TimeoutError())
+
+    def litellm_error(name: str) -> Exception:
+        error_class = cast(type[Exception], getattr(litellm, name))
+        return error_class("x", "test", "m")
+
+    assert is_retryable_provider_error(litellm_error("APIConnectionError"))
+    assert is_retryable_provider_error(litellm_error("RateLimitError"))
+    assert not is_retryable_provider_error(litellm_error("AuthenticationError"))
+    assert not is_retryable_provider_error(litellm_error("BadRequestError"))
 
 
 def test_litellm_client_model_property() -> None:

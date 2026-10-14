@@ -24,7 +24,7 @@ import sqlite3
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 import litellm
 from opentelemetry import trace
@@ -37,6 +37,37 @@ LLM_ATTEMPTS = Counter(
     "methodos_llm_attempts_total",
     "LLM provider attempts by model and outcome.",
     ["model", "outcome"],
+)
+
+def _litellm_error_class(name: str) -> type[BaseException]:
+    """Return a LiteLLM exception class absent from its public stubs."""
+    return cast(type[BaseException], getattr(litellm, name))
+
+
+_RETRYABLE_PROVIDER_ERRORS = tuple(
+    _litellm_error_class(name)
+    for name in (
+        "APIConnectionError",
+        "BadGatewayError",
+        "InternalServerError",
+        "RateLimitError",
+        "RouterRateLimitError",
+        "ServiceUnavailableError",
+    )
+)
+_PERMANENT_PROVIDER_ERRORS = tuple(
+    _litellm_error_class(name)
+    for name in (
+        "AuthenticationError",
+        "BadRequestError",
+        "ContentPolicyViolationError",
+        "ContextWindowExceededError",
+        "InvalidRequestError",
+        "NotFoundError",
+        "PermissionDeniedError",
+        "UnsupportedParamsError",
+        "UnprocessableEntityError",
+    )
 )
 
 
@@ -312,6 +343,10 @@ class PostgresTokenBudget:  # pragma: no cover - exercised by optional integrati
 
 def is_retryable_provider_error(exc: Exception) -> bool:
     """Return whether a provider failure is safe to retry."""
+    if isinstance(exc, _PERMANENT_PROVIDER_ERRORS):
+        return False
+    if isinstance(exc, _RETRYABLE_PROVIDER_ERRORS):
+        return True
     status_code = getattr(exc, "status_code", None)
     if isinstance(status_code, int):
         if status_code == 429 or status_code >= 500:
