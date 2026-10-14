@@ -1,0 +1,35 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+---
+<DocsLayout title="Engineering guide" description="Methodos architecture, Google-style Python conventions, structural polymorphism, and testing rules.">
+  <div class="doc-shell">
+    <div class="content-grid">
+      <nav class="toc" aria-label="On this page"><a href={`${base}docs/`}>← Docs home</a><a href="#boundaries">Boundaries</a><a href="#polymorphism">Polymorphism</a><a href="#style">Style</a><a href="#testing">Testing</a></nav>
+      <article>
+        <p class="eyebrow">how the code stays changeable</p>
+        <h1>Strong boundaries.<br /><span>Few surprises.</span></h1>
+        <p class="lede">The design favors small domain contracts, explicit failure behavior, and composition over inheritance. Add an implementation without making the core know about your infrastructure.</p>
+        <h2 id="boundaries">Module boundaries</h2>
+        <ul><li><code>schema.py</code> owns validated wire and domain data.</li><li><code>graph.py</code> owns pure graph transformations and invariants.</li><li><code>adapter.py</code> owns runtime orchestration around a host solver.</li><li><code>llm.py</code> owns provider I/O, timeouts, bounded output, and retries.</li><li><code>repo.py</code> owns durable persistence behind protocols.</li><li><code>jobs.py</code> owns durable evolution records and workers.</li><li><code>service.py</code> owns HTTP DTOs, auth, readiness, and transport errors.</li></ul>
+        <h2 id="polymorphism">Structural polymorphism</h2>
+        <p>Runtime dependencies are substituted through <code>typing.Protocol</code> contracts: <code>Solver</code>, <code>LLMClient</code>, <code>Repository</code>, <code>VectorIndex</code>, and <code>ActionExecutor</code>. This is the OOP seam: behavior is replaceable without forcing every host into a class hierarchy.</p>
+        <pre><code>class Solver(Protocol):
+    async def step(self, state: AgentState) -&gt; str: ...
+
+class TestSolver:
+    async def step(self, state: AgentState) -&gt; str:
+        return "answer"</code></pre>
+        <h2 id="style">Style and naming</h2>
+        <p>Public APIs use Google-style <code>snake_case</code>, <code>PascalCase</code>, and <code>UPPER_SNAKE_CASE</code>. Implementation-only state uses one leading underscore, such as <code>self._pool</code>. Double-leading underscores are reserved for language protocols and name-mangling cases.</p>
+        <p><span class="pill">Ruff</span><span class="pill">mypy</span><span class="pill">absolute imports</span><span class="pill">__all__</span><span class="pill">no lazy imports</span></p>
+        <h2 id="testing">Testing contract</h2>
+        <p>The quality gate includes linting, formatting, typing, unit/API tests, Postgres integration, browser accessibility, container startup, load smoke tests, backup/restore, SBOM, and vulnerability scanning. The local integration recipe is on the testing guide.</p>
+        <pre><code>uv run ruff check .
+uv run ruff format --check methodos tests scripts eval/hotpotqa/*.py examples
+uv run mypy methodos tests scripts eval/hotpotqa/*.py examples
+uv run pytest -q --cov=methodos --cov-fail-under=95</code></pre>
+      </article>
+    </div>
+  </div>
+</DocsLayout>

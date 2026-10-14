@@ -3,4 +3,10 @@
   <url>
     <loc>https://sachncs.github.io/methodos/</loc>
   </url>
+  <url><loc>https://sachncs.github.io/methodos/docs/</loc></url>
+  <url><loc>https://sachncs.github.io/methodos/docs/getting-started/</loc></url>
+  <url><loc>https://sachncs.github.io/methodos/docs/api/</loc></url>
+  <url><loc>https://sachncs.github.io/methodos/docs/production/</loc></url>
+  <url><loc>https://sachncs.github.io/methodos/docs/engineering/</loc></url>
+  <url><loc>https://sachncs.github.io/methodos/docs/evaluation/</loc></url>
 </urlset>

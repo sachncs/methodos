@@ -363,9 +363,9 @@ Requires `pip install methodos[eval]`. CLI: `python -m eval.hotpotqa.run`.
 
 ## Versioning
 
-`methodos.__version__` is `"0.1.0"`. The `ProceduralGraph.schema_version`
-field is pinned to `Literal[1]`; bumping it requires a migration runner
-(deferred to v2 — see plan.md).
+`methodos.__version__` is the package version declared in `pyproject.toml`. The
+`ProceduralGraph.schema_version` field is pinned to `Literal[1]`; future schema
+changes require a reviewed forward-only migration and compatibility tests.
 
 ## Stability
 

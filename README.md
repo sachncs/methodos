@@ -155,6 +155,8 @@ docs/
 
 ## Documentation
 
+- [Product site](https://sachncs.github.io/methodos/) — overview, standalone guides, and deployment path
+- [Web documentation](https://sachncs.github.io/methodos/docs/) — getting started, API, production, engineering, and evaluation guides
 - [Architecture](docs/architecture.md) — module map and data flow
 - [API reference](docs/api.md) — every public symbol
 - [Deployment](docs/deployment.md) — Docker, env vars, prod checklist
@@ -163,6 +165,10 @@ docs/
 - [Engineering principles](docs/engineering.md) — boundaries, polymorphism, and reliability rules
 - [Testing](docs/testing.md) — local quality gate and integration test matrix
 - [Production-readiness audit](docs/production-readiness.md) — issue inventory and remediation plan
+
+The web documentation is the recommended entry point for users and
+contributors. The Markdown files remain the source-of-truth reference for
+maintainers and are not required to use the product.
 
 ## Development
 

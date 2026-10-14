@@ -1,0 +1,62 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+---
+<DocsLayout title="Getting started" description="Install methodos and add typed procedural memory to an existing agent.">
+  <div class="doc-shell">
+    <div class="content-grid">
+      <nav class="toc" aria-label="On this page"><a href={`${base}docs/`}>← Docs home</a><a href="#install">Install</a><a href="#graph">Build a graph</a><a href="#adapter">Add the adapter</a><a href="#service">Run the service</a></nav>
+      <article>
+        <p class="eyebrow">first 10 minutes</p>
+        <h1>Start with<br /><span>one graph.</span></h1>
+        <p class="lede">Keep your solver. Methodos adds a typed, queryable memory layer around the actions your agent already understands.</p>
+        <h2 id="install">Install the package</h2>
+        <p>The core package uses SQLite by default. Install only the capabilities you need.</p>
+        <pre><code>pip install methodos
+# Optional capabilities
+pip install "methodos[postgres]"  # horizontal deployments
+pip install "methodos[vec]"       # sqlite-vec matching
+pip install "methodos[eval]"      # evaluation harness</code></pre>
+        <h2 id="graph">Build a graph</h2>
+        <p>A graph describes actions, transitions, and the conditions that make a next step useful.</p>
+        <pre><code is:raw>from methodos import Attribute, Edge, Node, ProceduralGraph, Relation
+
+graph = ProceduralGraph(
+    id="support-agent",
+    nodes={
+        "start": Node(id="start"),
+        "search": Node(id="search", description="search a trusted source"),
+        "answer": Node(id="answer"),
+    },
+    edges=[Edge(
+        src="start",
+        dst="search",
+        relation=Relation.LEADS_TO,
+        attribute=Attribute(
+            condition="the answer needs evidence",
+            guidance="search with a focused query",
+            pitfalls="do not search with the whole conversation",
+        ),
+    )],
+    terminal_ids={"answer"},
+)</code></pre>
+        <h2 id="adapter">Add the adapter</h2>
+        <p>Implement the small async <code>Solver</code> protocol and inject an LLM client. The adapter owns the guidance context; your host owns observations and external tools.</p>
+        <pre><code>from methodos import AgentState, PGAdapter, Solver
+
+class MySolver:
+    async def step(self, state: AgentState) -&gt; str:
+        return "search"
+
+adapter = PGAdapter(solver=MySolver(), graph=graph, llm=llm)
+action = await adapter.step(query="Where is the order?", trajectory=[])</code></pre>
+        <h2 id="service">Run the hosted service</h2>
+        <p>For local development, use the CLI or Uvicorn. Production mode requires credentials and durable SQLite/Postgres persistence.</p>
+        <pre><code>methodos init
+uvicorn methodos.service:app --reload --host 127.0.0.1 --port 8000
+curl http://127.0.0.1:8000/health</code></pre>
+        <div class="note">The default app is intentionally conservative: evolution work requires an injected durable runner. Do not run LLM evolution inline in an API process.</div>
+      </article>
+    </div>
+  </div>
+</DocsLayout>

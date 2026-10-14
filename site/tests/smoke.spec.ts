@@ -11,10 +11,7 @@ test("product page exposes the primary journey", async ({ page }) => {
     "https://sachncs.github.io/methodos/",
   );
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /methodos/);
-  await expect(page.getByRole("link", { name: "Read the docs ↗" })).toHaveAttribute(
-    "href",
-    /github.com\/sachncs\/methodos/,
-  );
+  await expect(page.getByRole("link", { name: "Read the docs ↗" })).toHaveAttribute("href", "/methodos/docs/");
   await page.getByRole("link", { name: "See how it works ↓" }).click();
   await expect(page.locator("#loop")).toBeInViewport();
   await expect(page.getByRole("heading", { name: "Useful in the hot path. Improving off the hot path." })).toBeVisible();
@@ -34,6 +31,25 @@ test("navigation and accessibility landmarks remain available on mobile", async 
     "#architecture",
   );
   await expect(page.locator('a[href="#start"]')).toHaveAttribute("href", "#start");
+  await expect(page.locator("header").getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/methodos/docs/");
+});
+
+test("standalone documentation routes are crawlable", async ({ page }) => {
+  const routes = [
+    ["docs/", "Documentation — methodos"],
+    ["docs/getting-started/", "Getting started — methodos"],
+    ["docs/api/", "API guide — methodos"],
+    ["docs/production/", "Production guide — methodos"],
+    ["docs/engineering/", "Engineering guide — methodos"],
+    ["docs/evaluation/", "Evaluation guide — methodos"],
+  ] as const;
+
+  for (const [route, title] of routes) {
+    const response = await page.goto(route);
+    expect(response?.status()).toBe(200);
+    await expect(page).toHaveTitle(title);
+    await expect(page.getByRole("main")).toBeVisible();
+  }
 });
 
 test("product page stays within the accessibility budget", async ({ page }) => {
@@ -51,6 +67,7 @@ test("branded not-found route and crawl metadata are available", async ({ page }
     "href",
     "/methodos/",
   );
+  await expect(page.getByRole("link", { name: /Read the docs/ })).toHaveAttribute("href", "/methodos/docs/");
   const robots = await page.request.get("/robots.txt");
   const sitemap = await page.request.get("/sitemap.xml");
   expect(robots.status()).toBe(200);

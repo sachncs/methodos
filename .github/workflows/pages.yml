@@ -27,13 +27,22 @@ jobs:
         run: |
           forbidden="$({
             find . -path './.git' -prune -o \
-              -path './site/node_modules' -prune -o \
-              -path './site/dist' -prune -o \
+              -path './node_modules' -prune -o \
+              -path './dist' -prune -o \
               -type f \( \
                 -name '_config.yml' -o \
                 -name '_config.yaml' -o \
                 -name 'Gemfile' -o \
                 -name 'Gemfile.lock' \
+              \) -print
+            find . -path './.git' -prune -o \
+              -path './node_modules' -prune -o \
+              -path './dist' -prune -o \
+              -type d \( \
+                -name '_posts' -o \
+                -name '_layouts' -o \
+                -name '_includes' -o \
+                -name '_sass' \
               \) -print
           } | sort)"
           if [ -n "$forbidden" ]; then

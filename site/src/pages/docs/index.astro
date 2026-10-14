@@ -1,0 +1,33 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+const cards = [
+  ["01", "Start here", "Install the package, build a first procedural graph, and put guidance beside an existing agent.", "getting-started/"],
+  ["02", "API guide", "Learn the domain models, adapter lifecycle, persistence protocols, and hosted REST surface.", "api/"],
+  ["03", "Production", "Deploy safely with authentication, durable storage, quotas, observability, backups, and rollback.", "production/"],
+  ["04", "Engineering", "Understand boundaries, structural polymorphism, naming, testing, and failure behavior.", "engineering/"],
+  ["05", "Evaluation", "Measure whether procedural memory improves an agent and extend the benchmark harness.", "evaluation/"],
+];
+---
+<DocsLayout title="Documentation" description="Build, operate, and extend methodos: typed procedural memory for LLM agents.">
+  <div class="doc-shell">
+    <section class="doc-hero">
+      <p class="eyebrow">methodos / docs</p>
+      <h1>Give your agent<br /><span>a way forward.</span></h1>
+      <p class="lede">Methodos turns execution feedback into an inspectable graph of better next steps. These docs are the product path: start small, understand the core, then deploy with explicit reliability boundaries.</p>
+    </section>
+    <section class="doc-grid" aria-label="Documentation sections">
+      {cards.map(([number, title, text, path]) => <a class="doc-card" href={`${base}docs/${path}`}><b>{number}</b><h2>{title}</h2><p>{text}</p><small>Read guide ↗</small></a>)}
+    </section>
+    <section class="doc-hero" style="padding-top: 100px;">
+      <p class="eyebrow">The mental model</p>
+      <h2>One graph.<br /><span>Two loops.</span></h2>
+      <p class="lede">The online loop locates and injects concise guidance while an offline loop evaluates trajectories and proposes validated graph edits. They share contracts, not execution state.</p>
+    </section>
+    <div class="doc-grid">
+      <div class="doc-card"><b>ONLINE</b><h2>Locate → guide</h2><p>Match an action, extract a local neighborhood, cache guidance, and hand the context to the host solver.</p></div>
+      <div class="doc-card"><b>OFFLINE</b><h2>Score → refine</h2><p>Run tasks, propose edits, reject regressions, and persist only improvements that satisfy graph invariants.</p></div>
+      <div class="doc-card"><b>BOUNDARY</b><h2>Host-owned work</h2><p>Schedulers, identity, provider credentials, and promotion policy stay explicit at the deployment boundary.</p></div>
+    </div>
+  </div>
+</DocsLayout>

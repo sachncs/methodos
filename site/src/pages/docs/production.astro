@@ -1,0 +1,35 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+---
+<DocsLayout title="Production guide" description="Deploy methodos with explicit authentication, durable state, quotas, observability, and recovery.">
+  <div class="doc-shell">
+    <div class="content-grid">
+      <nav class="toc" aria-label="On this page"><a href={`${base}docs/`}>← Docs home</a><a href="#secure">Secure startup</a><a href="#scale">Scale</a><a href="#observe">Observe</a><a href="#recover">Recover</a></nav>
+      <article>
+        <p class="eyebrow">production boundary</p>
+        <h1>Make failure<br /><span>legible.</span></h1>
+        <p class="lede">Methodos fails closed where it can, exposes the signals operators need, and leaves deployment ownership explicit where the host must make a decision.</p>
+        <h2 id="secure">Secure startup</h2>
+        <p>Set <code>METHODOS_ENV=production</code> or <code>staging</code>. Those modes reject missing authentication, weak credentials, and filesystem persistence. Use explicit role mappings for every API key.</p>
+        <pre><code>METHODOS_ENV=production
+METHODOS_API_KEYS='replace-with-a-long-key'
+METHODOS_API_KEY_ROLES='replace-with-a-long-key=reader'
+PGRAPH_BACKEND=postgres
+PGRAPH_POSTGRES_DSN='postgresql://...'</code></pre>
+        <p>Keep the API behind an authenticated TLS reverse proxy. Bind Compose ports to loopback unless the surrounding network path is intentionally authenticated.</p>
+        <h2 id="scale">Scale deliberately</h2>
+        <p>Use SQLite for one service process group with a persistent volume. Use Postgres for replicas, shared rate limits, durable jobs, tenant isolation, token budgets, and circuit-breaker state. Run the evolution worker as a separately supervised process with an injected executor.</p>
+        <div class="note">Schedulers, identity providers, key rotation, graph promotion, and human approval are host-owned policies. Configure and record them before calling a deployment production-ready.</div>
+        <h2 id="observe">Observe</h2>
+        <p>Scrape <code>/metrics</code>, send structured logs to your aggregator, and export OpenTelemetry spans if distributed tracing is required. Track request errors/latency, readiness, queue depth, worker liveness, provider failures, and backup age.</p>
+        <p><span class="pill">SLOs</span><span class="pill">Prometheus</span><span class="pill">OTel</span><span class="pill">Grafana</span><span class="pill">request IDs</span></p>
+        <h2 id="recover">Recover and release</h2>
+        <p>Schedule atomic SQLite backups and verify them before restore. Use managed Postgres backups and perform separate-destination restore drills. Release images are SBOMed, scanned, attested, signed by digest, and bound to a source revision by a release manifest.</p>
+        <pre><code>methodos backup /secure/backups/methodos-$(date +%Y%m%d%H%M%S).db
+methodos verify-backup /secure/backups/methodos-20261014090000.db
+methodos restore-backup backup.db recovery.db</code></pre>
+      </article>
+    </div>
+  </div>
+</DocsLayout>

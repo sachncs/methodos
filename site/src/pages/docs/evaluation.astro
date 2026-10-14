@@ -1,0 +1,27 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+---
+<DocsLayout title="Evaluation guide" description="Measure procedural memory and extend the methodos evaluation harness.">
+  <div class="doc-shell">
+    <div class="content-grid">
+      <nav class="toc" aria-label="On this page"><a href={`${base}docs/`}>← Docs home</a><a href="#question">Question</a><a href="#harness">Harness</a><a href="#extend">Extend</a><a href="#interpret">Interpret</a></nav>
+      <article>
+        <p class="eyebrow">measure the method</p>
+        <h1>Does memory<br /><span>make it better?</span></h1>
+        <p class="lede">Evaluate with paired runs: the same tasks with procedural guidance and without it. Keep the solver, model, task set, and scoring policy fixed so the graph is the variable you can inspect.</p>
+        <h2 id="question">Start with a falsifiable question</h2>
+        <p>Define the task distribution, success metric, cost budget, and acceptable variance before running the experiment. Record graph revision, model, prompt configuration, and seed with every result.</p>
+        <h2 id="harness">Run HotpotQA</h2>
+        <pre><code>pip install "methodos[eval]"
+methodos eval hotpotqa --graph-id my-graph --n 200 --model gpt-4o-mini</code></pre>
+        <p>The included harness compares with-procedural-graph and without-procedural-graph conditions and writes enough metadata to reproduce the run. Live provider tests are opt-in because they incur cost and depend on external availability.</p>
+        <h2 id="extend">Add a benchmark</h2>
+        <ol><li>Create a task loader returning stable query/answer records.</li><li>Implement a solver adapter using the public <code>Solver</code> protocol.</li><li>Run paired conditions against the same model and seed.</li><li>Persist scores, trajectories, graph revision, and configuration.</li><li>Add a CLI command and tests for the loader and scoring path.</li></ol>
+        <h2 id="interpret">Interpret results</h2>
+        <p>Report mean and distribution, not only a winning aggregate. Examine regressions, rejected edits, token cost, latency, and failure categories. A graph that improves one benchmark while degrading another needs a narrower scope or a revised validation policy.</p>
+        <div class="note">Evaluation is evidence, not a promotion policy. Keep human approval and signed graph promotion at the deployment boundary.</div>
+      </article>
+    </div>
+  </div>
+</DocsLayout>

@@ -16,7 +16,10 @@ const server = createServer(async (request, response) => {
   const relativePath = requestPath.startsWith("/methodos/")
     ? requestPath.slice("/methodos/".length)
     : requestPath.replace(/^\/+/, "");
-  const candidate = normalize(join(root, relativePath || "index.html"));
+  let candidate = normalize(join(root, relativePath || "index.html"));
+  if (existsSync(candidate) && statSync(candidate).isDirectory()) {
+    candidate = join(candidate, "index.html");
+  }
   if (
     (candidate !== root && !candidate.startsWith(`${root}/`)) ||
     !existsSync(candidate) ||

@@ -24,6 +24,19 @@ npm run build
 
 The production build is emitted to `site/dist/`.
 
+## Public routes
+
+The site keeps product education on standalone web pages; it does not send
+readers to repository Markdown files:
+
+- `/methodos/` — product overview
+- `/methodos/docs/` — documentation hub
+- `/methodos/docs/getting-started/` — first integration
+- `/methodos/docs/api/` — contracts and endpoints
+- `/methodos/docs/production/` — deployment and operations
+- `/methodos/docs/engineering/` — architecture and contribution guidance
+- `/methodos/docs/evaluation/` — evaluation workflow
+
 ## Browser smoke tests
 
 After building, run the responsive Chromium checks locally:

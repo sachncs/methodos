@@ -1,0 +1,39 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const base = import.meta.env.BASE_URL;
+---
+<DocsLayout title="API guide" description="The methodos Python contracts and hosted REST API at a glance.">
+  <div class="doc-shell">
+    <div class="content-grid">
+      <nav class="toc" aria-label="On this page"><a href={`${base}docs/`}>← Docs home</a><a href="#contracts">Contracts</a><a href="#persistence">Persistence</a><a href="#rest">REST</a><a href="#errors">Errors</a></nav>
+      <article>
+        <p class="eyebrow">typed surface</p>
+        <h1>Small contracts.<br /><span>Clear seams.</span></h1>
+        <p class="lede">The public API is organized around validated data models and replaceable protocols. Choose the implementation that fits your host without changing the domain flow.</p>
+        <h2 id="contracts">Core contracts</h2>
+        <p><span class="pill">ProceduralGraph</span><span class="pill">AgentState</span><span class="pill">Solver</span><span class="pill">LLMClient</span><span class="pill">Repository</span><span class="pill">EvolutionRunner</span></p>
+        <p><code>ProceduralGraph</code> owns graph data and invariants. <code>Solver</code> and <code>LLMClient</code> are structural protocols, so tests and hosts can provide their own implementations. <code>Repository</code> separates durable state from graph operations.</p>
+        <h3>Adapter lifecycle</h3>
+        <ol><li>Match the last action to a graph node.</li><li>Extract the bounded neighborhood and trajectory window.</li><li>Resolve cached guidance through the injected LLM contract.</li><li>Pass an updated <code>AgentState</code> to the host solver.</li></ol>
+        <h2 id="persistence">Persistence choices</h2>
+        <p><span class="pill">SQLite</span><span class="pill">Postgres</span><span class="pill">Filesystem (development)</span><span class="pill">sqlite-vec (optional)</span></p>
+        <p>SQLite provides WAL-backed local durability and atomic compare-and-swap. Postgres provides pooled transactions and the shared state needed for horizontal service replicas. Filesystem persistence is intentionally development-only.</p>
+        <h2 id="rest">REST endpoints</h2>
+        <pre><code is:raw>GET  /health
+GET  /ready
+GET  /metrics
+GET  /v1/graphs/{id}
+POST /v1/graphs
+PUT  /v1/graphs/{id}                 If-Match: revision
+POST /v1/graphs/{id}/guidance
+POST /v1/graphs/{id}/evolve           Idempotency-Key: key
+GET  /v1/evolution/jobs/{job_id}
+POST /v1/graphs/{id}/snapshot/{tag}   operator role
+POST /v1/graphs/{id}/rollback/{tag}   operator role</code></pre>
+        <h2 id="errors">Errors and concurrency</h2>
+        <p>Errors use a stable envelope with a code and request ID. Graph writes require an <code>If-Match</code> revision token and return a conflict instead of silently overwriting a newer revision. Request bodies, identifiers, retries, and provider output are bounded.</p>
+        <div class="note">Health is liveness. Readiness verifies configured persistence and dependencies. Keep them separate in your load balancer and orchestrator.</div>
+      </article>
+    </div>
+  </div>
+</DocsLayout>
