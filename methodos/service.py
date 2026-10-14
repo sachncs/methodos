@@ -13,8 +13,10 @@ Engineering notes:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import math
 import os
 import re
 import secrets
@@ -368,8 +370,22 @@ def _optional_nonnegative_float(name: str) -> float | None:
         value = float(raw)
     except ValueError as exc:
         raise ValueError(f"{name} must be a non-negative number") from exc
-    if value < 0:
+    if not math.isfinite(value) or value < 0:
         raise ValueError(f"{name} must be a non-negative number")
+    return value
+
+
+def _positive_float(name: str, default: float) -> float:
+    """Parse a finite positive decimal environment setting."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive number")
     return value
 
 
@@ -555,6 +571,7 @@ def create_app(
     max_body_bytes = int(os.environ.get("METHODOS_MAX_BODY_BYTES", str(1024 * 1024)))
     if max_body_bytes <= 0:
         raise ValueError("METHODOS_MAX_BODY_BYTES must be positive")
+    body_read_timeout = _positive_float("METHODOS_BODY_READ_TIMEOUT_SECONDS", 10.0)
     request_windows: defaultdict[str, deque[float]] = defaultdict(deque)
     shared_rate_limiter = backend_repo if isinstance(backend_repo, RateLimitRepository) else None
 
@@ -710,7 +727,20 @@ def create_app(
                 return harden_response(oversized_response, request_id)
         body = bytearray()
         while True:
-            message = await original_receive()
+            try:
+                message = await asyncio.wait_for(original_receive(), body_read_timeout)
+            except TimeoutError:
+                timeout_response: Response = JSONResponse(
+                    status_code=408,
+                    content=error_payload(
+                        request,
+                        "request body read timed out",
+                        "request_timeout",
+                    ),
+                )
+                HTTP_REQUESTS.labels(request.method, "408").inc()
+                HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
+                return harden_response(timeout_response, request_id)
             if message["type"] == "http.disconnect":
                 request._receive = original_receive
                 disconnected_response: Response = JSONResponse(

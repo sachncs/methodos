@@ -133,6 +133,9 @@ system production-ready.
 - CI executes the production Compose import path with empty credentials and
   requires the expected startup failure, then verifies that a strong key with
   an explicit role mapping starts successfully.
+- HTTP body reads now have a finite, configurable per-chunk timeout and return
+  a stable `408 request_timeout` response for slow clients; reverse-proxy
+  timeout and disconnect propagation remain deployment-specific.
 
 ## Open issues
 
@@ -160,9 +163,10 @@ system production-ready.
    need operational review when domains change.
 6. The LLM client now enforces its timeout at the application boundary and
    preserves task cancellation, covered by a direct cancellation test. The
-   service stops parsing an upload after `http.disconnect` and returns a
-   bounded `499` client-disconnected envelope in ASGI tests; reverse-proxy
-   disconnect propagation remains deployment-specific.
+   service stops parsing an upload after `http.disconnect`, bounds each body
+   read with `METHODOS_BODY_READ_TIMEOUT_SECONDS`, and returns bounded `499`
+   or `408` envelopes in ASGI tests; reverse-proxy disconnect propagation and
+   timeout policy remain deployment-specific.
 7. Error responses use a documented envelope with stable codes and request IDs.
    The service rejects oversized declared and streamed request bodies with a
    bounded `413` response; reverse-proxy limits remain an additional perimeter

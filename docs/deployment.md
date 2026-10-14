@@ -42,6 +42,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres and SQLite use shared windows, filesystem remains per-process; `0` disables it |
 | `METHODOS_MAX_BODY_BYTES` | `1048576` | maximum streamed HTTP request body size; oversized requests return `413` |
+| `METHODOS_BODY_READ_TIMEOUT_SECONDS` | `10` | maximum wait for each request-body chunk; slow clients receive `408` |
 | `METHODOS_TOKEN_BUDGET_TOTAL` | — | optional cumulative LLM token ceiling per `tenant:graph` scope; must be paired with input ceiling |
 | `METHODOS_TOKEN_BUDGET_INPUT` | — | optional per-request estimated input-token ceiling per `tenant:graph` scope; must be paired with total ceiling |
 | `METHODOS_TOKEN_BUDGET_COST_USD` | — | optional cumulative estimated USD ceiling; must be paired with both per-1K token prices |
