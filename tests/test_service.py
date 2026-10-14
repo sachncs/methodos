@@ -9,6 +9,7 @@ from typing import cast
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 from starlette.types import Message, Receive, Scope, Send
@@ -39,6 +40,9 @@ from methodos.service import (
     parse_api_key_roles,
     validate_api_key_roles,
     validate_cors_origins,
+    validate_graph_id,
+    validate_idempotency_key,
+    validate_tenant_id,
 )
 from tests.conftest import ScriptedLLM
 
@@ -139,6 +143,26 @@ class TestHealth:
         }
         with pytest.raises(ValueError, match="invalid key or role"):
             parse_api_key_roles("read=unknown")
+        with pytest.raises(ValueError, match="key=role"):
+            parse_api_key_roles("malformed")
+        with pytest.raises(ValueError, match="duplicate"):
+            parse_api_key_roles("read=reader,read=writer")
+
+    @pytest.mark.parametrize("value", ["", "bad/id", "a" * 129])
+    def test_rejects_invalid_graph_ids(self, value: str) -> None:
+        with pytest.raises(HTTPException, match="invalid graph_id"):
+            validate_graph_id(value)
+
+    @pytest.mark.parametrize("value", ["", "bad tenant", "a" * 65])
+    def test_rejects_invalid_tenant_ids(self, value: str) -> None:
+        with pytest.raises(ValueError, match="tenant identifier"):
+            validate_tenant_id(value)
+
+    @pytest.mark.parametrize("value", ["", "contains spaces", "a" * 129])
+    def test_rejects_invalid_idempotency_keys(self, value: str) -> None:
+        with pytest.raises(HTTPException, match="invalid Idempotency-Key"):
+            validate_idempotency_key(value)
+        assert validate_idempotency_key(None) is None
 
     def test_rejects_roles_for_unconfigured_keys(self) -> None:
         with pytest.raises(ValueError, match="not configured"):
@@ -473,6 +497,26 @@ class TestConcurrentHttpResilience:
     def test_invalid_cors_origin_fails_fast(self) -> None:
         with pytest.raises(ValueError, match="invalid CORS origin"):
             validate_cors_origins(["https://console.example/path"], authenticated=False)
+
+    @pytest.mark.parametrize("authenticated", [True, False])
+    def test_wildcard_cors_origin_fails_fast(self, authenticated: bool) -> None:
+        with pytest.raises(ValueError, match=r"wildcard|explicit origin"):
+            validate_cors_origins(["*"], authenticated=authenticated)
+
+    def test_readiness_returns_503_on_repository_failure(self) -> None:
+        class BrokenRepository:
+            async def load_graph(self, graph_id: str) -> ProceduralGraph:
+                del graph_id
+                raise RuntimeError("storage unavailable")
+
+        app = create_app(
+            repo=cast(Repository, BrokenRepository()),
+            llm=ScriptedLLM(responses=["x"]),
+        )
+        with TestClient(app) as broken_client:
+            response = broken_client.get("/ready")
+        assert response.status_code == 503
+        assert response.json()["code"] == "unavailable"
 
     def test_tenant_keys_isolate_graph_namespaces(
         self,
