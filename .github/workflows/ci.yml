@@ -77,6 +77,22 @@ jobs:
       - name: Build runtime container
         run: docker build --tag methodos:ci --file docker/Dockerfile .
 
+      - name: Verify runtime image fails closed without credentials
+        run: |
+          set +e
+          docker run --rm --entrypoint python methodos:ci \
+            -c 'import methodos.service' \
+            >"${RUNNER_TEMP}/methodos-image-startup.log" 2>&1
+          status=$?
+          set -e
+          cat "${RUNNER_TEMP}/methodos-image-startup.log"
+          if [ "$status" -eq 0 ]; then
+            echo "runtime image unexpectedly started without credentials" >&2
+            exit 1
+          fi
+          grep -Eq "METHODOS_ENV=production|METHODOS_API_KEYS|METHODOS_TENANT_KEYS" \
+            "${RUNNER_TEMP}/methodos-image-startup.log"
+
       - name: Run container health and load smoke test
         run: |
           docker run --detach --name methodos-ci --publish 8000:8000 \
