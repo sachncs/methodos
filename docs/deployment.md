@@ -40,6 +40,7 @@ pip install methodos[dev]         # pytest, ruff, mypy, hypothesis for developme
 | `METHODOS_TENANT_KEYS` | — | optional comma-separated `tenant:key` pairs; enables tenant isolation |
 | `METHODOS_TENANT_ID` | `default` | single-tenant identity when tenant keys are not configured |
 | `METHODOS_RATE_LIMIT_PER_MINUTE` | `0` | request limit; Postgres and SQLite use shared windows, filesystem remains per-process; `0` disables it |
+| `METHODOS_MAX_BODY_BYTES` | `1048576` | maximum declared HTTP request body size; oversized requests return `413` |
 
 ## CLI
 

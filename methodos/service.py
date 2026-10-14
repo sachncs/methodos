@@ -371,6 +371,9 @@ def create_app(
     configured_rate_limit = int(os.environ.get("METHODOS_RATE_LIMIT_PER_MINUTE", "0"))
     if configured_rate_limit < 0:
         raise ValueError("METHODOS_RATE_LIMIT_PER_MINUTE must be non-negative")
+    max_body_bytes = int(os.environ.get("METHODOS_MAX_BODY_BYTES", str(1024 * 1024)))
+    if max_body_bytes <= 0:
+        raise ValueError("METHODOS_MAX_BODY_BYTES must be positive")
     request_windows: defaultdict[str, deque[float]] = defaultdict(deque)
     shared_rate_limiter = (
         backend_repo if isinstance(backend_repo, RateLimitRepository) else None
@@ -421,6 +424,7 @@ def create_app(
             422: "invalid_request",
             428: "precondition_required",
             429: "rate_limited",
+            413: "request_too_large",
             501: "not_implemented",
             503: "unavailable",
         }.get(exc.status_code, "request_failed")
@@ -482,6 +486,23 @@ def create_app(
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
         started_at = time.perf_counter()
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared_length = int(content_length)
+            except ValueError:
+                declared_length = -1
+            if declared_length < 0 or declared_length > max_body_bytes:
+                oversized_response: Response = JSONResponse(
+                    status_code=413,
+                    content=error_payload(request, "request body is too large", "request_too_large"),
+                )
+                HTTP_REQUESTS.labels(request.method, "413").inc()
+                HTTP_LATENCY.labels(request.method).observe(time.perf_counter() - started_at)
+                oversized_response.headers["x-request-id"] = request_id
+                oversized_response.headers["x-content-type-options"] = "nosniff"
+                oversized_response.headers["x-frame-options"] = "DENY"
+                return oversized_response
         public_path = request.url.path in {
             "/health",
             "/ready",

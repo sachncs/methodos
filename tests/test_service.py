@@ -104,6 +104,22 @@ class TestHealth:
         assert "python_info" in response.text
         assert "methodos_http_requests_total" in response.text
 
+    def test_rejects_oversized_declared_body(
+        self,
+        seeded_repo: SQLiteRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("METHODOS_MAX_BODY_BYTES", "10")
+        app = create_app(repo=seeded_repo, llm=ScriptedLLM(responses=["x"]))
+        with TestClient(app) as size_client:
+            response = size_client.post(
+                "/v1/graphs",
+                headers={"content-length": "11"},
+                json={"id": "g2"},
+            )
+        assert response.status_code == 413
+        assert response.json()["code"] == "request_too_large"
+
     def test_metrics_include_store_backed_evolution_queue(
         self,
         seeded_repo: SQLiteRepository,

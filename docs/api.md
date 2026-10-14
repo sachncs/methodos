@@ -22,6 +22,10 @@ correlation identifier:
 failures use a list in `detail`; internal errors never expose exception
 messages or storage paths.
 
+Requests whose declared body exceeds `METHODOS_MAX_BODY_BYTES` return `413`
+with code `request_too_large`. Deployments should also enforce an equivalent
+limit at the reverse proxy for chunked or streamed request bodies.
+
 Graphs expose a non-negative `revision`. `PUT /v1/graphs/{graph_id}` uses
 an integer `If-Match` header as a compare-and-swap token and returns `409`
 when another writer has committed a newer revision. Clients should reload
