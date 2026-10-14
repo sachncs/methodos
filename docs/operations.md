@@ -27,6 +27,41 @@ backlog and worker-heartbeat signals. Enable the evolution alerts only for
 deployments that run a worker; the REST service alone intentionally does not
 claim to execute queued jobs.
 
+## Recovery objectives and drill contract
+
+Every deployment must record these values before accepting production traffic:
+
+| Backend | RPO target | RTO target | Required recovery source |
+|---|---|---|---|
+| SQLite | backup interval plus the last successful backup age | volume restore plus service readiness | verified `methodos backup` artifact |
+| Postgres | provider WAL/backup policy | provider recovery or replica promotion | provider-verified dump/restore or failover drill |
+
+The targets are deployment commitments, not guarantees supplied by the
+library. Record the owner, backup location, retention period, last successful
+drill timestamp, measured restore duration, and recovered revision alongside
+the release record. A drill is successful only when it proves all of the
+following:
+
+1. The source artifact is integrity-checked before it is used.
+2. Recovery is performed into a separate destination or disposable database;
+   the live database is never overwritten during the test.
+3. A known canary graph and its latest expected revision can be loaded after
+   recovery.
+4. The service reaches `/ready` against the recovered store.
+5. The measured RPO/RTO is within the deployment's recorded targets.
+
+For SQLite, use the repository drill and record its output:
+
+```bash
+uv run python scripts/sqlite_restore_drill.py "$PGRAPH_HOME/methodos.db" \
+  --graph-id "$METHODOS_CANARY_GRAPH_ID"
+```
+
+For managed Postgres, use the provider's disposable restore or replica
+promotion workflow, then run the same canary/readiness checks against the
+recovered DSN. Do not mark a provider backup as production-ready solely from
+its dashboard status; retain the drill evidence with the release.
+
 ## Incident response
 
 1. Check `/health`, `/ready`, `/metrics`, container logs, and the active

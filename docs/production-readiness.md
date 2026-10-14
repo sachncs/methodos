@@ -155,9 +155,10 @@ system production-ready.
     no schema version 2 migration is currently needed or defined.
 11. Filesystem trajectory appends are not a multi-process journal and should
     remain development-only.
-12. SQLite backup creation and verification are available; scheduling,
-    retention policy, managed-Postgres restore drills, and a full disaster-
-    recovery runbook remain open.
+12. SQLite backup creation and verification are available, and the recovery
+    runbook now defines RPO/RTO evidence, separate-destination restore drills,
+    canary verification, and readiness checks. Scheduling, retention policy,
+    and managed-Postgres drill execution remain deployment responsibilities.
 13. Filesystem JSON graph/trajectory corruption now raises a stable error and
     preserves the bad record under `corrupt/`; SQLite corruption is classified
     and now supports a non-overwriting `restore-backup` workflow that verifies
@@ -253,11 +254,11 @@ system production-ready.
 
 - Done: forward-only migrations, revision-safe CAS, SQLite backup creation,
   verification and non-overwriting restore, snapshot restore, filesystem
-  corruption quarantine, and
-  SQLite/Postgres integration paths.
+  corruption quarantine, SQLite/Postgres integration paths, and a versioned
+  RPO/RTO and restore-drill contract.
 - Remaining: expand cross-process contention tests, run scheduled SQLite
-  restore drills, document retention/RPO/RTO, and validate managed-Postgres
-  restore procedures.
+  restore drills, configure retention, and execute managed-Postgres restore
+  procedures.
 
 ### Phase 4 — dependable intelligence
 
