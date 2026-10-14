@@ -4,6 +4,7 @@ Minimal implementation: calls an LLM to produce a thought/action/answer
 sequence. The host wires the actual search backend via the `search`
 callback. methodos guidance is injected through `state.context`.
 """
+
 from __future__ import annotations
 
 import logging

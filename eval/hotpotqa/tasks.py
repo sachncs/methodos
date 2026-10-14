@@ -1,4 +1,5 @@
 """HotpotQA task loading and download."""
+
 from __future__ import annotations
 
 import json

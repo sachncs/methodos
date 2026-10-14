@@ -1,4 +1,5 @@
 """HotpotQA evaluation runner: paired with-PG vs without-PG comparison."""
+
 from __future__ import annotations
 
 import argparse
@@ -105,11 +106,13 @@ async def run_one(
         if adapter is not None:
             action = await adapter.step(query=question, trajectory=trajectory)
         else:
-            action = await solver.step(AgentState(
-                query=question,
-                trajectory=tuple(trajectory),
-                context="",
-            ))
+            action = await solver.step(
+                AgentState(
+                    query=question,
+                    trajectory=tuple(trajectory),
+                    context="",
+                )
+            )
         if "ANSWER:" in action.upper():
             predicted = action.split(":", 1)[1].strip() if ":" in action else action
             break
@@ -165,9 +168,7 @@ async def run_eval(
     def solver_factory() -> HotpotQASolver:
         return HotpotQASolver(llm=llm, search=search, max_steps=4)
 
-    def adapter_factory(
-        solver: HotpotQASolver, g: ProceduralGraph | None
-    ) -> PGAdapter | None:
+    def adapter_factory(solver: HotpotQASolver, g: ProceduralGraph | None) -> PGAdapter | None:
         if g is None:
             return None
         return PGAdapter(solver=solver, graph=g, llm=llm)
@@ -176,22 +177,26 @@ async def run_eval(
     without_results: list[EvalResult] = []
 
     for task in tasks:
-        with_results.append(await run_one(
-            question=task.question,
-            task_id=task.id,
-            expected=task.answer,
-            solver_factory=solver_factory,
-            adapter_factory=adapter_factory,
-            graph=graph,
-        ))
-        without_results.append(await run_one(
-            question=task.question,
-            task_id=task.id,
-            expected=task.answer,
-            solver_factory=solver_factory,
-            adapter_factory=adapter_factory,
-            graph=None,
-        ))
+        with_results.append(
+            await run_one(
+                question=task.question,
+                task_id=task.id,
+                expected=task.answer,
+                solver_factory=solver_factory,
+                adapter_factory=adapter_factory,
+                graph=graph,
+            )
+        )
+        without_results.append(
+            await run_one(
+                question=task.question,
+                task_id=task.id,
+                expected=task.answer,
+                solver_factory=solver_factory,
+                adapter_factory=adapter_factory,
+                graph=None,
+            )
+        )
 
     with_agg = aggregate(with_results)
     without_agg = aggregate(without_results)
@@ -213,12 +218,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--model", default="gpt-4o-mini")
     args = parser.parse_args()
-    asyncio.run(run_eval(
-        graph_id=args.graph_id,
-        n=args.n,
-        seed=args.seed,
-        model=args.model,
-    ))
+    asyncio.run(
+        run_eval(
+            graph_id=args.graph_id,
+            n=args.n,
+            seed=args.seed,
+            model=args.model,
+        )
+    )
 
 
 if __name__ == "__main__":

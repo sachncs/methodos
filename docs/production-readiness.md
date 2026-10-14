@@ -13,6 +13,9 @@ system production-ready.
 - Product page, responsive layout, graph visual, and logo were redesigned.
 - Python tests, Ruff, mypy, Astro checks, npm audit, browser smoke tests, and
   Docker builds run in local verification and CI.
+- Evaluation harnesses and public examples are included in the Ruff, formatting,
+  and mypy gates; their Protocol implementations are checked against the same
+  public interfaces as the core package.
 - API trajectory pairs, graph IDs, storage components, and request payloads
   have explicit validation.
 - Duplicate graph creation uses an atomic repository capability where
@@ -265,7 +268,7 @@ system production-ready.
 - Done: Astro migration, GitHub Pages deployment, responsive product redesign,
   logo, browser smoke tests, axe-core checks, visual snapshots, SBOM,
   vulnerability scanning, coverage, Google-style linting, enforced formatting,
-  typing, and container gates.
+  typing across package/evaluation/example code, and container gates.
 - Remaining: add broader multi-page visual coverage if the site grows beyond
   the current product page; require branch protection and review ownership in
   repository settings.

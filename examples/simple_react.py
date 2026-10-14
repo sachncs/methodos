@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
+from pydantic import BaseModel
+
 from methodos.adapter import AgentState, PGAdapter, Solver
 from methodos.llm import LiteLLMClient
 from methodos.schema import (
@@ -110,8 +112,9 @@ class LiveDemoLLM:
         *,
         system: str,
         user: str,
-        json_schema: type | None = None,
+        json_schema: type[BaseModel] | None = None,
         temperature: float = 0.0,
+        budget_scope: str | None = None,
     ) -> str:
         """Delegate to the underlying LiteLLMClient.complete()."""
         return await self.client.complete(
@@ -119,6 +122,7 @@ class LiveDemoLLM:
             user=user,
             json_schema=json_schema,
             temperature=temperature,
+            budget_scope=budget_scope,
         )
 
 
