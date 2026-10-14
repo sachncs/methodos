@@ -57,6 +57,10 @@ system production-ready.
   preventing silent least-privilege configuration drift.
 - The core CLI no longer imports optional benchmark dependencies until the
   `eval` command is invoked.
+- The development/test environment installs Starlette's recommended `httpx2`
+  transport for `TestClient`, removing the deprecated `httpx` fallback; one
+  AnyIO warning remains in Starlette's internals and is tracked for upstream
+  compatibility updates.
 - SQLite has an online, atomic, integrity-checked backup capability exposed
   through `methodos backup`, plus `methodos verify-backup` for recovery
   validation; scheduling, retention, and restore drills remain operational
