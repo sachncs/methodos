@@ -101,6 +101,20 @@ class TestSQLiteEvolutionJobStore:
         assert completed is not None
         assert completed.status == "succeeded"
 
+    async def test_concurrent_claimers_never_claim_the_same_job(
+        self,
+        store: SQLiteEvolutionJobStore,
+    ) -> None:
+        jobs = [
+            await store.create_or_get(graph_id=f"graph-{index}", k_rounds=1, idempotency_key=None)
+            for index in range(8)
+        ]
+        claimed = await asyncio.gather(
+            *(store.claim_next(lease_seconds=30) for _ in range(len(jobs)))
+        )
+        claimed_ids = {job.job_id for job in claimed if job is not None}
+        assert claimed_ids == {job.job_id for job in jobs}
+
     async def test_worker_records_failure_and_cancellation(
         self,
         store: SQLiteEvolutionJobStore,

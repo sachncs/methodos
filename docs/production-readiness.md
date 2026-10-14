@@ -151,8 +151,8 @@ system production-ready.
     dashboards, paging ownership, retention, and error-budget policy remain
     deployment responsibilities.
 23. Concurrent SQLite reader/CAS-writer and Postgres transactional tests now
-    cover basic contention; load, soak, chaos, file-corruption, and broader
-    cancellation tests remain open.
+    cover basic contention and concurrent job claiming; load, soak, chaos,
+    file-corruption, and broader cancellation tests remain open.
 24. CI scans the Docker image; tagged releases now publish, attest, and
     keylessly sign the immutable GHCR image digest. Registry retention and
     independent signature verification remain operational controls.
