@@ -79,7 +79,10 @@ jobs:
 
       - name: Run container health and load smoke test
         run: |
-          docker run --detach --name methodos-ci --publish 8000:8000 methodos:ci
+          docker run --detach --name methodos-ci --publish 8000:8000 \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            methodos:ci
           cleanup() {
             docker logs methodos-ci || true
             docker rm --force methodos-ci || true

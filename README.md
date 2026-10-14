@@ -192,7 +192,9 @@ docker compose -f docker/compose.yml up methodos
 ## Engineering standards
 
 - **Google Python Style** — `snake_case`, `PascalCase`, `UPPER_SNAKE_CASE`
-- **No semi-private naming** — every name is genuinely public
+- **Semiprivate naming** — public APIs are explicit; implementation-only state
+  uses one leading underscore, while double underscores are reserved for
+  language protocols and name-mangling cases
 - **No lazy imports** — top-of-file absolute imports
 - **Highest polymorphism** — `typing.Protocol` everywhere, no ABCs
 - **Minimal abstraction** — Pydantic models for data; classes only for stateful behavior

@@ -80,6 +80,9 @@ docker compose -f docker/compose.yml up methodos
       scaled deployments; filesystem mode rejects this configuration.
 - [ ] Mount a persistent volume at `/data` for `PGRAPH_HOME` (the SQLite
       database lives here).
+- [ ] Preserve the Compose runtime hardening: non-root user, read-only root
+      filesystem, writable `/data` volume only, dropped Linux capabilities,
+      `no-new-privileges`, and a constrained `/tmp` tmpfs.
 - [ ] For multiple service replicas, install `methodos[postgres]`, set
       `PGRAPH_BACKEND=postgres` and `PGRAPH_POSTGRES_DSN`, and run the database
       with managed backups, TLS, pooling limits, and migration review.
