@@ -86,13 +86,14 @@ system production-ready.
   idempotency-key reuse conflicts to a stable HTTP 409 response. Durable
   SQLite/Postgres runners now bind jobs and idempotency keys to tenants and
   hide status from other tenants; configurable active-job quotas reject work
-  atomically with HTTP 429 before a tenant can overload the queue. External
+  atomically with HTTP 429 before a tenant or graph can overload the queue. External
   runners must implement the same capability before tenant mode accepts them.
 - SQLite now uses an atomic WAL-backed rate-limit window shared by all local
   service processes; filesystem deployments remain process-local by design.
 - `SQLiteTokenBudget` and the optional `PostgresTokenBudget` provide injectable,
   atomic durable token budgets for local and horizontally scaled deployments;
-  provider-specific cost pricing and graph-level token quotas remain open.
+  provider-specific cost pricing and token-cost quotas remain open; durable
+  active-job quotas can be configured per tenant and per graph.
 - `SQLiteCircuitBreaker` and the optional `PostgresCircuitBreaker` provide
   shared async breaker state with an atomic half-open probe lease; gateway
   policy and provider-specific breaker tuning remain deployment concerns.
@@ -109,7 +110,7 @@ system production-ready.
    alert-threshold tuning remain open;
    starter queue and worker alerts are now versioned.
 2. Distributed rate limiting and durable active-job quotas are implemented for
-   Postgres and SQLite backends; token/graph quotas and shared limiting for
+   Postgres and SQLite backends; token-cost quotas and shared limiting for
    filesystem deployments remain open.
 3. Tenant-key authentication, server-derived tenant identity, and optional
    reader/writer/operator API-key roles now exist; external identity-provider

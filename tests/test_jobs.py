@@ -101,24 +101,36 @@ class TestSQLiteEvolutionJobStore:
             k_rounds=1,
             idempotency_key=None,
             tenant_id="alpha",
-            max_active_jobs=1,
+            max_active_jobs=2,
+            max_active_jobs_per_graph=1,
         )
         with pytest.raises(JobQuotaExceededError):
             await store.create_or_get(
-                graph_id="graph-2",
+                graph_id="graph-1",
                 k_rounds=1,
                 idempotency_key=None,
                 tenant_id="alpha",
-                max_active_jobs=1,
+                max_active_jobs=2,
+                max_active_jobs_per_graph=1,
             )
+        third = await store.create_or_get(
+            graph_id="graph-2",
+            k_rounds=1,
+            idempotency_key=None,
+            tenant_id="alpha",
+            max_active_jobs=2,
+            max_active_jobs_per_graph=1,
+        )
         second = await store.create_or_get(
             graph_id="graph-2",
             k_rounds=1,
             idempotency_key=None,
             tenant_id="beta",
             max_active_jobs=1,
+            max_active_jobs_per_graph=1,
         )
         assert first.tenant_id == "alpha"
+        assert third.tenant_id == "alpha"
         assert second.tenant_id == "beta"
 
     async def test_invalid_inputs_and_missing_update_fail(
@@ -127,6 +139,20 @@ class TestSQLiteEvolutionJobStore:
     ) -> None:
         with pytest.raises(ValueError):
             await store.create_or_get(graph_id="", k_rounds=1, idempotency_key=None)
+        with pytest.raises(ValueError):
+            await store.create_or_get(
+                graph_id="graph-1",
+                k_rounds=1,
+                idempotency_key=None,
+                max_active_jobs=0,
+            )
+        with pytest.raises(ValueError):
+            await store.create_or_get(
+                graph_id="graph-1",
+                k_rounds=1,
+                idempotency_key=None,
+                max_active_jobs_per_graph=0,
+            )
         with pytest.raises(ValueError):
             await store.update("missing", status="unknown")
         with pytest.raises(JobNotFoundError):
@@ -327,6 +353,10 @@ class TestSQLiteEvolutionJobStore:
             await store.claim_next(lease_seconds=0)
         with pytest.raises(ValueError):
             await store.recover_expired(max_attempts=0)
+        with pytest.raises(ValueError):
+            StoreBackedEvolutionRunner(store, max_active_jobs=0)
+        with pytest.raises(ValueError):
+            StoreBackedEvolutionRunner(store, max_active_jobs_per_graph=0)
 
     async def test_store_backed_runner_round_trip(self, store: SQLiteEvolutionJobStore) -> None:
         runner = StoreBackedEvolutionRunner(store)
