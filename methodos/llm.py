@@ -203,6 +203,14 @@ class ScopedTokenBudget:
             )
         return budget.reserve(system=system, user=user, output_tokens=output_tokens)
 
+    async def close(self) -> None:
+        """Close any scoped budget stores that own async resources."""
+        for budget in self._budgets.values():
+            close = getattr(budget, "close", None)
+            if close is not None:
+                await close()
+        self._budgets.clear()
+
 
 class SQLiteTokenBudget(TokenBudget):
     """SQLite-backed cumulative token budget shared across local workers.
@@ -804,6 +812,13 @@ class LiteLLMClient:
         self.max_output_tokens = max_output_tokens
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self.budget = budget
+
+    async def close(self) -> None:
+        """Close an injected budget store when it owns async resources."""
+        if self.budget is not None:
+            close = getattr(self.budget, "close", None)
+            if close is not None:
+                await close()
 
     async def complete(
         self,

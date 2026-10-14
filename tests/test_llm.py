@@ -193,6 +193,27 @@ def test_scoped_token_budget_supports_durable_async_budgets(tmp_path: Path) -> N
     )
 
 
+async def test_scoped_budget_and_llm_client_close_owned_resources() -> None:
+    class ClosableBudget:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def reserve_async(self, *, system: str, user: str, output_tokens: int) -> int:
+            del system, user, output_tokens
+            return 1
+
+        async def close(self) -> None:
+            self.closed = True
+
+    owned = ClosableBudget()
+    scoped = ScopedTokenBudget(lambda _scope: owned)
+    await scoped.reserve_scoped_async(scope="tenant:graph", system="s", user="u", output_tokens=1)
+    client = LiteLLMClient(model="test-model", budget=scoped)
+    await client.close()
+    assert owned.closed
+    assert not scoped._budgets
+
+
 async def test_litellm_client_requires_scope_for_scoped_budget() -> None:
     client = LiteLLMClient(
         model="test-model",

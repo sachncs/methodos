@@ -451,12 +451,15 @@ def create_app(
         app.state.llm = backend_llm
         initialize = getattr(backend_repo, "initialize", None)
         close = getattr(backend_repo, "close", None)
+        close_llm = getattr(backend_llm, "close", None)
         if initialize is not None:
             await initialize()
         logger.info("methodos service started")
         try:
             yield
         finally:
+            if close_llm is not None:
+                await close_llm()
             if close is not None:
                 await close()
             logger.info("methodos service stopped")
