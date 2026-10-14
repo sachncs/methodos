@@ -33,7 +33,14 @@ from methodos.adapter import PGAdapter, Solver
 from methodos.graph import apply_edits
 from methodos.graph import validate as graph_validate
 from methodos.llm import LLMClient
-from methodos.repo import EvolutionAuditRepository, EvolutionEvent, Repository, Task, Trajectory
+from methodos.repo import (
+    EvolutionAuditRepository,
+    EvolutionEvent,
+    Repository,
+    Task,
+    Trajectory,
+    VersionedRepository,
+)
 from methodos.schema import (
     Edit,
     EditAddEdge,
@@ -455,6 +462,11 @@ class EvolutionEngine:
                     current_score,
                 )
 
+        if isinstance(self.repo, VersionedRepository):
+            return await self.repo.save_graph_if_revision(
+                current,
+                expected_revision=graph.revision,
+            )
         await self.repo.save_graph(current)
         return current
 

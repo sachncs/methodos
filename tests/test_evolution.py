@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -28,7 +29,7 @@ from methodos.evolution import (
     validate_candidate,
 )
 from methodos.llm import LLMClient
-from methodos.repo import Task, Trajectory
+from methodos.repo import SQLiteRepository, Task, Trajectory
 from methodos.schema import (
     Attribute,
     Edge,
@@ -738,6 +739,27 @@ class TestEvolutionEngineRun:
         assert loaded.id == result.id
         assert len(repo.evolution_events) == 1
         assert repo.evolution_events[0].outcome == "accepted"
+
+    async def test_persists_versioned_graph_with_compare_and_swap(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        repo = SQLiteRepository(db_path=tmp_path / "evolution.db")
+        graph = make_sample_graph()
+        await repo.save_graph(graph)
+        engine = EvolutionEngine(
+            llm=ScriptedRoundLLM(lambda i, _: "[]"),
+            repo=repo,
+            train_tasks=[],
+            val_tasks=[],
+            solver=StaticSolver(action="FINISH"),
+            k_rounds=1,
+        )
+
+        result = await engine.run(graph)
+
+        assert result.revision == 1
+        assert (await repo.load_graph(graph.id)).revision == 1
 
     async def test_persists_rejected_score_event(self) -> None:
         class ScoreRejectingEngine(EvolutionEngine):

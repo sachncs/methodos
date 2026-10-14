@@ -38,6 +38,9 @@ system production-ready.
   `docs/engineering.md`.
 - API errors use a stable envelope with error codes and request IDs.
 - Graph updates use optimistic concurrency via revision tokens and `If-Match`.
+- Evolution finalization uses repository compare-and-swap when the configured
+  backend supports it, preventing a stale worker from overwriting a newer
+  graph revision.
 - CI generates an SBOM, scans the container, retains the SBOM artifact, and
   runs desktop/mobile browser smoke tests.
 - A low-cardinality Grafana service dashboard is versioned with the Prometheus
