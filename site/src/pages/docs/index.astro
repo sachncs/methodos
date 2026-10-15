@@ -1,33 +1,54 @@
 ---
 import DocsLayout from "../../layouts/DocsLayout.astro";
 const base = import.meta.env.BASE_URL;
-const cards = [
-  ["01", "Start here", "Install the package, build a first procedural graph, and put guidance beside an existing agent.", "getting-started/"],
-  ["02", "API guide", "Learn the domain models, adapter lifecycle, persistence protocols, and hosted REST surface.", "api/"],
-  ["03", "Production", "Deploy safely with authentication, durable storage, quotas, observability, backups, and rollback.", "production/"],
-  ["04", "Engineering", "Understand boundaries, structural polymorphism, naming, testing, and failure behavior.", "engineering/"],
-  ["05", "Evaluation", "Measure whether procedural memory improves an agent and extend the benchmark harness.", "evaluation/"],
-];
 ---
-<DocsLayout title="Documentation" description="Build, operate, and extend methodos: typed procedural memory for LLM agents.">
+<DocsLayout title="Documentation" description="Install, integrate, operate, and evaluate methodos.">
   <div class="doc-shell">
     <section class="doc-hero">
-      <p class="eyebrow">methodos / docs</p>
-      <h1>Give your agent<br /><span>a way forward.</span></h1>
-      <p class="lede">Methodos turns execution feedback into an inspectable graph of better next steps. These docs are the product path: start small, understand the core, then deploy with explicit reliability boundaries.</p>
+      <p class="eyebrow">methodos documentation</p>
+      <h1>Build with<br /><span>procedural memory.</span></h1>
+      <p class="lede">Methodos is a typed Python library and optional HTTP service for storing, retrieving, and evaluating reusable agent procedures.</p>
     </section>
-    <section class="doc-grid" aria-label="Documentation sections">
-      {cards.map(([number, title, text, path]) => <a class="doc-card" href={`${base}docs/${path}`}><b>{number}</b><h2>{title}</h2><p>{text}</p><small>Read guide ↗</small></a>)}
+    <section class="quickstart" aria-labelledby="quickstart-title">
+      <div>
+        <p class="eyebrow">quick start</p>
+        <h2 id="quickstart-title">Install it, then explore the graph.</h2>
+        <p>Start locally with SQLite. Add Postgres only when the service needs shared durable state across replicas.</p>
+        <a class="button" href={`${base}docs/getting-started/`}>Open the getting-started guide <span aria-hidden="true">→</span></a>
+      </div>
+      <pre><code>pip install methodos
+methodos init
+uvicorn methodos.service:app --reload</code></pre>
     </section>
-    <section class="doc-hero" style="padding-top: 100px;">
-      <p class="eyebrow">The mental model</p>
-      <h2>One graph.<br /><span>Two loops.</span></h2>
-      <p class="lede">The online loop locates and injects concise guidance while an offline loop evaluates trajectories and proposes validated graph edits. They share contracts, not execution state.</p>
+    <section class="path-section" aria-labelledby="path-title">
+      <div class="section-heading"><p class="eyebrow">use the docs</p><h2 id="path-title">Choose a path.</h2></div>
+      <div class="path-list">
+        <a href={`${base}docs/getting-started/`}><b>01</b><span><strong>Getting started</strong><small>Install the package, create a graph, add the adapter, and run the local service.</small></span><i aria-hidden="true">→</i></a>
+        <a href={`${base}docs/api/`}><b>02</b><span><strong>API guide</strong><small>Understand the models, protocols, persistence choices, REST endpoints, and concurrency rules.</small></span><i aria-hidden="true">→</i></a>
+        <a href={`${base}docs/production/`}><b>03</b><span><strong>Production</strong><small>Configure credentials, durable storage, quotas, health checks, observability, backups, and rollback.</small></span><i aria-hidden="true">→</i></a>
+        <a href={`${base}docs/engineering/`}><b>04</b><span><strong>Engineering</strong><small>Review module boundaries, Protocol-based substitution, naming, testing, and failure behavior.</small></span><i aria-hidden="true">→</i></a>
+        <a href={`${base}docs/evaluation/`}><b>05</b><span><strong>Evaluation</strong><small>Run the in-repository harness and measure whether procedural memory improves an agent.</small></span><i aria-hidden="true">→</i></a>
+      </div>
     </section>
-    <div class="doc-grid">
-      <div class="doc-card"><b>ONLINE</b><h2>Locate → guide</h2><p>Match an action, extract a local neighborhood, cache guidance, and hand the context to the host solver.</p></div>
-      <div class="doc-card"><b>OFFLINE</b><h2>Score → refine</h2><p>Run tasks, propose edits, reject regressions, and persist only improvements that satisfy graph invariants.</p></div>
-      <div class="doc-card"><b>BOUNDARY</b><h2>Host-owned work</h2><p>Schedulers, identity, provider credentials, and promotion policy stay explicit at the deployment boundary.</p></div>
-    </div>
+    <section class="reference" aria-labelledby="reference-title">
+      <p class="eyebrow">reference</p><h2 id="reference-title">The public surface.</h2>
+      <div class="reference-grid">
+        <div><code>ProceduralGraph</code><p>Validated nodes, edges, attributes, and graph invariants.</p></div>
+        <div><code>AgentState</code><p>Bounded context passed between the host solver and adapter.</p></div>
+        <div><code>Solver</code> / <code>LLMClient</code><p>Structural async protocols that keep providers replaceable.</p></div>
+        <div><code>Repository</code><p>Persistence seam for SQLite, Postgres, and test doubles.</p></div>
+      </div>
+    </section>
   </div>
 </DocsLayout>
+<style>
+  .quickstart { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin: 8px 0 100px; padding: 30px; border: 1px solid #d7d6ce; background: #ecebe5; }
+  .quickstart h2, .path-section h2, .reference h2 { margin: 12px 0; font-size: clamp(30px, 4vw, 48px); line-height: 1; letter-spacing: -.065em; }
+  .quickstart p { max-width: 480px; color: #555850; line-height: 1.65; }.quickstart pre { align-self: center; margin: 0; }
+  .button { display: inline-flex; gap: 12px; margin-top: 12px; padding: 12px 15px; border-radius: 5px; background: #171817; color: #fff; font-size: 13px; }.button:hover { background: #3e4d19; }
+  .path-section { display: grid; grid-template-columns: 260px 1fr; gap: 70px; margin-bottom: 100px; }.section-heading h2 { margin-top: 18px; }
+  .path-list { border-top: 1px solid #d7d6ce; }.path-list a { display: grid; grid-template-columns: 42px 1fr 20px; gap: 18px; align-items: start; padding: 22px 0; border-bottom: 1px solid #d7d6ce; }.path-list a:hover strong, .path-list a:hover i { color: #657d16; }
+  .path-list b { color: #657d16; font: 12px ui-monospace, monospace; }.path-list strong { display: block; margin-bottom: 6px; font-size: 18px; letter-spacing: -.03em; }.path-list small { display: block; color: #65675f; line-height: 1.55; }.path-list i { color: #85877e; font-style: normal; }
+  .reference { padding-top: 70px; border-top: 1px solid #d7d6ce; }.reference-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 36px; background: #d7d6ce; }.reference-grid div { min-height: 150px; padding: 22px; background: #f5f4ef; }.reference-grid code { color: #3f4f11; font: 13px ui-monospace, monospace; }.reference-grid p { color: #65675f; font-size: 13px; line-height: 1.55; }
+  @media (max-width: 780px) { .quickstart, .path-section { grid-template-columns: 1fr; gap: 28px; margin-bottom: 70px; }.reference-grid { grid-template-columns: 1fr 1fr; } } @media (max-width: 480px) { .reference-grid { grid-template-columns: 1fr; } }
+</style>
