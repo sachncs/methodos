@@ -23,10 +23,9 @@ const repo = "https://github.com/sachncs/methodos";
     <link rel="icon" href={`${base}favicon.svg`} />
   </head>
   <body>
-    <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="site-header">
       <a class="brand" href={base} aria-label="methodos home">
-        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17 11 7l8 6" /><circle cx="5" cy="17" r="2" /><circle cx="11" cy="7" r="2" /><circle cx="19" cy="13" r="2" /></svg></span>
         <span>methodos</span>
       </a>
       <nav aria-label="Primary navigation">
@@ -40,7 +39,7 @@ const repo = "https://github.com/sachncs/methodos";
       <slot />
     </main>
     <footer class="site-footer">
-      <a class="brand" href={base}><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>methodos</a>
+      <a class="brand" href={base}><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17 11 7l8 6" /><circle cx="5" cy="17" r="2" /><circle cx="11" cy="7" r="2" /><circle cx="19" cy="13" r="2" /></svg></span>methodos</a>
       <span>Procedural memory for agents that need to get better.</span>
       <a href={repo}>Source on GitHub <span aria-hidden="true">↗</span></a>
     </footer>
@@ -53,13 +52,12 @@ const repo = "https://github.com/sachncs/methodos";
   a { color: inherit; text-decoration: none; }
   ::selection { background: #c9f25f; }
   :focus-visible { outline: 3px solid #8fbf4f; outline-offset: 4px; }
-  .skip-link { position: absolute; left: 16px; top: -60px; padding: 10px 14px; border-radius: 6px; background: #171817; color: #fff; z-index: 10; }
-  .skip-link:focus { top: 16px; }
   .site-header { height: 80px; padding: 0 max(24px, calc((100vw - 1160px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #deddd5; font-size: 13px; }
   .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.04em; white-space: nowrap; }
-  .mark { display: flex; align-items: end; gap: 3px; width: 21px; height: 21px; padding: 4px; background: #171817; border-radius: 7px; }
-  .mark i { width: 5px; background: #c9f25f; border-radius: 5px; }
-  .mark i:nth-child(1) { height: 6px; }.mark i:nth-child(2) { height: 11px; }.mark i:nth-child(3) { height: 15px; }
+  .mark { display: grid; place-items: center; width: 23px; height: 23px; padding: 4px; background: #171817; border-radius: 8px; }
+  .mark svg { width: 100%; height: 100%; overflow: visible; }
+  .mark path { fill: none; stroke: #c9f25f; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+  .mark circle { fill: #c9f25f; }
   nav { display: flex; gap: 24px; color: #5f6059; }
   nav a:hover, .source-link:hover, .site-footer a:hover { color: #657d16; }
   .source-link { color: #5f6059; white-space: nowrap; }
