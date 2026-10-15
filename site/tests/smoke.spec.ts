@@ -12,6 +12,7 @@ test("product page exposes the primary journey", async ({ page }) => {
   );
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /methodos/);
   await expect(page.getByRole("link", { name: "Read the docs ↗" })).toHaveAttribute("href", "/methodos/docs/");
+  await expect(page.locator('a[href*="/methodosdocs/"]')).toHaveCount(0);
   await page.getByRole("link", { name: "See how it works ↓" }).click();
   await expect(page.locator("#loop")).toBeInViewport();
   await expect(page.getByRole("heading", { name: "Useful in the hot path. Improving off the hot path." })).toBeVisible();
@@ -32,6 +33,7 @@ test("navigation and accessibility landmarks remain available on mobile", async 
   );
   await expect(page.locator('a[href="#start"]')).toHaveAttribute("href", "#start");
   await expect(page.locator("header").getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/methodos/docs/");
+  await expect(page.locator('a[href*="/methodosdocs/"]')).toHaveCount(0);
 });
 
 test("standalone documentation routes are crawlable", async ({ page }) => {
