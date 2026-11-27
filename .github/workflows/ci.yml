@@ -203,7 +203,7 @@ jobs:
           uv run python scripts/sqlite_restore_drill.py "$drill_database" --graph-id ci-canary
 
       - name: Generate container SBOM
-        uses: anchore/sbom-action@v0.24.3
+        uses: anchore/sbom-action@v0.24.4
         with:
           image: methodos:ci
           artifact-name: methodos-sbom.spdx.json
